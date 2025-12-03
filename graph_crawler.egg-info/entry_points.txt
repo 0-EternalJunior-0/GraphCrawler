@@ -1,2 +1,0 @@
-[console_scripts]
-graph-crawler = graph_crawler.cli:main
