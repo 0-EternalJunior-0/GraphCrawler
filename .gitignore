@@ -84,4 +84,12 @@ agenthub/agents/youtube/db
 .cache/
 
 # Mobile development
-android-sdk/ 
+android-sdk/
+
+
+.idea/
+.vscode/
+.benchmarks/
+.tests/
+pytest.ini
+.graph_crawler.egg-info/
