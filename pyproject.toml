@@ -1,0 +1,194 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-crawler"
+version = "3.2.0"
+description = "Sync-First бібліотека для побудови графу веб-сайтів - просто як requests!"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "0-EternalJunior-0"}
+]
+maintainers = [
+    {name = "0-EternalJunior-0"}
+]
+keywords = ["web", "crawler", "scraper", "graph", "spider", "scrapy", "vectorization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "lxml_html_clean",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "python-dateutil>=2.8.2",
+    "aiohttp>=3.9.0",
+    "aiofiles>=23.2.0",
+    "aiosqlite>=0.19.0",
+]
+
+[project.optional-dependencies]
+# Drivers
+playwright = ["playwright>=1.40.0"]
+
+# Storage backends
+mongodb = ["motor>=3.3.0"]
+postgresql = ["asyncpg>=0.29.0"]
+
+# Plugins: vectorization
+embeddings = [
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+]
+
+# Plugins: content extractors
+newspaper = ["newspaper3k>=0.2.8"]
+goose = ["goose3>=3.1.0"]
+readability = ["readability-lxml>=0.8.0"]
+articles = [
+    "newspaper3k>=0.2.8",
+    "goose3>=3.1.0",
+    "readability-lxml>=0.8.0",
+]
+
+# Visualization
+viz = [
+    "pyvis>=0.3.0",
+    "networkx>=3.0",
+    "plotly>=5.18.0",
+]
+
+# Distributed (Celery)
+celery = [
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+]
+
+# Development
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+# All optional
+all = [
+    "playwright>=1.40.0",
+    "motor>=3.3.0",
+    "asyncpg>=0.29.0",
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    "newspaper3k>=0.2.8",
+    "goose3>=3.1.0",
+    "readability-lxml>=0.8.0",
+    "pyvis>=0.3.0",
+    "networkx>=3.0",
+    "plotly>=5.18.0",
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://gitlab.com/demoprogrammer/web_graf"
+Documentation = "https://gitlab.com/demoprogrammer/web_graf/-/blob/main/README.md"
+Repository = "https://gitlab.com/demoprogrammer/web_graf"
+"Bug Tracker" = "https://gitlab.com/demoprogrammer/web_graf/-/issues"
+
+[project.scripts]
+graph-crawler = "graph_crawler.cli:main"
+
+[tool.setuptools]
+packages = ["graph_crawler"]
+
+[tool.setuptools.package-data]
+graph_crawler = ["py.typed"]
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# Ruff configuration
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=graph_crawler --cov-report=html --cov-report=term-missing"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["graph_crawler"]
+omit = ["*/tests/*", "*/examples/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
