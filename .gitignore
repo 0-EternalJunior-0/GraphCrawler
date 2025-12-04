@@ -1,5 +1,6 @@
 # IDE and editors
 .idea/
+.venv/
 .vscode/
 
 
@@ -83,6 +84,7 @@ agenthub/agents/youtube/db
 # Build caches
 .cache/
 .examples/
+./examples
 
 # Mobile development
 android-sdk/
@@ -91,6 +93,12 @@ android-sdk/
 .idea/
 .vscode/
 .benchmarks/
-.tests/
+./benchmarks
+
+./tests
+benchmarks/
+tests/
+examples/
+graph_crawler.egg-info
 pytest.ini
 .graph_crawler.egg-info/
