@@ -1,0 +1,234 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-crawler"
+version = "4.0.4"
+description = "Sync-First бібліотека для побудови графу веб-сайтів - просто як requests!"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "0-EternalJunior-0"}
+]
+maintainers = [
+    {name = "0-EternalJunior-0"}
+]
+keywords = ["web", "crawler", "scraper", "graph", "spider", "scrapy", "vectorization", "free-threading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    # HTTP клієнти
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    # HTML парсери
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "lxml_html_clean",
+    "selectolax>=0.3.0",
+    # Валідація та конфіги
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    # Утиліти
+    "orjson>=3.9.0",
+    "fake-useragent",
+    # Storage
+    "aiofiles>=23.2.0",
+    "aiosqlite>=0.19.0",
+    # URL filtering (Bloom filter)
+    "pybloom-live",
+    # REST API
+    "fastapi",
+]
+
+[project.optional-dependencies]
+# Native Cython extensions (для швидкості)
+native = [
+    "cython>=3.0.0",
+    "mmh3>=4.0.0",
+]
+
+# Drivers
+playwright = ["playwright>=1.40.0"]
+
+# Storage backends
+mongodb = ["motor>=3.3.0"]
+postgresql = ["asyncpg>=0.29.0"]
+
+# Plugins: vectorization
+embeddings = [
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+]
+
+# Plugins: content extractors
+newspaper = ["newspaper3k>=0.2.8"]
+goose = ["goose3>=3.1.0"]
+readability = ["readability-lxml>=0.8.0"]
+articles = [
+    "newspaper3k>=0.2.8",
+    "goose3>=3.1.0",
+    "readability-lxml>=0.8.0",
+]
+
+# Visualization
+viz = [
+    "pyvis>=0.3.0",
+    "networkx>=3.6",
+]
+
+# Distributed (Celery)
+celery = [
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+]
+
+# ML Smart Plugins
+ml = [
+    "g4f>=0.3.0",
+    "scikit-learn>=1.0.0",
+]
+
+# Performance (aiodns, uvloop)
+performance = [
+    "aiodns>=3.1.0",
+    "uvloop>=0.19.0; platform_system != 'Windows'",
+]
+
+# Development
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+# All optional (без native - потребує компіляції)
+all = [
+    # Drivers
+    "playwright>=1.40.0",
+    # Storage
+    "motor>=3.3.0",
+    "asyncpg>=0.29.0",
+    # Embeddings
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    # Content extractors
+    "newspaper3k>=0.2.8",
+    "goose3>=3.1.0",
+    "readability-lxml>=0.8.0",
+    # Visualization
+    "pyvis>=0.3.0",
+    "networkx>=3.6",
+    # Distributed
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    # ML
+    "g4f>=0.3.0",
+    "scikit-learn>=1.0.0",
+    # Performance
+    "aiodns>=3.1.0",
+    "uvloop>=0.19.0; platform_system != 'Windows'",
+]
+
+[project.urls]
+Homepage = "https://github.com/0-EternalJunior-0/GraphCrawler"
+Documentation = "https://github.com/0-EternalJunior-0/GraphCrawler/-/blob/main/README.md"
+Repository = "https://github.com/0-EternalJunior-0/GraphCrawler"
+"Bug Tracker" = "https://github.com/0-EternalJunior-0/GraphCrawler/-/issues"
+
+[project.scripts]
+graph-crawler = "graph_crawler.api.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["graph_crawler*"]
+
+[tool.setuptools.package-data]
+graph_crawler = ["py.typed"]
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# Ruff configuration
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=graph_crawler --cov-report=html --cov-report=term-missing"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["graph_crawler"]
+omit = ["*/tests/*", "*/examples/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

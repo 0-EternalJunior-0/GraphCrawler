@@ -1,0 +1,1 @@
+"""Module: infrastructure/persistence/sqlite"""

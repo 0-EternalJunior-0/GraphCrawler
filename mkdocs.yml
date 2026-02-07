@@ -1,0 +1,114 @@
+site_name: GraphCrawler Documentation
+site_description: "🕸️🐍 GraphCrawler: Open-Source Graph-Based Web Crawler & Scraper"
+site_url: https://0-EternalJunior-0.github.io/GraphCrawler/
+repo_url: https://github.com/0-EternalJunior-0/GraphCrawler
+repo_name: 0-EternalJunior-0/GraphCrawler
+
+theme:
+  name: material
+  language: uk
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Темна тема
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Світла тема
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      lang:
+        - uk
+        - en
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - Examples: getting-started/examples.md
+  - Core Concepts:
+    - Simple Crawling: core/simple-crawling.md
+    - Deep Crawling: core/deep-crawling.md
+    - URL Rules: core/url-rules.md
+    - Graph Operations: core/graph-operations.md
+    - Cache Modes: core/cache-modes.md
+  - Data Extraction:
+    - Plugin System: extraction/plugins.md
+    - Structured Data: extraction/structured-data.md
+    - Custom Extractors: extraction/custom-extractors.md
+  - Advanced:
+    - Distributed Crawling: advanced/distributed-crawling.md
+    - Proxy & Security: advanced/proxy-security.md
+    - Hooks & Auth: advanced/hooks-auth.md
+    - Session Management: advanced/session-management.md
+  - API Reference: api/API.md
+  - Architecture:
+    - Overview: architecture/ARCHITECTURE_OVERVIEW.md
+    - Layer Specification: architecture/LAYER_SPECIFICATION.md
+    - Component Catalog: architecture/COMPONENT_CATALOG.md
+    - Communication Channels: architecture/COMMUNICATION_CHANNELS.md
+    - Factory & Lifecycle: architecture/FACTORY_LIFECYCLE.md
+    - Extension Points: architecture/EXTENSION_POINTS.md
+    - Plugin System: architecture/PLUGIN_SYSTEM.md
+    - Structured Data Plugin: architecture/STRUCTURED_DATA_PLUGIN.md
+  - Changelog: changelog.md
+  - Index: INDEX.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/0-EternalJunior-0/GraphCrawler
+  generator: false
+  version:
+    provider: mike
+
+copyright: Copyright &copy; 2025-2026 GraphCrawler Team

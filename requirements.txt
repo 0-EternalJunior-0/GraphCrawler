@@ -1,0 +1,40 @@
+# GraphCrawler Core Dependencies
+# ================================
+# Мінімальні залежності для базової роботи бібліотеки.
+#
+# Extras (опціональні):
+#   pip install graph-crawler[native]      # Cython прискорення (+mmh3)
+#   pip install graph-crawler[playwright]  # Browser automation
+#   pip install graph-crawler[viz]         # Візуалізація графів
+#   pip install graph-crawler[celery]      # Розподілений краулінг
+#   pip install graph-crawler[embeddings]  # Векторизація контенту
+#   pip install graph-crawler[performance] # aiodns + uvloop
+#   pip install graph-crawler[all]         # Все (крім native)
+
+# === HTTP клієнти ===
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# === HTML парсери ===
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+lxml_html_clean
+selectolax>=0.3.0
+
+# === Валідація та конфіги ===
+pydantic>=2.5.0
+pydantic-settings>=2.0.0
+
+# === Утиліти ===
+orjson>=3.9.0
+fake-useragent
+
+# === Storage ===
+aiofiles>=23.2.0
+aiosqlite>=0.19.0
+
+# === URL filtering (Bloom filter) ===
+pybloom-live
+
+# === REST API ===
+fastapi
