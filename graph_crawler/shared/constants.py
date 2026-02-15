@@ -192,6 +192,15 @@ MAX_KEYWORDS_LENGTH = 500
 MAX_H1_LENGTH = 500
 """Максимальна довжина H1."""
 
+MAX_CANONICAL_URL_LENGTH = 2000
+"""Максимальна довжина canonical URL."""
+
+MAX_ROBOTS_CONTENT_LENGTH = 200
+"""Максимальна довжина robots meta content."""
+
+MAX_HREFLANG_ENTRIES = 50
+"""Максимальна кількість hreflang записів."""
+
 # ==================== GRAPH OPERATIONS ====================
 
 MAX_BFS_ITERATIONS = 100000
@@ -390,6 +399,23 @@ DEFAULT_HASH_ENCODING = "utf-8"
 
 SHA256_HASH_PATTERN = r"^[a-f0-9]{64}$"
 """Регулярний вираз для валідації SHA256 хешу."""
+
+# ==================== SIMHASH (Locality-Sensitive Hash) ====================
+
+SIMHASH_BITS = 64
+"""Кількість бітів для SimHash (64 біти = 16 hex символів)."""
+
+SIMHASH_HEX_LENGTH = 16
+"""Довжина SimHash в hex форматі (64 біти = 16 hex символів)."""
+
+SIMHASH_PATTERN = r"^[a-f0-9]{16}$"
+"""Регулярний вираз для валідації SimHash (16 hex символів)."""
+
+DEFAULT_SIMHASH_NGRAM_SIZE = 3
+"""Дефолтний розмір n-gram для SimHash токенізації."""
+
+DEFAULT_SIMHASH_HASH_FUNC = "md5"
+"""Дефолтна хеш-функція для SimHash feature hashing (md5 швидший за sha256)."""
 
 # ==================== PLAYWRIGHT BROWSER ====================
 

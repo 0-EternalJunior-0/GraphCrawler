@@ -11,8 +11,13 @@ Strategies:
 3. Delay Strategy - очікування перед повторною спробою
 4. Alternative Endpoints - пошук API endpoints без CAPTCHA
 5. Rotating Strategies - спроба різних підходів по черзі
+
+ОПТИМІЗОВАНО:
+- Додано async версії методів для неблокуючого виконання
+- Використовується asyncio.sleep() замість time.sleep() в async контексті
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -24,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+import aiohttp
 import requests
 
 logger = logging.getLogger(__name__)
@@ -426,6 +432,9 @@ class CaptchaBypassManager:
         Спроба обходу через очікування (delay with exponential backoff).
 
         Іноді CAPTCHA автоматично зникає після очікування.
+        
+        WARNING: Ця sync версія блокує event loop. Для async контексту 
+        використовуйте try_delay_strategy_async().
 
         Args:
             url: URL для запиту
@@ -445,7 +454,7 @@ class CaptchaBypassManager:
             f"⏰ Спроба обходу через Delay Strategy: {url} (delay={delay:.1f}s, attempt={retry_count + 1})"
         )
 
-        # Очікування
+        # Очікування (sync - блокуюче)
         time.sleep(delay)
 
         # Спроба запиту після затримки
@@ -496,6 +505,97 @@ class CaptchaBypassManager:
                 error_message=str(e),
                 metadata={"delay_seconds": delay, "retry_count": retry_count},
             )
+
+    async def try_delay_strategy_async(
+        self, url: str, retry_count: int = 0, **request_kwargs
+    ) -> BypassAttempt:
+        """
+        Async версія спроби обходу через очікування (delay with exponential backoff).
+
+        Використовує asyncio.sleep() для неблокуючого очікування.
+        Рекомендовано для async контексту.
+
+        Args:
+            url: URL для запиту
+            retry_count: Номер поточної спроби (для backoff)
+            **request_kwargs: Додаткові параметри для aiohttp
+
+        Returns:
+            BypassAttempt з результатом
+        """
+        # Розрахувати затримку (exponential backoff)
+        delay = min(
+            self.default_delay * (self.delay_multiplier**retry_count), self.max_delay
+        )
+        delay = max(delay, self.min_delay)
+
+        logger.info(
+            f"⏰ Async спроба обходу через Delay Strategy: {url} (delay={delay:.1f}s, attempt={retry_count + 1})"
+        )
+
+        # Неблокуюче очікування
+        await asyncio.sleep(delay)
+
+        # Спроба запиту після затримки
+        start_time = time.time()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=30, **request_kwargs) as response:
+                    response_time = time.time() - start_time
+                    response_text = await response.text()
+
+                    # Перевірка чи є CAPTCHA в response
+                    has_captcha = self._detect_captcha_in_text(response_text)
+
+                    if not has_captcha and response.status == 200:
+                        logger.info(f"Delay Strategy успішно після {delay:.1f}s очікування")
+                        return BypassAttempt(
+                            strategy=BypassStrategy.DELAY_STRATEGY,
+                            result=BypassResult.SUCCESS,
+                            response_status=response.status,
+                            response_time=response_time,
+                            metadata={"delay_seconds": delay, "retry_count": retry_count},
+                        )
+                    else:
+                        logger.warning(
+                            f" CAPTCHA все ще присутня після {delay:.1f}s очікування"
+                        )
+
+                        # Перевірити чи потрібна повторна спроба
+                        if retry_count < self.max_retry_attempts - 1:
+                            return BypassAttempt(
+                                strategy=BypassStrategy.DELAY_STRATEGY,
+                                result=BypassResult.RETRY_NEEDED,
+                                response_status=response.status,
+                                response_time=response_time,
+                                metadata={"delay_seconds": delay, "retry_count": retry_count},
+                            )
+                        else:
+                            return BypassAttempt(
+                                strategy=BypassStrategy.DELAY_STRATEGY,
+                                result=BypassResult.CAPTCHA_STILL_PRESENT,
+                                response_status=response.status,
+                                response_time=response_time,
+                                metadata={"delay_seconds": delay, "retry_count": retry_count},
+                            )
+
+        except Exception as e:
+            logger.error(f" Помилка Async Delay Strategy: {e}")
+            return BypassAttempt(
+                strategy=BypassStrategy.DELAY_STRATEGY,
+                result=BypassResult.FAILED,
+                error_message=str(e),
+                metadata={"delay_seconds": delay, "retry_count": retry_count},
+            )
+
+    def _detect_captcha_in_text(self, content: str) -> bool:
+        """Простий детектор CAPTCHA в тексті."""
+        content_lower = content.lower()
+        captcha_keywords = [
+            "captcha", "recaptcha", "hcaptcha", "g-recaptcha",
+            "h-captcha", "cf-captcha", "challenge-form",
+        ]
+        return any(keyword in content_lower for keyword in captcha_keywords)
 
     def try_alternative_endpoints(
         self, url: str, alternative_urls: Optional[List[str]] = None, **request_kwargs

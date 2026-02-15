@@ -82,8 +82,19 @@ class Graph:
         self._adjacency_list_out: Dict[str, Set[str]] = defaultdict(set)
         self._adjacency_list_in: Dict[str, Set[str]] = defaultdict(set)
         
-        # Lock для thread-safety при конкурентному доступі
-        self._lock = asyncio.Lock()
+        # FIX CRITICAL-001: Шардований Lock для зменшення contention
+        # Замість одного глобального lock - кілька locks по hash(url)
+        # Це дозволяє паралельний доступ до різних частин графа
+        self._num_shards = 16  # 16 шардів для балансу між contention та overhead
+        self._locks = [asyncio.Lock() for _ in range(self._num_shards)]
+        
+        # Backward compatibility: глобальний lock для операцій що потребують atomic доступ до всього графа
+        self._global_lock = asyncio.Lock()
+        
+        # FIX OPTIMIZATION-001: Кешування LSH індексу для find_similar_nodes/find_duplicates
+        # Інвалідується при додаванні/видаленні нод з simhash
+        self._lsh_index_cache: Optional[Dict[int, Dict[int, List[Node]]]] = None
+        self._lsh_index_node_count: int = 0  # Для детекції змін
 
     @property
     def nodes(self) -> Dict[str, Node]:
@@ -145,6 +156,20 @@ class Graph:
         # Fallback до default_merge_strategy графа
         return self._default_merge_strategy, None
 
+    def _get_shard_index(self, url: str) -> int:
+        """
+        FIX CRITICAL-001: Визначає індекс шарда для URL.
+        
+        Використовує hash для рівномірного розподілу URLs по шардах.
+        
+        Args:
+            url: URL для хешування
+            
+        Returns:
+            Індекс шарда (0 до _num_shards-1)
+        """
+        return hash(url) % self._num_shards
+
     def add_node(self, node: Node, overwrite: bool = False) -> Node:
         """
         Додає вузол до графу (sync версія).
@@ -170,11 +195,19 @@ class Graph:
 
         self._nodes[node.node_id] = node
         self._url_to_node[node.url] = node
+        
+        # FIX OPTIMIZATION-001: Інвалідуємо LSH кеш при додаванні ноди з simhash
+        if node.simhash:
+            self._invalidate_lsh_cache()
+        
         return node
     
     async def add_node_async(self, node: Node, overwrite: bool = False) -> Node:
         """
-        Thread-safe async версія add_node з Lock.
+        FIX CRITICAL-001: Thread-safe async версія add_node з шардованим Lock.
+
+        Використовує шардований lock для зменшення contention при batch mode.
+        URLs розподіляються по шардах через hash(), дозволяючи паралельний доступ.
 
         Args:
             node: Вузол для додавання
@@ -183,7 +216,8 @@ class Graph:
         Returns:
             Доданий або існуючий вузол
         """
-        async with self._lock:
+        shard_idx = self._get_shard_index(node.url)
+        async with self._locks[shard_idx]:
             return self.add_node(node, overwrite)
 
     def get_node_by_url(self, url: str) -> Optional[Node]:
@@ -214,9 +248,11 @@ class Graph:
     
     async def add_edge_async(self, edge: Edge) -> Edge:
         """
-        FIX CRITICAL-004: Thread-safe async версія add_edge з Lock.
+        FIX CRITICAL-001: Thread-safe async версія add_edge з шардованим Lock.
         
-        Використовувати при batch mode та asyncio.gather() для запобігання race conditions.
+        Використовує шардований lock на основі source_node_id для зменшення contention.
+        При batch mode та asyncio.gather() це дозволяє паралельне додавання edges
+        з різних source nodes.
 
         Args:
             edge: Ребро для додавання
@@ -224,7 +260,8 @@ class Graph:
         Returns:
             Додане ребро
         """
-        async with self._lock:
+        shard_idx = self._get_shard_index(edge.source_node_id)
+        async with self._locks[shard_idx]:
             return self.add_edge(edge)
 
     def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
@@ -290,6 +327,10 @@ class Graph:
         if node_id in self._adjacency_list_in:
             del self._adjacency_list_in[node_id]
 
+        # FIX OPTIMIZATION-001: Інвалідуємо LSH кеш при видаленні ноди
+        if node.simhash:
+            self._invalidate_lsh_cache()
+
         logger.debug(f"Node removed: {node.url} (id={node_id})")
         return True
 
@@ -330,7 +371,7 @@ class Graph:
             >>> # Результат: 1 вузол /login з 500 incoming edges
         """
         if not original_node or original_node.node_id not in self._nodes:
-            logger.warning(f"Cannot handle redirect: original_node not in graph")
+            logger.warning("Cannot handle redirect: original_node not in graph")
             return None
 
         original_url = original_node.url
@@ -453,9 +494,10 @@ class Graph:
         self, original_node: Node, final_url: str, redirect_chain: list[str] = None
     ) -> Optional[Node]:
         """
-        FIX CRITICAL-004: Thread-safe async версія handle_redirect з Lock.
+        FIX CRITICAL-001: Thread-safe async версія handle_redirect з глобальним Lock.
         
-        Використовувати при batch mode та asyncio.gather() для запобігання race conditions.
+        Використовує глобальний lock оскільки redirect може впливати на багато edges
+        та потребує atomic операції над усім графом.
 
         Args:
             original_node: Вузол який редірить (буде видалений якщо final існує)
@@ -466,7 +508,7 @@ class Graph:
             Node: Вузол для final_url (новий або існуючий)
             None: Якщо original_node не в графі
         """
-        async with self._lock:
+        async with self._global_lock:
             return self.handle_redirect(original_node, final_url, redirect_chain)
 
     # ==================== Delegation to GraphStatistics ====================
@@ -480,6 +522,91 @@ class Graph:
             Список вузлів зі scanned=False
         """
         return GraphStatistics.get_unscanned_nodes(self)
+
+    def get_failed_nodes(self, status_codes: List[int] = None) -> List[Node]:
+        """
+        Повертає вузли з помилковими статус кодами (429, 500, 502, 503, 504).
+
+        Args:
+            status_codes: Список статус кодів для фільтрації.
+                         За замовчуванням: [429, 500, 502, 503, 504]
+
+        Returns:
+            Список вузлів з відповідними статусами
+
+        Example:
+            >>> # Отримати всі failed nodes
+            >>> failed = graph.get_failed_nodes()
+            >>> 
+            >>> # Тільки 429 (rate limited)
+            >>> rate_limited = graph.get_failed_nodes([429])
+        """
+        if status_codes is None:
+            status_codes = [429, 500, 502, 503, 504]
+        
+        return [
+            node for node in self._nodes.values()
+            if node.response_status in status_codes
+        ]
+
+    def get_nodes_by_status(self, status_code: int) -> List[Node]:
+        """
+        Повертає вузли з конкретним HTTP статус кодом.
+
+        Args:
+            status_code: HTTP статус код
+
+        Returns:
+            Список вузлів з цим статусом
+
+        Example:
+            >>> ok_nodes = graph.get_nodes_by_status(200)
+            >>> rate_limited = graph.get_nodes_by_status(429)
+        """
+        return [
+            node for node in self._nodes.values()
+            if node.response_status == status_code
+        ]
+
+    def prepare_for_rescan(self, nodes: List[Node] = None, status_codes: List[int] = None) -> int:
+        """
+        Готує вузли для повторного сканування (rescan).
+        
+        Скидає scanned=False та response_status=None для вказаних вузлів.
+
+        Args:
+            nodes: Список вузлів для rescan (якщо None - використовує status_codes)
+            status_codes: Статус коди для автоматичного вибору вузлів.
+                         За замовчуванням: [429] (rate limited)
+
+        Returns:
+            Кількість підготовлених вузлів
+
+        Example:
+            >>> # Підготувати всі 429 вузли для rescan
+            >>> count = graph.prepare_for_rescan()
+            >>> print(f"Prepared {count} nodes for rescan")
+            >>> 
+            >>> # Або конкретні вузли
+            >>> failed = graph.get_failed_nodes([429, 500])
+            >>> graph.prepare_for_rescan(nodes=failed)
+        """
+        if nodes is None:
+            if status_codes is None:
+                status_codes = [429]
+            nodes = self.get_failed_nodes(status_codes)
+        
+        count = 0
+        for node in nodes:
+            node.scanned = False
+            node.response_status = None
+            count += 1
+            logger.debug(f"Prepared for rescan: {node.url}")
+        
+        if count > 0:
+            logger.info(f"Prepared {count} nodes for rescan")
+        
+        return count
 
     def get_nodes_by_depth(self, depth: int) -> List[Node]:
         """
@@ -1008,3 +1135,298 @@ class Graph:
             raise ValueError(
                 f"Unsupported format: {format}. Use 'json', 'csv', or 'dot'"
             )
+
+    # ==================== SimHash: Пошук подібних/дублюючих нод ====================
+    
+    def _build_lsh_index(self, force_rebuild: bool = False) -> Dict[int, Dict[int, List[Node]]]:
+        """
+        FIX CRITICAL-011 + OPTIMIZATION-001: LSH індекс з кешуванням.
+        
+        Будує LSH індекс для швидкого пошуку подібних нод.
+        Розбиває 64-бітний simhash на 4 бенди по 16 біт.
+        
+        ОПТИМІЗАЦІЯ: Кешує індекс та інвалідує при зміні кількості нод.
+        Це дозволяє уникнути повторної побудови O(n) при послідовних викликах.
+        
+        Args:
+            force_rebuild: Примусово перебудувати індекс (ігнорувати кеш)
+        
+        Returns:
+            Dict[band_idx][band_value] = [nodes]
+        """
+        # Перевіряємо чи потрібно перебудувати кеш
+        current_node_count = len(self._nodes)
+        
+        if (not force_rebuild 
+            and self._lsh_index_cache is not None 
+            and self._lsh_index_node_count == current_node_count):
+            # Кеш валідний - повертаємо його
+            return self._lsh_index_cache
+        
+        # Будуємо новий індекс
+        num_bands = 4
+        band_size = 16
+        
+        buckets: Dict[int, Dict[int, List[Node]]] = {
+            i: {} for i in range(num_bands)
+        }
+        
+        for node in self._nodes.values():
+            if not node.simhash:
+                continue
+            
+            try:
+                simhash_int = int(node.simhash, 16) if isinstance(node.simhash, str) else node.simhash
+            except (ValueError, TypeError):
+                continue
+            
+            for band_idx in range(num_bands):
+                shift = band_idx * band_size
+                band_value = (simhash_int >> shift) & ((1 << band_size) - 1)
+                
+                if band_value not in buckets[band_idx]:
+                    buckets[band_idx][band_value] = []
+                buckets[band_idx][band_value].append(node)
+        
+        # Зберігаємо в кеш
+        self._lsh_index_cache = buckets
+        self._lsh_index_node_count = current_node_count
+        
+        logger.debug(f"LSH index rebuilt: {current_node_count} nodes")
+        
+        return buckets
+    
+    def _invalidate_lsh_cache(self) -> None:
+        """Інвалідує кеш LSH індексу."""
+        self._lsh_index_cache = None
+        self._lsh_index_node_count = 0
+
+    def find_similar_nodes(
+        self, 
+        node: Node, 
+        max_distance: int = 10,
+        limit: Optional[int] = None
+    ) -> List[Tuple[Node, int]]:
+        """
+        FIX CRITICAL-011: LSH-оптимізований пошук подібних нод за SimHash.
+        
+        Замість O(n) порівнянь з усіма нодами, використовує LSH індекс
+        для знаходження кандидатів, потім перевіряє тільки їх.
+        
+        Складність: O(k) де k - середня кількість кандидатів з LSH бакетів.
+        Для типових даних k << n.
+
+        Орієнтовні пороги для 64-бітного SimHash:
+        - 0-3: майже ідентичні документи (near-duplicates)
+        - 4-10: дуже схожі документи
+        - 11-20: помірно схожі
+        - >20: різні документи
+
+        Args:
+            node: Нода для порівняння (повинна мати simhash)
+            max_distance: Максимальна Hamming distance (default: 10)
+            limit: Максимальна кількість результатів (None = всі)
+
+        Returns:
+            Список tuple (Node, distance) відсортований за distance
+
+        Example:
+            >>> node = graph.get_node_by_url("https://example.com/page1")
+            >>> similar = graph.find_similar_nodes(node, max_distance=5)
+            >>> for similar_node, distance in similar:
+            ...     print(f"{similar_node.url}: distance={distance}")
+        """
+        if not node.simhash:
+            logger.warning(f"Node {node.url} has no simhash, cannot find similar nodes")
+            return []
+        
+        try:
+            node_simhash_int = int(node.simhash, 16) if isinstance(node.simhash, str) else node.simhash
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid simhash for node {node.url}")
+            return []
+        
+        # FIX CRITICAL-011: Використовуємо LSH для знаходження кандидатів
+        num_bands = 4
+        band_size = 16
+        
+        # Збираємо кандидатів з LSH бакетів
+        candidates: Set[str] = set()
+        lsh_index = self._build_lsh_index()
+        
+        for band_idx in range(num_bands):
+            shift = band_idx * band_size
+            band_value = (node_simhash_int >> shift) & ((1 << band_size) - 1)
+            
+            if band_value in lsh_index[band_idx]:
+                for candidate in lsh_index[band_idx][band_value]:
+                    if candidate.node_id != node.node_id:
+                        candidates.add(candidate.node_id)
+        
+        # Перевіряємо тільки кандидатів
+        results = []
+        
+        for candidate_id in candidates:
+            other = self._nodes.get(candidate_id)
+            if not other or not other.simhash:
+                continue
+            
+            # Обчислюємо Hamming distance
+            distance = Node.hamming_distance(node.simhash, other.simhash)
+            
+            if distance <= max_distance:
+                results.append((other, distance))
+        
+        # Сортуємо за distance (менша = більш схожі)
+        results.sort(key=lambda x: x[1])
+        
+        # Обмежуємо кількість якщо вказано limit
+        if limit is not None:
+            results = results[:limit]
+        
+        return results
+
+    def find_duplicates(self, max_distance: int = 3) -> List[List[Node]]:
+        """
+        FIX CRITICAL-002 + OPTIMIZATION-001: LSH-оптимізований пошук дублікатів.
+        
+        Використовує кешований LSH індекс замість побудови нового при кожному виклику.
+        
+        Складність: O(n * k) де k - середня кількість елементів у бакеті.
+        Для типових даних k << n, тому практична складність близька до O(n).
+
+        Args:
+            max_distance: Максимальна Hamming distance для дублікатів (default: 3)
+
+        Returns:
+            Список груп дублікатів (кожна група - список Node)
+
+        Example:
+            >>> duplicates = graph.find_duplicates(max_distance=3)
+            >>> print(f"Found {len(duplicates)} duplicate groups")
+            >>> for group in duplicates:
+            ...     print(f"Group of {len(group)} duplicates:")
+            ...     for node in group:
+            ...         print(f"  - {node.url}")
+        """
+        # Збираємо ноди з simhash
+        nodes_with_simhash = [
+            node for node in self._nodes.values() 
+            if node.simhash
+        ]
+        
+        if not nodes_with_simhash:
+            return []
+        
+        # OPTIMIZATION-001: Використовуємо кешований LSH індекс
+        lsh_index = self._build_lsh_index()
+        
+        # Збираємо кандидатів для порівняння з кешованого індексу
+        candidate_pairs: Set[Tuple[str, str]] = set()
+        
+        for band_buckets in lsh_index.values():
+            for bucket_nodes in band_buckets.values():
+                if len(bucket_nodes) > 1:
+                    # Додаємо всі пари з цього бакету як кандидатів
+                    for i, node1 in enumerate(bucket_nodes):
+                        for node2 in bucket_nodes[i + 1:]:
+                            # Сортуємо ID щоб уникнути дублікатів пар
+                            pair = tuple(sorted([node1.node_id, node2.node_id]))
+                            candidate_pairs.add(pair)
+        
+        # Перевіряємо тільки кандидатів (значно менше ніж n²)
+        # Будуємо граф подібності
+        similarity_graph: Dict[str, Set[str]] = {}
+        
+        for node1_id, node2_id in candidate_pairs:
+            node1 = self._nodes.get(node1_id)
+            node2 = self._nodes.get(node2_id)
+            
+            if not node1 or not node2 or not node1.simhash or not node2.simhash:
+                continue
+            
+            distance = Node.hamming_distance(node1.simhash, node2.simhash)
+            
+            if distance <= max_distance:
+                if node1_id not in similarity_graph:
+                    similarity_graph[node1_id] = set()
+                if node2_id not in similarity_graph:
+                    similarity_graph[node2_id] = set()
+                    
+                similarity_graph[node1_id].add(node2_id)
+                similarity_graph[node2_id].add(node1_id)
+        
+        # Групуємо за компонентами зв'язності (Union-Find)
+        processed: Set[str] = set()
+        groups: List[List[Node]] = []
+        
+        for node_id in similarity_graph:
+            if node_id in processed:
+                continue
+            
+            # BFS для знаходження компоненти зв'язності
+            group_ids: List[str] = []
+            queue = [node_id]
+            
+            while queue:
+                current_id = queue.pop(0)
+                if current_id in processed:
+                    continue
+                    
+                processed.add(current_id)
+                group_ids.append(current_id)
+                
+                for neighbor_id in similarity_graph.get(current_id, []):
+                    if neighbor_id not in processed:
+                        queue.append(neighbor_id)
+            
+            # Конвертуємо ID в Node об'єкти
+            if len(group_ids) > 1:
+                group = [self._nodes[nid] for nid in group_ids if nid in self._nodes]
+                if len(group) > 1:
+                    groups.append(group)
+        
+        # Сортуємо групи за розміром (більші спочатку)
+        groups.sort(key=len, reverse=True)
+        
+        return groups
+
+    def get_duplicate_stats(self, max_distance: int = 3) -> Dict[str, Any]:
+        """
+        Повертає статистику дублікатів у графі.
+
+        Args:
+            max_distance: Максимальна Hamming distance для дублікатів
+
+        Returns:
+            Словник зі статистикою:
+            - total_nodes: Загальна кількість нод
+            - nodes_with_simhash: Кількість нод з simhash
+            - duplicate_groups: Кількість груп дублікатів
+            - total_duplicates: Загальна кількість дублюючих нод
+            - largest_group_size: Розмір найбільшої групи
+            - duplicate_rate: Відсоток дублікатів
+
+        Example:
+            >>> stats = graph.get_duplicate_stats()
+            >>> print(f"Duplicate rate: {stats['duplicate_rate']:.1f}%")
+        """
+        duplicates = self.find_duplicates(max_distance)
+        
+        nodes_with_simhash = sum(1 for n in self._nodes.values() if n.simhash)
+        total_duplicates = sum(len(group) for group in duplicates)
+        largest_group = max((len(g) for g in duplicates), default=0)
+        
+        duplicate_rate = (
+            (total_duplicates / nodes_with_simhash * 100) 
+            if nodes_with_simhash > 0 else 0
+        )
+        
+        return {
+            "total_nodes": len(self._nodes),
+            "nodes_with_simhash": nodes_with_simhash,
+            "duplicate_groups": len(duplicates),
+            "total_duplicates": total_duplicates,
+            "largest_group_size": largest_group,
+            "duplicate_rate": round(duplicate_rate, 2),
+        }

@@ -462,7 +462,7 @@ class CrawlerConfig(BaseSettings):
 
         if not v.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
-        parsed = urlparse
+        parsed = urlparse(v)
         if not parsed.netloc:
             raise ValueError("URL must have a valid domain")
         return v

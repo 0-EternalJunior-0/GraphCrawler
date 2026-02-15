@@ -140,12 +140,10 @@ class LinkProcessor:
         fetch_response: Optional["FetchResponse"] = None,
     ) -> int:
         """
-        Async версія process_links.
+        FIX CRITICAL-003: Повністю async версія process_links.
 
-        Обробляє посилання асинхронно, yield'ить control кожні batch_size links
-        для неблокуючої роботи event loop.
-
-        Підтримує обробку HTTP редіректів через fetch_response.
+        Обробляє посилання асинхронно з використанням async версій graph методів
+        для thread-safety при batch mode з asyncio.gather().
 
         Args:
             source_node: Вузол-джерело
@@ -174,11 +172,111 @@ class LinkProcessor:
             if i > 0 and i % batch_size == 0:
                 await asyncio.sleep(0)  # Yield to event loop
 
-            new_nodes_count += self._process_single_link(
+            # FIX: Використовуємо async версію
+            count = await self._process_single_link_async(
                 source_node, link, fetch_response
             )
+            new_nodes_count += count
 
         return new_nodes_count
+
+    async def _process_single_link_async(
+        self,
+        source_node: Node,
+        link: str,
+        fetch_response: Optional["FetchResponse"] = None,
+    ) -> int:
+        """
+        FIX CRITICAL-003: Async версія _process_single_link з thread-safe операціями.
+
+        Використовує async версії graph.add_node_async() та graph.add_edge_async()
+        для запобігання race conditions при batch mode.
+
+        Args:
+            source_node: Вузол-джерело
+            link: URL посилання
+            fetch_response: FetchResponse з інформацією про редірект source_node (optional)
+
+        Returns:
+            1 якщо створено нову ноду, 0 інакше
+        """
+        # Валідація URL
+        if not URLUtils.is_valid_url(link):
+            logger.debug(f"Invalid URL, skipping: {link}")
+            return 0
+
+        # Нормалізація URL
+        link = URLUtils.normalize_url(link)
+
+        should_scan, can_create_edges = self._should_scan_url(link, source_node.url)
+
+        if not should_scan:
+            logger.debug(f"URL filtered out: {link}")
+            return 0
+
+        # Перевіряємо чи вузол вже існує
+        target_node = self.graph.get_node_by_url(link)
+
+        # Запам'ятовуємо чи нода була НОВОЮ (для NEW_ONLY стратегії)
+        is_new_node = target_node is None
+        new_node_created = 0
+
+        # ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
+        child_priority = None
+        if source_node and source_node.user_data:
+            child_priorities = source_node.user_data.get('child_priorities', {})
+            if link in child_priorities:
+                child_priority = child_priorities[link]
+                logger.debug(f"Using ML plugin priority {child_priority} for {link}")
+
+        if not target_node:
+            # Створюємо новий вузол (ЕТАП 1: URL_STAGE)
+            target_node = self.custom_node_class(
+                url=link,
+                depth=source_node.depth + 1,
+                should_scan=should_scan,
+                can_create_edges=can_create_edges,
+                plugin_manager=self.plugin_manager,
+            )
+            
+            # ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
+            if child_priority is not None:
+                target_node.user_data['ml_priority'] = child_priority
+            
+            # FIX: Використовуємо async версію для thread-safety
+            await self.graph.add_node_async(target_node)
+            new_node_created = 1
+
+            # Додаємо в чергу тільки якщо треба сканувати
+            if should_scan:
+                # Scheduler буде використовувати ml_priority якщо є
+                self.scheduler.add_node(target_node, priority=child_priority)
+
+        # Перевіряємо чи треба створювати edge
+        if self._should_create_edge(
+            source_node, target_node, link, is_new_node=is_new_node
+        ):
+            edge = Edge(
+                source_node_id=source_node.node_id, target_node_id=target_node.node_id
+            )
+
+            # Заповнюємо edge metadata
+            self._populate_edge_metadata(edge, source_node, target_node, link)
+
+            # REDIRECT INFO: Якщо source_node мав редірект, зберігаємо це в edge
+            if fetch_response and fetch_response.is_redirect:
+                edge.add_metadata("source_had_redirect", True)
+                edge.add_metadata("source_original_url", fetch_response.url)
+                edge.add_metadata("source_final_url", fetch_response.final_url)
+
+            # FIX: Використовуємо async версію для thread-safety
+            await self.graph.add_edge_async(edge)
+        else:
+            logger.debug(
+                f"Edge creation skipped: {source_node.url} -> {target_node.url}"
+            )
+
+        return new_node_created
 
     def _process_single_link(
         self,
@@ -549,7 +647,9 @@ class LinkProcessor:
         self, source_node: Node, target_node: Node, target_url: str, depth_diff: int
     ) -> list[str]:
         """
-        Визначає типи посилання для edge. Оптимізовано - використовує кешований urlparse
+        OPTIMIZATION-003: Оптимізоване визначення типів посилання.
+        
+        Використовує пряму побудову списку замість list comprehension з tuple.
 
         Можливі типи (комбінації):
         - internal: той самий домен
@@ -573,16 +673,27 @@ class LinkProcessor:
         source_domain = URLUtils.get_domain(source_node.url)
         target_domain = URLUtils.get_domain(target_url)
 
-        return [
-            t
-            for condition, t in [
-                (source_domain == target_domain, "internal"),
-                (source_domain != target_domain, "external"),
-                (depth_diff == 0, "same_depth"),
-                (depth_diff > 0, "deeper"),
-                (depth_diff < 0, "back"),
-                (target_node.scanned, "to_scanned"),
-                (not target_node.scanned, "to_unscanned"),
-            ]
-            if condition
-        ]
+        # OPTIMIZATION-003: Пряма побудова списку - швидше за list comprehension з tuple
+        link_types = []
+        
+        # Domain type (взаємовиключні)
+        if source_domain == target_domain:
+            link_types.append("internal")
+        else:
+            link_types.append("external")
+        
+        # Depth type (взаємовиключні)
+        if depth_diff == 0:
+            link_types.append("same_depth")
+        elif depth_diff > 0:
+            link_types.append("deeper")
+        else:
+            link_types.append("back")
+        
+        # Scan status (взаємовиключні)
+        if target_node.scanned:
+            link_types.append("to_scanned")
+        else:
+            link_types.append("to_unscanned")
+        
+        return link_types

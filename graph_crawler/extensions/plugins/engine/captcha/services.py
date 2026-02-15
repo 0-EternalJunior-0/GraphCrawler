@@ -4,13 +4,20 @@
 - 2captcha.com API
 - AntiCaptcha.com API
 - CapSolver API
+
+ОПТИМІЗОВАНО:
+- Додано async версії методів solve_async() для неблокуючого виконання
+- Використовується asyncio.sleep() замість time.sleep() в async контексті
+- Збережено sync версії для зворотної сумісності
 """
 
+import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
+import aiohttp
 import requests
 
 from graph_crawler.extensions.plugins.engine.captcha.models import (
@@ -34,7 +41,12 @@ class BaseCaptchaSolver(ABC):
 
     @abstractmethod
     def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
-        """Розв'язує CAPTCHA."""
+        """Розв'язує CAPTCHA (sync версія - блокуюча)."""
+        pass
+
+    @abstractmethod
+    async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Розв'язує CAPTCHA (async версія - рекомендовано)."""
         pass
 
     @abstractmethod
@@ -49,42 +61,45 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
     BASE_URL = "http://2captcha.com"
     SERVICE_NAME = "2captcha"
 
-    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+    def _build_params(self, captcha_info: CaptchaInfo) -> Optional[Dict[str, Any]]:
+        """Побудувати параметри запиту для типу CAPTCHA."""
         params = {"key": self.api_key, "json": 1}
 
         if captcha_info.captcha_type == CaptchaType.RECAPTCHA_V2:
-            params.update(
-                {
-                    "method": "userrecaptcha",
-                    "googlekey": captcha_info.site_key,
-                    "pageurl": captcha_info.page_url,
-                }
-            )
+            params.update({
+                "method": "userrecaptcha",
+                "googlekey": captcha_info.site_key,
+                "pageurl": captcha_info.page_url,
+            })
             if captcha_info.data_s:
                 params["data-s"] = captcha_info.data_s
 
         elif captcha_info.captcha_type == CaptchaType.RECAPTCHA_V3:
-            params.update(
-                {
-                    "method": "userrecaptcha",
-                    "version": "v3",
-                    "googlekey": captcha_info.site_key,
-                    "pageurl": captcha_info.page_url,
-                    "action": captcha_info.action or "submit",
-                    "min_score": self.min_score,
-                }
-            )
+            params.update({
+                "method": "userrecaptcha",
+                "version": "v3",
+                "googlekey": captcha_info.site_key,
+                "pageurl": captcha_info.page_url,
+                "action": captcha_info.action or "submit",
+                "min_score": self.min_score,
+            })
 
         elif captcha_info.captcha_type == CaptchaType.HCAPTCHA:
-            params.update(
-                {
-                    "method": "hcaptcha",
-                    "sitekey": captcha_info.site_key,
-                    "pageurl": captcha_info.page_url,
-                }
-            )
+            params.update({
+                "method": "hcaptcha",
+                "sitekey": captcha_info.site_key,
+                "pageurl": captcha_info.page_url,
+            })
         else:
             logger.warning(f"Unsupported CAPTCHA type: {captcha_info.captcha_type}")
+            return None
+
+        return params
+
+    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Sync версія solve (блокуюча - використовуйте solve_async)."""
+        params = self._build_params(captcha_info)
+        if params is None:
             return None
 
         try:
@@ -99,7 +114,7 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
             elapsed = 0
 
             while elapsed < self.solve_timeout:
-                time.sleep(5)
+                time.sleep(5)  # Блокуюче очікування для sync версії
                 elapsed += 5
 
                 check_response = requests.get(
@@ -139,6 +154,67 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
             logger.error(f"2captcha API error: {e}")
             return None
 
+    async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Async версія solve (рекомендовано для async контексту)."""
+        params = self._build_params(captcha_info)
+        if params is None:
+            return None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.BASE_URL}/in.php", data=params, timeout=30
+                ) as response:
+                    result = await response.json()
+
+                if result.get("status") != 1:
+                    logger.error(f"2captcha error: {result.get('request')}")
+                    return None
+
+                captcha_id = result.get("request")
+                elapsed = 0
+
+                while elapsed < self.solve_timeout:
+                    await asyncio.sleep(5)  # Неблокуюче очікування
+                    elapsed += 5
+
+                    async with session.get(
+                        f"{self.BASE_URL}/res.php",
+                        params={
+                            "key": self.api_key,
+                            "action": "get",
+                            "id": captcha_id,
+                            "json": 1,
+                        },
+                        timeout=30,
+                    ) as check_response:
+                        check_result = await check_response.json()
+
+                    if check_result.get("status") == 1:
+                        token = check_result.get("request")
+                        cost = (
+                            0.003
+                            if captcha_info.captcha_type
+                            in [CaptchaType.RECAPTCHA_V2, CaptchaType.RECAPTCHA_V3]
+                            else 0.002
+                        )
+
+                        return CaptchaSolution(
+                            token=token,
+                            captcha_type=captcha_info.captcha_type,
+                            solve_time=elapsed,
+                            cost=cost,
+                            service=self.SERVICE_NAME,
+                        )
+                    elif check_result.get("request") != "CAPCHA_NOT_READY":
+                        logger.error(f"2captcha error: {check_result.get('request')}")
+                        return None
+
+                return None
+        except Exception as e:
+            logger.error(f"2captcha API error: {e}")
+            return None
+
     def check_balance(self) -> Optional[float]:
         try:
             response = requests.get(
@@ -156,9 +232,8 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
     BASE_URL = "https://api.anti-captcha.com"
     SERVICE_NAME = "anticaptcha"
 
-    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
-        task = {}
-
+    def _build_task(self, captcha_info: CaptchaInfo) -> Optional[Dict[str, Any]]:
+        """Побудувати task для типу CAPTCHA."""
         if captcha_info.captcha_type == CaptchaType.RECAPTCHA_V2:
             task = {
                 "type": "RecaptchaV2TaskProxyless",
@@ -167,9 +242,10 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
             }
             if captcha_info.data_s:
                 task["recaptchaDataSValue"] = captcha_info.data_s
+            return task
 
         elif captcha_info.captcha_type == CaptchaType.RECAPTCHA_V3:
-            task = {
+            return {
                 "type": "RecaptchaV3TaskProxyless",
                 "websiteURL": captcha_info.page_url,
                 "websiteKey": captcha_info.site_key,
@@ -178,12 +254,18 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
             }
 
         elif captcha_info.captcha_type == CaptchaType.HCAPTCHA:
-            task = {
+            return {
                 "type": "HCaptchaTaskProxyless",
                 "websiteURL": captcha_info.page_url,
                 "websiteKey": captcha_info.site_key,
             }
-        else:
+
+        return None
+
+    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Sync версія solve (блокуюча - використовуйте solve_async)."""
+        task = self._build_task(captcha_info)
+        if task is None:
             return None
 
         try:
@@ -202,7 +284,7 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
             elapsed = 0
 
             while elapsed < self.solve_timeout:
-                time.sleep(5)
+                time.sleep(5)  # Блокуюче очікування для sync версії
                 elapsed += 5
 
                 check_response = requests.post(
@@ -232,6 +314,59 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
             logger.error(f"AntiCaptcha API error: {e}")
             return None
 
+    async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Async версія solve (рекомендовано для async контексту)."""
+        task = self._build_task(captcha_info)
+        if task is None:
+            return None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.BASE_URL}/createTask",
+                    json={"clientKey": self.api_key, "task": task},
+                    timeout=30,
+                ) as response:
+                    result = await response.json()
+
+                if result.get("errorId", 0) != 0:
+                    logger.error(f"AntiCaptcha error: {result.get('errorDescription')}")
+                    return None
+
+                task_id = result.get("taskId")
+                elapsed = 0
+
+                while elapsed < self.solve_timeout:
+                    await asyncio.sleep(5)  # Неблокуюче очікування
+                    elapsed += 5
+
+                    async with session.post(
+                        f"{self.BASE_URL}/getTaskResult",
+                        json={"clientKey": self.api_key, "taskId": task_id},
+                        timeout=30,
+                    ) as check_response:
+                        check_result = await check_response.json()
+
+                    if check_result.get("status") == "ready":
+                        solution = check_result.get("solution", {})
+                        token = solution.get("gRecaptchaResponse") or solution.get("token")
+                        cost = 0.002
+
+                        return CaptchaSolution(
+                            token=token,
+                            captcha_type=captcha_info.captcha_type,
+                            solve_time=elapsed,
+                            cost=cost,
+                            service=self.SERVICE_NAME,
+                        )
+                    elif check_result.get("errorId", 0) != 0:
+                        return None
+
+                return None
+        except Exception as e:
+            logger.error(f"AntiCaptcha API error: {e}")
+            return None
+
     def check_balance(self) -> Optional[float]:
         try:
             response = requests.post(
@@ -250,7 +385,8 @@ class CapSolverSolver(BaseCaptchaSolver):
     BASE_URL = "https://api.capsolver.com"
     SERVICE_NAME = "capsolver"
 
-    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+    def _build_task(self, captcha_info: CaptchaInfo) -> Optional[Dict[str, Any]]:
+        """Побудувати task для типу CAPTCHA."""
         task = {
             "websiteURL": captcha_info.page_url,
             "websiteKey": captcha_info.site_key,
@@ -264,6 +400,14 @@ class CapSolverSolver(BaseCaptchaSolver):
         elif captcha_info.captcha_type == CaptchaType.HCAPTCHA:
             task["type"] = "HCaptchaTaskProxyLess"
         else:
+            return None
+
+        return task
+
+    def solve(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Sync версія solve (блокуюча - використовуйте solve_async)."""
+        task = self._build_task(captcha_info)
+        if task is None:
             return None
 
         try:
@@ -281,7 +425,7 @@ class CapSolverSolver(BaseCaptchaSolver):
             elapsed = 0
 
             while elapsed < self.solve_timeout:
-                time.sleep(5)
+                time.sleep(5)  # Блокуюче очікування для sync версії
                 elapsed += 5
 
                 check_response = requests.post(
@@ -304,6 +448,55 @@ class CapSolverSolver(BaseCaptchaSolver):
                     )
 
             return None
+        except Exception as e:
+            logger.error(f"CapSolver API error: {e}")
+            return None
+
+    async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
+        """Async версія solve (рекомендовано для async контексту)."""
+        task = self._build_task(captcha_info)
+        if task is None:
+            return None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.BASE_URL}/createTask",
+                    json={"clientKey": self.api_key, "task": task},
+                    timeout=30,
+                ) as response:
+                    result = await response.json()
+
+                if result.get("errorId", 0) != 0:
+                    return None
+
+                task_id = result.get("taskId")
+                elapsed = 0
+
+                while elapsed < self.solve_timeout:
+                    await asyncio.sleep(5)  # Неблокуюче очікування
+                    elapsed += 5
+
+                    async with session.post(
+                        f"{self.BASE_URL}/getTaskResult",
+                        json={"clientKey": self.api_key, "taskId": task_id},
+                        timeout=30,
+                    ) as check_response:
+                        check_result = await check_response.json()
+
+                    if check_result.get("status") == "ready":
+                        solution = check_result.get("solution", {})
+                        token = solution.get("gRecaptchaResponse") or solution.get("token")
+
+                        return CaptchaSolution(
+                            token=token,
+                            captcha_type=captcha_info.captcha_type,
+                            solve_time=elapsed,
+                            cost=0.0025,
+                            service=self.SERVICE_NAME,
+                        )
+
+                return None
         except Exception as e:
             logger.error(f"CapSolver API error: {e}")
             return None

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-crawler"
-version = "4.0.4"
+version = "4.0.7"
 description = "Sync-First бібліотека для побудови графу веб-сайтів - просто як requests!"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -135,9 +135,8 @@ class HTMLUtils:
         title_tag = soup.find("title")
         title_text = title_tag.get_text(strip=True) if title_tag else None
 
-        # H1
-        h1_tag = soup.find("h1")
-        h1_text = h1_tag.get_text(strip=True) if h1_tag else None
+        # H1 - шукаємо в основному контенті, ігноруючи modals/popups
+        h1_text = HTMLUtils._extract_main_h1(soup)
 
         return {
             "title": HTMLUtils.sanitize_text(title_text, max_length=MAX_TITLE_LENGTH),
@@ -149,3 +148,35 @@ class HTMLUtils:
             ),
             "h1": HTMLUtils.sanitize_text(h1_text, max_length=MAX_H1_LENGTH),
         }
+
+    # CSS селектори (class-level constants)
+    _H1_MAIN_SELECTOR = (
+        'main h1, article h1, [role="main"] h1, '
+        '#main-content h1, #main h1, .main-content h1, .content h1'
+    )
+    _H1_EXCLUDE_SELECTOR = (
+        'h1:not(dialog h1):not(nav h1):not(aside h1):not(header h1):not(footer h1)'
+        ':not([role="dialog"] h1):not([role="navigation"] h1)'
+        ':not(.modal h1):not(.popup h1):not(.cookie h1)'
+    )
+
+    @staticmethod
+    def _extract_main_h1(soup: BeautifulSoup) -> Optional[str]:
+        """
+        Витягує H1 з основного контенту (CSS селектори, один запит до DOM).
+        """
+        # 1. Пріоритет: H1 в main/article
+        if h1 := soup.select_one(HTMLUtils._H1_MAIN_SELECTOR):
+            if text := h1.get_text(strip=True):
+                return text
+        
+        # 2. H1 не в modal/nav (CSS :not)
+        if h1 := soup.select_one(HTMLUtils._H1_EXCLUDE_SELECTOR):
+            if text := h1.get_text(strip=True):
+                return text
+        
+        # 3. Fallback
+        if h1 := soup.find("h1"):
+            return h1.get_text(strip=True)
+        
+        return None

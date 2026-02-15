@@ -23,6 +23,7 @@ from graph_crawler.domain.interfaces.node_interfaces import (
     INodePluginContext,
     INodePluginType,
     IPluginManager,
+    ISimHashStrategy,
 )
 from graph_crawler.domain.value_objects.lifecycle import (
     NodeLifecycle,
@@ -109,6 +110,12 @@ def _init_parser_thread():
 # ============ THREAD POOL для HTML PARSING (PYTHON 3.14 OPTIMIZED) ============
 import atexit
 
+# FIX CRITICAL-007: Обмежуємо чергу завдань для ThreadPoolExecutor
+# При batch з 1000 URL без ліміту всі завдання одразу ставляться в чергу,
+# що може з'їсти RAM якщо HTML великі. BoundedSemaphore обмежує кількість
+# одночасних завдань до max_workers * 2.
+_html_executor_semaphore = asyncio.Semaphore(_max_html_workers * 2)
+
 _html_executor = ThreadPoolExecutor(
     max_workers=_max_html_workers,
     thread_name_prefix="html_parser_",
@@ -121,6 +128,7 @@ atexit.register(_html_executor.shutdown, wait=True)
 logger.info(
     f"HTML executor initialized: "
     f"workers={_max_html_workers}, "
+    f"max_queued_tasks={_max_html_workers * 2}, "
     f"free_threaded={_is_free_threaded}, "
     f"python={sys.version_info.major}.{sys.version_info.minor}"
 )
@@ -181,6 +189,46 @@ class IContentHashStrategy(Protocol):
 
         Returns:
             SHA256 hex digest string (64 символи)
+        """
+        ...
+
+
+class ISimHashStrategyLocal(Protocol):
+    """
+    Інтерфейс для обчислення SimHash (Protocol) - Locality-Sensitive Hash.
+
+    SimHash використовується для знаходження ПОДІБНИХ документів (near-duplicates),
+    на відміну від SHA256 content_hash який знаходить ТОЧНІ дублікати.
+
+    Властивості SimHash:
+    - Схожі документи матимуть схожі SimHash (мала Hamming distance)
+    - Різні документи матимуть різні SimHash (велика Hamming distance)
+    - 64-бітний хеш = 16 hex символів
+
+    Example:
+        >>> class CustomSimHashStrategy:
+        ...     def compute_simhash(self, node: 'Node') -> str:
+        ...         # Кастомна логіка
+        ...         return simhash_hex  # 16 символів
+        >>>
+        >>> node.simhash_strategy = CustomSimHashStrategy()
+        >>> simhash = node.get_simhash()
+    """
+
+    def compute_simhash(self, node: "Node") -> str:
+        """
+        Обчислює SimHash для ноди.
+
+        Контракт:
+        - MUST повертати 64-бітний SimHash як hex string (16 символів, lowercase)
+        - MUST бути детермінованим (однакові дані → однаковий SimHash)
+        - MUST викликатися тільки після process_html() (HTML_STAGE)
+
+        Args:
+            node: Node для якої обчислюється SimHash
+
+        Returns:
+            SimHash hex string (16 символів)
         """
         ...
 
@@ -283,6 +331,11 @@ class Node(BaseModel):
     # Incremental Crawling - content hash (обчислюється після process_html)
     content_hash: Optional[str] = None
 
+    # SimHash для пошуку подібних документів (near-duplicates)
+    # На відміну від content_hash (SHA256), SimHash зберігає locality:
+    # схожі документи матимуть схожі SimHash з малою Hamming distance
+    simhash: Optional[str] = None
+
     # Scheduler перевіряє це поле ПЕРЕД URLRule (див. scheduler.py)
     priority: Optional[int] = Field(default=None, ge=1, le=10)
 
@@ -297,6 +350,9 @@ class Node(BaseModel):
     tree_parser: Optional[Any] = Field(default=None, exclude=True)
 
     hash_strategy: Optional[Any] = Field(default=None, exclude=True)
+
+    # SimHash Strategy (не серіалізується) - для кастомної логіки SimHash
+    simhash_strategy: Optional[Any] = Field(default=None, exclude=True)
 
     # Pydantic configuration
     model_config = ConfigDict(
@@ -319,7 +375,7 @@ class Node(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise InvalidURLError(f"URL must start with http:// or https://, got: {v}")
 
-        parsed = urlparse
+        parsed = urlparse(v)
         if not parsed.netloc:
             raise InvalidURLError(f"URL must have a valid domain: {v}")
 
@@ -437,10 +493,11 @@ class Node(BaseModel):
     
     async def _parse_html_async(self, html: str) -> Tuple[Any, Any]:
         """
-        Async парсинг HTML через ThreadPoolExecutor.
+        Async парсинг HTML через ThreadPoolExecutor з обмеженою чергою.
         
-        # BeautifulSoup парсинг є CPU-bound операцією і блокує event loop.
-        Переносимо її в ThreadPoolExecutor для паралельної обробки.
+        FIX CRITICAL-007: Використовує semaphore для обмеження кількості
+        одночасних завдань в черзі executor'а. Це запобігає OOM при batch
+        з 1000+ URL з великими HTML.
         
         Args:
             html: HTML контент
@@ -448,12 +505,14 @@ class Node(BaseModel):
         Returns:
             Tuple (parser, html_tree)
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            _html_executor,
-            self._parse_html_sync,
-            html
-        )
+        # FIX CRITICAL-007: Обмежуємо чергу завдань через semaphore
+        async with _html_executor_semaphore:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                _html_executor,
+                self._parse_html_sync,
+                html
+            )
 
     async def _execute_plugins(self, html: str, html_tree: Any, parser: Any) -> Any:
         """
@@ -518,8 +577,9 @@ class Node(BaseModel):
 
     def _compute_content_hash(self):
         """
-        Обчислює content hash для Incremental Crawling.
+        Обчислює content hash та SimHash для Incremental Crawling та пошуку дублікатів.
         """
+        # SHA256 content hash для детекції ТОЧНИХ змін
         try:
             self.content_hash = self.get_content_hash()
             logger.debug(
@@ -528,6 +588,16 @@ class Node(BaseModel):
         except Exception as e:
             logger.warning(f"Failed to compute content_hash for {self.url}: {e}")
             self.content_hash = None
+
+        # SimHash для пошуку ПОДІБНИХ документів (near-duplicates)
+        try:
+            self.simhash = self.get_simhash()
+            logger.debug(
+                f"SimHash computed for {self.url}: {self.simhash}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to compute simhash for {self.url}: {e}")
+            self.simhash = None
 
     def _cleanup_memory(self, html: str, html_tree: Any, context: Any):
         """
@@ -664,6 +734,227 @@ class Node(BaseModel):
         """Позначає вузол як просканований."""
         self.scanned = True
 
+    def get_simhash(self) -> str:
+        """
+        Обчислює SimHash контенту для пошуку подібних документів (near-duplicates).
+
+        SimHash - це Locality-Sensitive Hash:
+        - Схожі документи матимуть схожі SimHash (мала Hamming distance)
+        - Різні документи матимуть різні SimHash (велика Hamming distance)
+        - Повертає 64-бітний хеш як 16 hex символів
+
+        ДЕФОЛТНА РЕАЛІЗАЦІЯ:
+        1. Токенізація тексту на n-grams (3-грами за замовчуванням)
+        2. Хешування кожного n-gram
+        3. Зважена сума бітів хешів
+        4. Згортання в 64-бітний SimHash
+
+        КОРИСТУВАЧ МОЖЕ ЗАДАТИ КАСТОМНУ СТРАТЕГІЮ через simhash_strategy:
+
+        Example:
+            >>> class CustomSimHashStrategy:
+            ...     def compute_simhash(self, node):
+            ...         # Кастомна логіка
+            ...         return simhash_hex  # 16 символів
+            >>>
+            >>> node.simhash_strategy = CustomSimHashStrategy()
+            >>> simhash = node.get_simhash()
+
+        ВАЖЛИВО: Можна викликати ТІЛЬКИ після process_html() (ЕТАП 2: HTML_STAGE).
+
+        Returns:
+            SimHash hex string (16 символів, lowercase)
+
+        Raises:
+            NodeLifecycleError: Якщо викликано до process_html()
+            ValueError: Якщо simhash_strategy повертає невалідний SimHash
+        """
+        import hashlib
+        import re
+
+        # Перевірка lifecycle - можна викликати тільки після process_html
+        if self.lifecycle_stage != NodeLifecycle.HTML_STAGE:
+            raise NodeLifecycleError(
+                f"Cannot compute simhash at {self.lifecycle_stage.value}. "
+                f"Call process_html() first (must be at HTML_STAGE)."
+            )
+
+        # Якщо задана кастомна стратегія - використовуємо її
+        if self.simhash_strategy:
+            simhash_value = self.simhash_strategy.compute_simhash(self)
+
+            # Валідація результату
+            if not isinstance(simhash_value, str):
+                raise ValueError(
+                    f"SimHash strategy must return string, got {type(simhash_value).__name__}. "
+                    f"Strategy: {type(self.simhash_strategy).__name__}"
+                )
+
+            from graph_crawler.shared.constants import (
+                SIMHASH_HEX_LENGTH,
+                SIMHASH_PATTERN,
+            )
+
+            if not re.match(SIMHASH_PATTERN, simhash_value):
+                raise ValueError(
+                    f"SimHash strategy must return valid 64-bit hex ({SIMHASH_HEX_LENGTH} chars, lowercase), "
+                    f"got: '{simhash_value}' (len={len(simhash_value)}). "
+                    f"Strategy: {type(self.simhash_strategy).__name__}"
+                )
+
+            # Валідація детермінованості
+            if not hasattr(self, "_simhash_determinism_validated"):
+                self._validate_simhash_strategy_deterministic(simhash_value)
+                self._simhash_determinism_validated = True
+
+            return simhash_value
+
+        # Дефолтна стратегія - SimHash від чистого тексту сторінки
+        from graph_crawler.shared.constants import (
+            DEFAULT_HASH_ENCODING,
+            DEFAULT_SIMHASH_NGRAM_SIZE,
+            SIMHASH_BITS,
+        )
+
+        text = self.user_data.get("text_content", "")
+        return self._compute_simhash_default(text, DEFAULT_SIMHASH_NGRAM_SIZE, SIMHASH_BITS)
+
+    def _compute_simhash_default(self, text: str, ngram_size: int = 3, bits: int = 64) -> str:
+        """
+        FIX CRITICAL-008 + OPTIMIZATION-002 + NUMBA: Оптимізована реалізація SimHash.
+        
+        ОПТИМІЗАЦІЇ:
+        1. Numba JIT компіляція для числових операцій (10-50x прискорення)
+        2. Fallback на array module якщо Numba недоступна
+        3. Фінальне згортання через оптимізований loop
+        
+        Алгоритм:
+        1. Токенізація тексту на n-grams
+        2. Для кожного n-gram обчислюємо hash (md5 для швидкості)
+        3. Для кожного біта хешу: якщо біт=1, додаємо +1, інакше -1
+        4. Фінальний SimHash: біт=1 якщо сума >= 0, біт=0 якщо сума < 0
+
+        Args:
+            text: Текст для хешування
+            ngram_size: Розмір n-gram (за замовчуванням 3)
+            bits: Кількість біт в SimHash (за замовчуванням 64)
+
+        Returns:
+            SimHash як hex string
+        """
+        if not text:
+            return "0" * (bits // 4)  # Порожній текст = нульовий хеш
+
+        # Нормалізація тексту
+        text = text.lower().strip()
+
+        # Генерація n-grams
+        tokens = []
+        words = text.split()
+        for i in range(max(1, len(words) - ngram_size + 1)):
+            ngram = " ".join(words[i:i + ngram_size])
+            tokens.append(ngram)
+
+        # Якщо текст занадто короткий, використовуємо слова як токени
+        if not tokens:
+            tokens = words if words else [text]
+
+        # OPTIMIZATION-003: Використовуємо Numba-оптимізовану версію якщо доступна
+        try:
+            from graph_crawler.optimizations.simhash_numba import compute_simhash_fast, is_numba_available
+            if is_numba_available():
+                return compute_simhash_fast(tokens, bits)
+        except ImportError:
+            pass  # Fallback на pure Python
+
+        # Pure Python fallback (array module)
+        import hashlib
+        from array import array
+        
+        v = array('i', [0] * bits)  # signed int array - швидше за list
+        mask = (1 << bits) - 1
+
+        # Обробка кожного токена
+        for token in tokens:
+            # Хешуємо токен (md5 дає 128 біт, беремо перші 64)
+            token_hash = hashlib.md5(token.encode("utf-8")).hexdigest()
+            hash_int = int(token_hash[:bits // 4], 16) & mask
+
+            # Для кожного біта: якщо біт=1, v[i]+=1, інакше v[i]-=1
+            temp = hash_int
+            for i in range(bits):
+                v[i] += ((temp & 1) << 1) - 1
+                temp >>= 1
+
+        # Згортаємо вектор в SimHash
+        simhash = 0
+        for i in range(bits):
+            if v[i] >= 0:
+                simhash |= (1 << i)
+
+        # Повертаємо як hex string з правильною кількістю символів
+        return format(simhash, f"0{bits // 4}x")
+
+    def _validate_simhash_strategy_deterministic(self, first_simhash: str) -> None:
+        """
+        Перевіряє чи simhash_strategy детермінована (LSP Principle).
+
+        Args:
+            first_simhash: Перший обчислений SimHash для порівняння
+
+        Raises:
+            ValueError: Якщо стратегія недетермінована
+        """
+        if not self.simhash_strategy:
+            return
+
+        second_simhash = self.simhash_strategy.compute_simhash(self)
+
+        if first_simhash != second_simhash:
+            raise ValueError(
+                f"SimHash strategy is NOT DETERMINISTIC! "
+                f"Got different hashes for same data:\n"
+                f"  1st call: {first_simhash}\n"
+                f"  2nd call: {second_simhash}\n"
+                f"Strategy: {type(self.simhash_strategy).__name__}\n\n"
+                f"SimHash strategy MUST return same hash for same input data."
+            )
+
+    @staticmethod
+    def hamming_distance(simhash1: str, simhash2: str) -> int:
+        """
+        Обчислює Hamming distance між двома SimHash.
+
+        Hamming distance = кількість бітів, що відрізняються.
+        Менша відстань = більш схожі документи.
+
+        Орієнтовні пороги для 64-бітного SimHash:
+        - 0-3: майже ідентичні документи
+        - 4-10: дуже схожі документи
+        - 11-20: помірно схожі
+        - >20: різні документи
+
+        Args:
+            simhash1: Перший SimHash (hex string)
+            simhash2: Другий SimHash (hex string)
+
+        Returns:
+            Hamming distance (0-64 для 64-бітного хешу)
+
+        Example:
+            >>> dist = Node.hamming_distance("abc123def456789a", "abc123def456789b")
+            >>> print(f"Distance: {dist}")
+        """
+        # Конвертуємо hex в int
+        hash1_int = int(simhash1, 16)
+        hash2_int = int(simhash2, 16)
+
+        # XOR дає біти, що відрізняються
+        xor_result = hash1_int ^ hash2_int
+
+        # Підраховуємо кількість одиничних бітів
+        return bin(xor_result).count("1")
+
     def model_dump(self, **kwargs) -> Dict[str, Any]:
         """
         Серіалізує вузол у словник.
@@ -748,21 +1039,24 @@ class Node(BaseModel):
         plugin_manager: Optional[IPluginManager] = None,
         tree_parser: Optional[ITreeAdapter] = None,
         hash_strategy: Optional[IContentHashStrategy] = None,
+        simhash_strategy: Optional[ISimHashStrategyLocal] = None,
     ):
         """
                 Відновлює залежності після десеріалізації.
 
-                 ВАЖЛИВО: plugin_manager, tree_parser та hash_strategy не серіалізуються.
+                 ВАЖЛИВО: plugin_manager, tree_parser, hash_strategy та simhash_strategy не серіалізуються.
                 Після завантаження Node з JSON/SQLite, ці поля будуть None.
                 Використовуйте цей метод для відновлення залежностей.
 
         Приймає будь-який об'єкт що реалізує Protocol (не тільки конкретні класи)
         Додано hash_strategy для кастомізації обчислення hash
+        Додано simhash_strategy для кастомізації обчислення SimHash
 
                 Args:
                     plugin_manager: Будь-який об'єкт з методом execute() (IPluginManager Protocol)
                     tree_parser: Будь-який об'єкт з методом parse() (ITreeAdapter Protocol)
                     hash_strategy: Будь-який об'єкт з методом compute_hash() (IContentHashStrategy Protocol)
+                    simhash_strategy: Будь-який об'єкт з методом compute_simhash() (ISimHashStrategy Protocol)
 
                 Example:
                     >>> from graph_crawler.extensions.CustomPlugins.node import NodePluginManager
@@ -772,7 +1066,8 @@ class Node(BaseModel):
                     >>> node.restore_dependencies(
                     ...     plugin_manager=NodePluginManager(),
                     ...     tree_parser=BeautifulSoupAdapter(),
-                    ...     hash_strategy=CustomHashStrategy()
+                    ...     hash_strategy=CustomHashStrategy(),
+                    ...     simhash_strategy=CustomSimHashStrategy()
                     ... )
         """
         if plugin_manager is not None:
@@ -781,6 +1076,8 @@ class Node(BaseModel):
             self.tree_parser = tree_parser
         if hash_strategy is not None:
             self.hash_strategy = hash_strategy
+        if simhash_strategy is not None:
+            self.simhash_strategy = simhash_strategy
 
     # LAW OF DEMETER: Методи-обгортки для metadata
     # Замість node.metadata.get("title") використовуємо node.get_title()

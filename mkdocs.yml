@@ -101,7 +101,7 @@ nav:
     - Plugin System: architecture/PLUGIN_SYSTEM.md
     - Structured Data Plugin: architecture/STRUCTURED_DATA_PLUGIN.md
   - Changelog: changelog.md
-  - Index: INDEX.md
+  - Index: index.md
 
 extra:
   social:

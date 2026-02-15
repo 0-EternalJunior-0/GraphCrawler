@@ -109,3 +109,8 @@ Thumbs.db
 *.pid
 *.seed
 *.pid.lock
+
+
+
+# MkDocs site
+site/

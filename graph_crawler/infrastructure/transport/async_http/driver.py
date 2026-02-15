@@ -25,6 +25,7 @@ from graph_crawler.infrastructure.transport.async_http.stages import AsyncHTTPSt
 from graph_crawler.infrastructure.transport.base import BaseDriver
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.plugin_manager import DriverPluginManager
+from graph_crawler.infrastructure.transport.async_http.plugins.retry import AsyncRetryPlugin
 from graph_crawler.shared.constants import (
     DEFAULT_MAX_CONCURRENT_REQUESTS,
     DEFAULT_REQUEST_TIMEOUT,
@@ -95,6 +96,21 @@ class AsyncDriver(BaseDriver):
         if plugins:
             for plugin in plugins:
                 self.plugin_manager.register(plugin)
+
+        # Автоматично реєструємо AsyncRetryPlugin якщо не передано жодного retry плагіна
+        has_retry_plugin = any(
+            isinstance(p, AsyncRetryPlugin) or getattr(p, 'name', '') == 'async_retry'
+            for p in (plugins or [])
+        )
+        if not has_retry_plugin:
+            default_retry = AsyncRetryPlugin(AsyncRetryPlugin.config(
+                max_retries=3,
+                retry_delay=1.0,
+                retry_status_codes=[429, 500, 502, 503, 504],
+                backoff_factor=2.0
+            ))
+            self.plugin_manager.register(default_retry)
+            logger.info("AsyncRetryPlugin registered by default")
 
         logger.info(
             f"AsyncDriver initialized: max_concurrent={self.max_concurrent}, "
@@ -264,6 +280,13 @@ class AsyncDriver(BaseDriver):
                 ctx = await self.plugin_manager.execute_hook_async(
                     AsyncHTTPStage.PROCESSING_RESPONSE, ctx
                 )
+
+                # Перевіряємо чи потрібен retry після RESPONSE_RECEIVED (для 429 тощо)
+                if ctx.data.get("should_retry", False):
+                    retry_delay = ctx.data.get("retry_delay", 1.0)
+                    logger.info(f"Retrying {url} after {retry_delay}s (status: {ctx.status_code})")
+                    await asyncio.sleep(retry_delay)
+                    return await self.fetch(url)
 
             duration = time.time() - start_time
 

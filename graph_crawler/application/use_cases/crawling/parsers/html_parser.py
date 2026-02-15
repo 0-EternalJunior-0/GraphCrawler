@@ -206,8 +206,8 @@ class HTMLParser(BaseHTMLParser):
             title = tree.css_first('title')
             metadata['title'] = title.text(strip=True) if title else None
             
-            h1 = tree.css_first('h1')
-            metadata['h1'] = h1.text(strip=True) if h1 else None
+            # H1 - шукаємо в основному контенті
+            metadata['h1'] = self._extract_main_h1_selectolax(tree)
             
             # Meta tags
             for meta in tree.css('meta'):
@@ -229,8 +229,8 @@ class HTMLParser(BaseHTMLParser):
             title = tree.find('title')
             metadata['title'] = title.get_text(strip=True) if title else None
             
-            h1 = tree.find('h1')
-            metadata['h1'] = h1.get_text(strip=True) if h1 else None
+            # H1 - шукаємо в основному контенті
+            metadata['h1'] = self._extract_main_h1_bs(tree)
             
             desc = tree.find('meta', {'name': 'description'})
             metadata['description'] = desc.get('content') if desc else None
@@ -245,6 +245,58 @@ class HTMLParser(BaseHTMLParser):
             metadata['og_description'] = og_desc.get('content') if og_desc else None
         
         return metadata
+    
+    # CSS селектори для H1 (class-level, compiled once)
+    _H1_MAIN_SELECTOR = (
+        'main h1, article h1, [role="main"] h1, '
+        '#main-content h1, #main h1, .main-content h1, .content h1'
+    )
+    _H1_EXCLUDE_SELECTOR = (
+        'h1:not(dialog h1):not(nav h1):not(aside h1):not(header h1):not(footer h1)'
+        ':not([role="dialog"] h1):not([role="navigation"] h1)'
+        ':not(.modal h1):not(.popup h1):not(.cookie h1)'
+    )
+    
+    def _extract_main_h1_selectolax(self, tree: Any) -> Optional[str]:
+        """Витягує H1 з основного контенту (selectolax, CSS селектори)."""
+        # 1. Пріоритет: H1 в main/article
+        if h1 := tree.css_first(self._H1_MAIN_SELECTOR):
+            if text := h1.text(strip=True):
+                return text
+        
+        # 2. H1 не в modal/nav (CSS :not) - selectolax може не підтримувати складні :not
+        # Fallback на простий h1 з перевіркою
+        for h1 in tree.css('h1'):
+            text = h1.text(strip=True)
+            if not text:
+                continue
+            
+            # Швидка перевірка батьківського тегу
+            parent = h1.parent
+            if parent and parent.tag in ('dialog', 'nav', 'aside', 'header', 'footer'):
+                continue
+            
+            return text
+        
+        return None
+    
+    def _extract_main_h1_bs(self, tree: Any) -> Optional[str]:
+        """Витягує H1 з основного контенту (BeautifulSoup, CSS селектори)."""
+        # 1. Пріоритет: H1 в main/article
+        if h1 := tree.select_one(self._H1_MAIN_SELECTOR):
+            if text := h1.get_text(strip=True):
+                return text
+        
+        # 2. H1 не в modal/nav (CSS :not)
+        if h1 := tree.select_one(self._H1_EXCLUDE_SELECTOR):
+            if text := h1.get_text(strip=True):
+                return text
+        
+        # 3. Fallback
+        if h1 := tree.find("h1"):
+            return h1.get_text(strip=True)
+        
+        return None
 
     def extract_text(self, tree: Any) -> str:
         """

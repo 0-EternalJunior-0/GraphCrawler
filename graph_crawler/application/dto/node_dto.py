@@ -66,6 +66,9 @@ class NodeDTO(BaseModel):
     content_hash: Optional[str] = Field(
         default=None, description="Hash контенту для change detection"
     )
+    simhash: Optional[str] = Field(
+        default=None, description="SimHash для пошуку подібних документів (near-duplicates)"
+    )
     priority: Optional[int] = Field(
         default=None, ge=1, le=10, description="Пріоритет (1-10)"
     )
@@ -113,6 +116,7 @@ class NodeDTO(BaseModel):
                 },
                 "user_data": {},
                 "content_hash": "a7b3c9d2e1f4567890abcdef12345678",
+                "simhash": "abc123def456789a",
                 "priority": 5,
                 "created_at": "2024-12-03T10:30:00",
                 "lifecycle_stage": "html_stage",

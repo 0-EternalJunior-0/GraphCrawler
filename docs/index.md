@@ -1,7 +1,7 @@
 # GraphCrawler Documentation Index
 
 > **Центральний індекс документації**  
-> **Версія:** 4.0.4  
+> **Версія:** 4.0.7 
 > **Дата:** Лютий 2026  
 > **Автор:** GraphCrawler Team
 
@@ -56,7 +56,6 @@ docs/
 
 ## 🎯 Швидкі посилання по темах
 
-<<<<<<< HEAD
 ### Початківці
 
 **Хочу швидко почати:**
@@ -113,99 +112,3 @@ docs/
 - `Graph`, `Node`, `Edge` - Базові класи
 
 ---
-
-## 🎓 Навчальні шляхи
-
-### Шлях 1: Від нуля до героя
-
-**Рівень 1: Початківець (Тиждень 1)**
-1. [API Reference](./api/API.md) - Вивчити основи API
-2. [Architecture Overview](./architecture/ARCHITECTURE_OVERVIEW.md) - Розуміння архітектури
-
-**Рівень 2: Junior (Тиждень 2-3)**
-1. [Component Catalog](./architecture/COMPONENT_CATALOG.md) - Вивчити компоненти
-2. [Plugin System](./architecture/PLUGIN_SYSTEM.md) - Створити перший плагін
-
-**Рівень 3: Middle (Місяць 2)**
-1. [Layer Specification](./architecture/LAYER_SPECIFICATION.md) - Глибоке розуміння
-2. [Extension Points](./architecture/EXTENSION_POINTS.md) - Розширення функціональності
-
-**Рівень 4: Senior (Місяць 3+)**
-1. [Communication Channels](./architecture/COMMUNICATION_CHANNELS.md) - Протоколи
-2. [Factory Lifecycle](./architecture/FACTORY_LIFECYCLE.md) - DI та фабрики
-
----
-
-### Шлях 2: Архітектор траєкторія
-
-**Етап 1: Розуміння системи**
-1. [Architecture Overview](./architecture/ARCHITECTURE_OVERVIEW.md)
-2. [Layer Specification](./architecture/LAYER_SPECIFICATION.md)
-
-**Етап 2: Компоненти та зв'язки**
-1. [Component Catalog](./architecture/COMPONENT_CATALOG.md)
-2. [Communication Channels](./architecture/COMMUNICATION_CHANNELS.md)
-
-**Етап 3: Розширення та оптимізація**
-1. [Extension Points](./architecture/EXTENSION_POINTS.md)
-2. [Factory Lifecycle](./architecture/FACTORY_LIFECYCLE.md)
-3. [Plugin System](./architecture/PLUGIN_SYSTEM.md)
-
----
-
-## 🔍 Пошук за темами
-
-### Плагіни
-- [PLUGIN_SYSTEM.md](./architecture/PLUGIN_SYSTEM.md) - Повна документація плагінів
-- [Extension Points](./architecture/EXTENSION_POINTS.md) - Точки розширення
-- [Component Catalog](./architecture/COMPONENT_CATALOG.md) - Вбудовані плагіни
-
-### Драйвери та Storage
-- [Component Catalog](./architecture/COMPONENT_CATALOG.md) - Drivers та Storage
-- [Extension Points](./architecture/EXTENSION_POINTS.md) - Кастомні драйвери
-- [Factory Lifecycle](./architecture/FACTORY_LIFECYCLE.md) - Factories
-
----
-
-## 📊 Матриця документів
-
-| Тема | Початківець | Middle | Senior |
-|------|-------------|--------|--------|
-| **API** | [API.md](./api/API.md) | [API.md](./api/API.md) | [API.md](./api/API.md) |
-| **Архітектура** | [Overview](./architecture/ARCHITECTURE_OVERVIEW.md) | [Layer Spec](./architecture/LAYER_SPECIFICATION.md) | [All arch docs](./architecture/) |
-| **Плагіни** | [Plugin System](./architecture/PLUGIN_SYSTEM.md) | [Plugin System](./architecture/PLUGIN_SYSTEM.md) | [Extension Points](./architecture/EXTENSION_POINTS.md) |
-
----
-
-## 🆘 Потрібна допомога?
-
-**Не працює код:**
-1. Перевірте [API Reference](./api/API.md)
-
-**Хочу розширити функціональність:**
-1. [Plugin System](./architecture/PLUGIN_SYSTEM.md)
-2. [Extension Points](./architecture/EXTENSION_POINTS.md)
-
----
-
-## 📞 Контакти
-
-- **GitLab:** https://gitlab.com/demoprogrammer/web_graf
-- **Issues:** Створіть issue на GitLab
-=======
-- **GitHub Repository:** [github.com/0-EternalJunior-0/GraphCrawler](https://github.com/0-EternalJunior-0/GraphCrawler)
-- **Issues:** Report bugs or request features via GitHub Issues
->>>>>>> 16be93affc1776fe905a617daf33744bd7bf81cc
-- **License:** [MIT](../LICENSE)
-
----
-
-## 📝 Примітки
-
-- Всі документи використовують приклади з реального коду
-- Архітектурна документація синхронізована з кодом версії 4.0.0
-- Регулярно оновлюється
-
----
-
-**Ласкаво просимо до GraphCrawler! Щасливого краулінгу! 🚀**

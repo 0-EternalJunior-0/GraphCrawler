@@ -6,8 +6,11 @@
 
 - Винесено lazy imports на рівень модуля
 - Умовний імпорт CrawlerEvent тільки якщо event_bus активний
+
+FIX CRITICAL-004: Додано async lock для thread-safe операцій з seen_urls
 """
 
+import asyncio
 import heapq
 import logging
 import re
@@ -123,6 +126,15 @@ class CrawlScheduler:
 
         # EventBus для подій
         self.event_bus = event_bus
+        
+        # FIX CRITICAL-004: Lock для thread-safe операцій з seen_urls
+        # При async batch mode кілька корутин можуть одночасно додавати URLs
+        self._seen_urls_lock = asyncio.Lock()
+        
+        # FIX CRITICAL-009: Lock для thread-safe операцій з heapq
+        # heapq не є thread-safe. При batch mode з asyncio.gather() кілька
+        # корутин можуть одночасно модифікувати heap, що призводить до corruption.
+        self._queue_lock = asyncio.Lock()
 
         # Компілюємо regex патерни для швидкості
         self._compiled_rules = []
@@ -233,11 +245,43 @@ class CrawlScheduler:
 
         return True
 
+    async def add_node_async(self, node: Node, priority: Optional[int] = None) -> bool:
+        """
+        FIX CRITICAL-004 & CRITICAL-009: Thread-safe async версія add_node.
+        
+        Використовує окремі locks для seen_urls та queue для запобігання
+        race conditions при batch mode з asyncio.gather().
+
+        Args:
+            node: Вузол для додавання
+            priority: Опціональний пріоритет від ML плагіну
+
+        Returns:
+            True якщо вузол додано, False якщо вже був у черзі або відфільтровано
+        """
+        # FIX CRITICAL-009: Використовуємо обидва locks для atomic операції
+        async with self._seen_urls_lock:
+            async with self._queue_lock:
+                return self.add_node(node, priority)
+
+    async def has_url_async(self, url: str) -> bool:
+        """
+        FIX CRITICAL-004: Thread-safe async перевірка URL.
+
+        Args:
+            url: URL для перевірки
+
+        Returns:
+            True якщо URL вже був побачений
+        """
+        async with self._seen_urls_lock:
+            return url in self.seen_urls
+
     def get_next(self) -> Optional[Node]:
         """
         Повертає наступний вузол для сканування (з найвищим пріоритетом).
 
-        
+        УВАГА: Для async batch mode використовуйте get_next_async() з lock.
 
         Returns:
             Вузол або None якщо черга порожня
@@ -249,6 +293,19 @@ class CrawlScheduler:
         priority, counter, node = heapq.heappop(self.queue)
         logger.debug(f"Getting next node: {node.url} (priority={-priority})")
         return node
+
+    async def get_next_async(self) -> Optional[Node]:
+        """
+        FIX CRITICAL-009: Thread-safe async версія get_next.
+        
+        Використовує lock для запобігання race conditions при batch mode
+        з asyncio.gather(). heapq.heappop() не є thread-safe, тому потрібен lock.
+
+        Returns:
+            Вузол або None якщо черга порожня
+        """
+        async with self._queue_lock:
+            return self.get_next()
 
     def _match_rule(self, url: str):
         """

@@ -89,8 +89,50 @@ class IPluginManager(Protocol):
         ...
 
 
+@runtime_checkable
+class ISimHashStrategy(Protocol):
+    """
+    Protocol для обчислення SimHash (Locality-Sensitive Hash).
+
+    SimHash використовується для знаходження ПОДІБНИХ документів (near-duplicates),
+    на відміну від SHA256 content_hash який знаходить ТОЧНІ дублікати.
+
+    Контракт:
+    - Метод повертає 64-бітний SimHash як hex string (16 символів)
+    - SimHash схожих документів матиме малу Hamming distance
+    - SimHash різних документів матиме велику Hamming distance
+
+    Example:
+        >>> class CustomSimHashStrategy:
+        ...     def compute_simhash(self, node: 'Node') -> str:
+        ...         # Кастомна логіка обчислення SimHash
+        ...         return simhash_hex_value  # 16 hex символів
+        >>>
+        >>> node.simhash_strategy = CustomSimHashStrategy()
+        >>> simhash = node.get_simhash()
+    """
+
+    def compute_simhash(self, node: Any) -> str:
+        """
+        Обчислює SimHash для ноди.
+
+        Контракт:
+        - MUST повертати hex string (16 символів для 64-бітного SimHash)
+        - MUST бути детермінованим (однакові дані → однаковий хеш)
+        - MUST викликатися тільки після process_html() (HTML_STAGE)
+
+        Args:
+            node: Node для якої обчислюється SimHash
+
+        Returns:
+            SimHash hex string (16 символів)
+        """
+        ...
+
+
 __all__ = [
     "INodePluginType",
     "INodePluginContext",
     "IPluginManager",
+    "ISimHashStrategy",
 ]

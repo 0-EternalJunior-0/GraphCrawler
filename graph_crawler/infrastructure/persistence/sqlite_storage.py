@@ -123,6 +123,7 @@ class SQLiteStorage(BaseStorage):
                     user_data TEXT,
                     response_status INTEGER,
                     content_hash TEXT,
+                    simhash TEXT,
                     priority INTEGER,
                     created_at TEXT,
                     lifecycle_stage TEXT
@@ -220,6 +221,7 @@ class SQLiteStorage(BaseStorage):
                             json.dumps(node_dto.user_data),
                             node_dto.response_status,
                             node_dto.content_hash,
+                            node_dto.simhash,
                             node_dto.priority,
                             node_dto.created_at.isoformat(),
                             node_dto.lifecycle_stage,
@@ -229,9 +231,9 @@ class SQLiteStorage(BaseStorage):
                 await cursor.executemany(
                     """
                     INSERT INTO nodes (node_id, url, depth, scanned, should_scan, can_create_edges,
-                                       metadata, user_data, response_status, content_hash, priority,
+                                       metadata, user_data, response_status, content_hash, simhash, priority,
                                        created_at, lifecycle_stage)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     nodes_data,
                 )
@@ -280,6 +282,7 @@ class SQLiteStorage(BaseStorage):
                             json.dumps(node_dto.user_data),
                             node_dto.response_status,
                             node_dto.content_hash,
+                            node_dto.simhash,
                             node_dto.priority,
                             node_dto.created_at.isoformat(),
                             node_dto.lifecycle_stage,
@@ -289,9 +292,9 @@ class SQLiteStorage(BaseStorage):
                 cursor.executemany(
                     """
                     INSERT INTO nodes (node_id, url, depth, scanned, should_scan, can_create_edges,
-                                       metadata, user_data, response_status, content_hash, priority,
+                                       metadata, user_data, response_status, content_hash, simhash, priority,
                                        created_at, lifecycle_stage)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     nodes_data,
                 )
@@ -406,9 +409,10 @@ class SQLiteStorage(BaseStorage):
                         user_data=json.loads(row[7]) if row[7] else {},
                         response_status=row[8],
                         content_hash=row[9],
-                        priority=row[10],
-                        created_at=row[11],
-                        lifecycle_stage=row[12],
+                        simhash=row[10],
+                        priority=row[11],
+                        created_at=row[12],
+                        lifecycle_stage=row[13],
                     )
                     nodes_dtos.append(node_dto)
 
@@ -441,6 +445,7 @@ class SQLiteStorage(BaseStorage):
                         user_data=json.loads(row["user_data"]) if row["user_data"] else {},
                         response_status=row["response_status"],
                         content_hash=row["content_hash"],
+                        simhash=row["simhash"],
                         priority=row["priority"],
                         created_at=row["created_at"],
                         lifecycle_stage=row["lifecycle_stage"],

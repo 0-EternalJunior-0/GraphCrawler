@@ -52,8 +52,8 @@ class NodeMapper:
     _BASE_NODE_FIELDS: FrozenSet[str] = frozenset({
         'url', 'node_id', 'depth', 'should_scan', 'can_create_edges',
         'created_at', 'metadata', 'user_data', 'scanned', 'response_status',
-        'content_hash', 'priority', 'lifecycle_stage', 'plugin_manager',
-        'tree_parser', 'hash_strategy'
+        'content_hash', 'simhash', 'priority', 'lifecycle_stage', 'plugin_manager',
+        'tree_parser', 'hash_strategy', 'simhash_strategy'
     })
 
     @staticmethod
@@ -132,6 +132,7 @@ class NodeMapper:
             metadata=node.metadata.copy(),
             user_data=user_data,
             content_hash=node.content_hash,
+            simhash=node.simhash,
             priority=node.priority,
             created_at=node.created_at,
             lifecycle_stage=lifecycle_stage_str,
@@ -203,6 +204,7 @@ class NodeMapper:
             'metadata': node_dto.metadata.copy(),
             'user_data': user_data,
             'content_hash': node_dto.content_hash,
+            'simhash': node_dto.simhash,
             'priority': node_dto.priority,
             'created_at': node_dto.created_at,
             'lifecycle_stage': lifecycle_stage,
@@ -210,6 +212,7 @@ class NodeMapper:
             'plugin_manager': context.get("plugin_manager"),
             'tree_parser': context.get("tree_parser"),
             'hash_strategy': context.get("hash_strategy"),
+            'simhash_strategy': context.get("simhash_strategy"),
         }
 
         # Відновлюємо кастомні поля якщо node_class їх підтримує
