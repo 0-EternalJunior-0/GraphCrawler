@@ -1,0 +1,11 @@
+# Virtual environment
+venv/
+
+# MkDocs site output
+site/
+temp_site/
+
+# IDE files
+.idea/
+*.pyc
+__pycache__/
