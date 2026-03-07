@@ -91,13 +91,13 @@ graph = gc.crawl(
 
 ```bash
 # Worker 1
-celery -A graph_crawler.distributed worker --loglevel=info -n worker1@%h
+celery -A graph_crawler worker --loglevel=info -n worker1@%h
 
 # Worker 2
-celery -A graph_crawler.distributed worker --loglevel=info -n worker2@%h
+celery -A graph_crawler worker --loglevel=info -n worker2@%h
 
 # Worker N
-celery -A graph_crawler.distributed worker --loglevel=info -n workerN@%h
+celery -A graph_crawler worker --loglevel=info -n workerN@%h
 ```
 
 ---
@@ -132,7 +132,7 @@ services:
   # Coordinator
   coordinator:
     build: .
-    command: python -m graph_crawler.distributed.coordinator
+    command: python -m graph_crawler.infrastructure.messaging.coordinator
     environment:
       - REDIS_HOST=redis
       - MONGO_HOST=mongodb
@@ -143,7 +143,7 @@ services:
   # Workers
   worker:
     build: .
-    command: celery -A graph_crawler.distributed worker --loglevel=info
+    command: celery -A graph_crawler worker --loglevel=info
     environment:
       - REDIS_HOST=redis
       - MONGO_HOST=mongodb
@@ -157,7 +157,7 @@ services:
   # Flower (Monitoring)
   flower:
     build: .
-    command: celery -A graph_crawler.distributed flower --port=5555
+    command: celery -A graph_crawler flower --port=5555
     ports:
       - "5555:5555"
     depends_on:
@@ -245,28 +245,31 @@ config = {
 ### Flower Dashboard
 
 ```bash
-celery -A graph_crawler.distributed flower --port=5555
+celery -A graph_crawler flower --port=5555
 ```
 
 Доступ: http://localhost:5555
 
 ### Programmatic Monitoring
 
+Використовуйте `EasyDistributedCrawler` для моніторингу:
+
 ```python
-from graph_crawler.distributed import DistributedCrawler
+from graph_crawler import EasyDistributedCrawler
 
-crawler = DistributedCrawler(config)
+crawler = EasyDistributedCrawler(
+    redis_url="redis://localhost:6379/0",
+    mongo_url="mongodb://localhost:27017/crawler",
+)
 
-# Статус завдань
-status = crawler.get_status()
-print(f"Pending tasks: {status['pending']}")
-print(f"Active tasks: {status['active']}")
-print(f"Completed: {status['completed']}")
+# Запуск краулінгу
+job_id = crawler.start("https://example.com", max_pages=100000)
 
-# Статистика воркерів
-workers = crawler.get_workers()
-for worker in workers:
-    print(f"{worker['name']}: {worker['tasks_completed']} tasks")
+# Перевірка статусу
+status = crawler.get_status(job_id)
+print(f"Pending tasks: {status.get('pending', 0)}")
+print(f"Active tasks: {status.get('active', 0)}")
+print(f"Completed: {status.get('completed', 0)}")
 ```
 
 ---
@@ -323,7 +326,7 @@ print(f"Crawled {len(graph.nodes)} pages")
 Спрощений API для розподіленого краулінгу:
 
 ```python
-from graph_crawler.distributed import EasyDistributedCrawler
+from graph_crawler import EasyDistributedCrawler
 
 crawler = EasyDistributedCrawler(
     redis_url="redis://localhost:6379/0",

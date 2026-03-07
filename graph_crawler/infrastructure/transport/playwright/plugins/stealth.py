@@ -6,11 +6,9 @@ Stealth плагін для Playwright драйвера.
 """
 
 import logging
-import random
-from typing import Any, Dict, List
+from typing import List
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
-from graph_crawler.infrastructure.transport.context import EventPriority
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
 from graph_crawler.infrastructure.transport.playwright.stages import BrowserStage
 

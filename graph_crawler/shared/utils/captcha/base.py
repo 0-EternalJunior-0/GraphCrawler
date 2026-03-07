@@ -65,3 +65,28 @@ class SessionInfo:
         if total == 0:
             return 0.0
         return (self.success_count / total) * 100
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Серіалізація в dict для JSON (безпечна альтернатива pickle)."""
+        return {
+            "url": self.url,
+            "cookies": self.cookies,
+            "headers": self.headers,
+            "created_at": self.created_at.isoformat(),
+            "last_used": self.last_used.isoformat(),
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SessionInfo":
+        """Десеріалізація з dict (безпечна альтернатива pickle)."""
+        return cls(
+            url=data["url"],
+            cookies=data["cookies"],
+            headers=data["headers"],
+            created_at=datetime.fromisoformat(data["created_at"]),
+            last_used=datetime.fromisoformat(data["last_used"]),
+            success_count=data.get("success_count", 0),
+            failure_count=data.get("failure_count", 0),
+        )

@@ -63,11 +63,18 @@ def crawl(
     edge_strategy: str = "all",
     wrapper: Optional[dict] = None,
     follow_links: bool = True,
+    # LOW-MEMORY MODE
+    low_memory_mode: bool = False,
+    evict_threshold: int = 500,
+    eviction_storage_path: Optional[str] = None,
 ) -> Graph:
     """
     Краулінг веб-сайту - СИНХРОННИЙ, простий як requests.
 
      DISTRIBUTED MODE: Додай `wrapper` для автоматичного розподіленого краулінгу!
+     
+     LOW-MEMORY MODE: Для великих краулінгів (10k+ сторінок) активуй `low_memory_mode=True`
+     для автоматичного eviction scanned нод на диск.
 
     Args:
         url: URL веб-сайту для краулінгу (використовується якщо seed_urls не передано)
@@ -94,6 +101,9 @@ def crawl(
         wrapper: Конфігурація distributed crawling (broker + database)
         follow_links: Переходити за посиланнями на сторінках (default: True).
                      False = сканувати тільки seed URL без переходу за посиланнями
+        low_memory_mode: Активувати eviction scanned нод на диск (default: False)
+        evict_threshold: Максимум нод в RAM перед eviction (default: 500)
+        eviction_storage_path: Директорія для eviction storage
 
     Returns:
         Graph: Побудований граф веб-сайту
@@ -117,14 +127,14 @@ def crawl(
         >>> # День 1: початковий краулінг
         >>> graph1 = crawl("https://example.com")
         >>> # Зберегти граф...
-        >>> 
+        >>>
         >>> # День 2: продовжити краулінг
         >>> graph2 = crawl(base_graph=graph1, max_pages=100)
 
         Комбінація: граф з сайтмапи + нові URL (NEW):
         >>> sitemap_graph = crawl_sitemap("https://example.com")
         >>> # Видалити непотрібні ноди...
-        >>> filtered_graph = ... 
+        >>> filtered_graph = ...
         >>> # Продовжити краулінг від залишкових
         >>> result = crawl(base_graph=filtered_graph, seed_urls=["https://example.com/new"])
 
@@ -171,30 +181,34 @@ def crawl(
     from graph_crawler.api._core import async_crawl_impl
 
     # Параметри для async_crawl_impl
-    crawl_kwargs = dict(
-        url=url,
-        seed_urls=seed_urls,
-        base_graph=base_graph,
-        max_depth=max_depth,
-        max_pages=max_pages,
-        same_domain=same_domain,
-        timeout=timeout,
-        request_delay=request_delay,
-        driver=driver,
-        driver_config=driver_config,
-        storage=storage,
-        storage_config=storage_config,
-        plugins=plugins,
-        node_class=node_class,
-        edge_class=edge_class,
-        url_rules=url_rules,
-        on_progress=on_progress,
-        on_node_scanned=on_node_scanned,
-        on_error=on_error,
-        on_completed=on_completed,
-        edge_strategy=edge_strategy,
-        follow_links=follow_links,
-    )
+    crawl_kwargs = {
+        "url": url,
+        "seed_urls": seed_urls,
+        "base_graph": base_graph,
+        "max_depth": max_depth,
+        "max_pages": max_pages,
+        "same_domain": same_domain,
+        "timeout": timeout,
+        "request_delay": request_delay,
+        "driver": driver,
+        "driver_config": driver_config,
+        "storage": storage,
+        "storage_config": storage_config,
+        "plugins": plugins,
+        "node_class": node_class,
+        "edge_class": edge_class,
+        "url_rules": url_rules,
+        "on_progress": on_progress,
+        "on_node_scanned": on_node_scanned,
+        "on_error": on_error,
+        "on_completed": on_completed,
+        "edge_strategy": edge_strategy,
+        "follow_links": follow_links,
+        # LOW-MEMORY MODE
+        "low_memory_mode": low_memory_mode,
+        "evict_threshold": evict_threshold,
+        "eviction_storage_path": eviction_storage_path,
+    }
 
     # Handle nested event loops (e.g., Jupyter, pytest-asyncio)
     try:
@@ -211,15 +225,15 @@ def crawl(
             return loop.run_until_complete(async_crawl_impl(**crawl_kwargs))
         except ImportError:
             pass
-        
+
         # Strategy 2: Run in separate thread (fallback)
         # Use a shared executor to avoid creating new threads for each call
         import concurrent.futures
-        
+
         def _run_in_new_loop():
             """Run async code in a fresh event loop in this thread."""
             return asyncio.run(async_crawl_impl(**crawl_kwargs))
-        
+
         # ThreadPoolExecutor with max_workers=None uses optimal thread count
         with concurrent.futures.ThreadPoolExecutor(max_workers=None) as executor:
             future = executor.submit(_run_in_new_loop)
@@ -228,7 +242,7 @@ def crawl(
                 result_timeout = (timeout + 30) if timeout else None
                 return future.result(timeout=result_timeout)
             except concurrent.futures.TimeoutError:
-                logger.warning(f"Crawl exceeded timeout in nested event loop")
+                logger.warning("Crawl exceeded timeout in nested event loop")
                 raise TimeoutError(f"Crawl operation timed out after {timeout}s")
     else:
         return asyncio.run(async_crawl_impl(**crawl_kwargs))
@@ -537,11 +551,11 @@ async def _crawl_sitemap_impl(
 
         logger.info(f"Sitemap crawl completed: {spider.get_stats()}")
         return graph
-    
+
     except asyncio.TimeoutError:
         logger.warning(f"Sitemap crawl timeout after {timeout}s, returning partial results")
         return spider.graph
-    
+
     except asyncio.CancelledError:
         logger.warning("Sitemap crawl cancelled, returning partial results")
         return spider.graph

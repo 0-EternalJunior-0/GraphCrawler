@@ -18,23 +18,23 @@ Crawl Engine плагіни працюють на вищому рівні ніж
     ...     VectorCrawlEnginePlugin,
     ...     EnginePriorityProvider
     ... )
-    >>> 
+    >>>
     >>> # Створюємо ML плагін
     >>> ml_plugin = SmartCrawlEnginePlugin(
     ...     search_prompt="Шукаю контент про Гаррі Поттера",
     ...     config={'min_relevance_score': 0.7}
     ... )
-    >>> 
+    >>>
     >>> # Або векторний плагін для пошуку вакансій
     >>> vector_plugin = VectorCrawlEnginePlugin(
     ...     keywords=['jobs', 'vacancy', 'career', 'робота', 'вакансія'],
     ...     min_priority=1,
     ...     max_priority=6,
     ... )
-    >>> 
+    >>>
     >>> # Створюємо provider для Scheduler
     >>> provider = EnginePriorityProvider(plugins=[ml_plugin])
-    >>> 
+    >>>
     >>> # Краулер автоматично використає пріоритизацію
     >>> graph = gc.crawl("https://example.com", engine_plugins=[ml_plugin])
 

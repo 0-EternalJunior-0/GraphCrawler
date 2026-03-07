@@ -13,12 +13,11 @@ Architecture:
 """
 
 import asyncio
-import json
 import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from graph_crawler.api.crawl_monitor import CrawlMonitor

@@ -28,7 +28,7 @@
 import logging
 import threading
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 class MergeContext:
     """
     Контекст для однієї merge операції.
-    
+
     Attributes:
         strategy: Стратегія merge ('first', 'last', 'merge', 'newest', 'oldest', 'custom')
         custom_merge_fn: Кастомна функція для 'custom' стратегії
@@ -47,7 +47,7 @@ class MergeContext:
     strategy: str = "last"
     custom_merge_fn: Optional[Callable] = None
     source: str = "default"
-    
+
     def __post_init__(self):
         """Валідація після створення."""
         valid_strategies = ['first', 'last', 'merge', 'newest', 'oldest', 'custom']
@@ -56,7 +56,7 @@ class MergeContext:
                 f"Invalid merge strategy: {self.strategy}. "
                 f"Valid: {valid_strategies}"
             )
-        
+
         if self.strategy == 'custom' and self.custom_merge_fn is None:
             raise ValueError(
                 "custom_merge_fn is required for 'custom' strategy"
@@ -66,33 +66,33 @@ class MergeContext:
 class MergeContextManager:
     """
     Thread-local стек контекстів для merge операцій.
-    
+
     Дозволяє вкладені контексти:
     >>> with with_merge_strategy('merge'):
     ...     # Тут стратегія 'merge'
     ...     with with_merge_strategy('newest'):
     ...         # Тут стратегія 'newest'
     ...     # Знову 'merge'
-    
+
     Thread-safety:
     - Кожен thread має свій стек контекстів
     - Використовує threading.local()
     """
-    
+
     _local = threading.local()
-    
+
     @classmethod
     def _get_stack(cls) -> List[MergeContext]:
         """Отримує стек контекстів для поточного thread."""
         if not hasattr(cls._local, 'stack'):
             cls._local.stack = []
         return cls._local.stack
-    
+
     @classmethod
     def push(cls, context: MergeContext) -> None:
         """
         Додає контекст на стек.
-        
+
         Args:
             context: MergeContext для додавання
         """
@@ -102,12 +102,12 @@ class MergeContextManager:
             f"MergeContext pushed: {context.strategy} "
             f"(source={context.source}, depth={len(stack)})"
         )
-    
+
     @classmethod
     def pop(cls) -> Optional[MergeContext]:
         """
         Знімає контекст зі стеку.
-        
+
         Returns:
             Знятий MergeContext або None якщо стек порожній
         """
@@ -120,43 +120,43 @@ class MergeContextManager:
             )
             return context
         return None
-    
+
     @classmethod
     def current(cls) -> Optional[MergeContext]:
         """
         Повертає поточний контекст (top of stack).
-        
+
         Returns:
             Поточний MergeContext або None якщо стек порожній
         """
         stack = cls._get_stack()
         return stack[-1] if stack else None
-    
+
     @classmethod
     def get_strategy(cls) -> str:
         """
         Отримує поточну стратегію merge.
-        
+
         Пріоритет:
         1. Локальний контекст (якщо є)
         2. Глобальний дефолт з DependencyRegistry
-        
+
         Returns:
             Назва стратегії
         """
         context = cls.current()
         if context:
             return context.strategy
-        
+
         # Fallback до DependencyRegistry
         from graph_crawler.application.context.dependency_registry import DependencyRegistry
         return DependencyRegistry.get_default_merge_strategy()
-    
+
     @classmethod
     def get_custom_merge_fn(cls) -> Optional[Callable]:
         """
         Отримує кастомну функцію merge (якщо стратегія 'custom').
-        
+
         Returns:
             Callable або None
         """
@@ -164,18 +164,18 @@ class MergeContextManager:
         if context and context.strategy == 'custom':
             return context.custom_merge_fn
         return None
-    
+
     @classmethod
     def clear(cls) -> None:
         """
         Очищає стек контекстів для поточного thread.
-        
+
         Корисно для тестування.
         """
         if hasattr(cls._local, 'stack'):
             cls._local.stack = []
             logger.debug("MergeContext stack cleared")
-    
+
     @classmethod
     def depth(cls) -> int:
         """Повертає глибину стеку контекстів."""
@@ -190,18 +190,18 @@ def with_merge_strategy(
 ):
     """
     Context manager для тимчасової зміни merge strategy.
-    
+
     Дозволяє змінити стратегію для блоку коду, після чого
     автоматично повертається попередня стратегія.
-    
+
     Args:
         strategy: Стратегія merge
         custom_merge_fn: Кастомна функція для 'custom' стратегії
         source: Джерело контексту (для debugging)
-        
+
     Yields:
         MergeContext для поточного блоку
-        
+
     Example:
         >>> # Проста зміна стратегії
         >>> with with_merge_strategy('merge'):
@@ -228,7 +228,7 @@ def with_merge_strategy(
         custom_merge_fn=custom_merge_fn,
         source=source,
     )
-    
+
     MergeContextManager.push(context)
     try:
         yield context
@@ -239,12 +239,12 @@ def with_merge_strategy(
 def get_current_merge_strategy() -> str:
     """
     Shortcut для отримання поточної стратегії merge.
-    
+
     Використовуйте в коді де потрібно знати поточну стратегію.
-    
+
     Returns:
         Назва поточної стратегії
-        
+
     Example:
         >>> strategy = get_current_merge_strategy()
         >>> print(f"Using merge strategy: {strategy}")
@@ -255,7 +255,7 @@ def get_current_merge_strategy() -> str:
 def get_current_custom_merge_fn() -> Optional[Callable]:
     """
     Shortcut для отримання поточної кастомної функції merge.
-    
+
     Returns:
         Callable або None
     """

@@ -42,7 +42,7 @@ import socket
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ class DNSCache:
             # Зберігаємо в кеш
             if result:
                 # Витягуємо IP адреси з результату
-                ip_addresses = list(set(addr[4][0] for addr in result))
+                ip_addresses = list({addr[4][0] for addr in result})
 
                 # Перевіряємо розмір кешу
                 if len(self._cache) >= self.max_cache_size:

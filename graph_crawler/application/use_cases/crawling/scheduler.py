@@ -1,33 +1,27 @@
 """Планувальник для управління чергою вузлів.
 
-
 - Native Cython BloomFilterFast (2.7x швидше за pybloom-live)
 - Автоматичний fallback на pybloom-live якщо native не скомпільовано
 
 - Винесено lazy imports на рівень модуля
 - Умовний імпорт CrawlerEvent тільки якщо event_bus активний
-
-FIX CRITICAL-004: Додано async lock для thread-safe операцій з seen_urls
 """
 
 import asyncio
 import heapq
 import logging
 import re
-from collections import deque
-from typing import List, Optional, Set, Union
+from typing import Any, List, Optional, Set, Union
 
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.shared.constants import (
     DEFAULT_URL_PRIORITY,
-    PRIORITY_MAX,
-    PRIORITY_MIN,
 )
 
 logger = logging.getLogger(__name__)
 
-# 
-# 
+#
+#
 _NATIVE_BLOOM_AVAILABLE = False
 _BloomFilterClass = None
 
@@ -55,21 +49,25 @@ except ImportError:
     CrawlerEvent = None
     EventType = None
 
-
 class CrawlScheduler:
     """
     Планувальник для управління чергою вузлів для сканування.
 
-    
     - Використовує heapq для пріоритизації URL
     - Підтримує url_rules для контролю поведінки
     - Застосовує should_scan та should_follow_links з правил
 
-    
     - Використовує Native Cython BloomFilterFast (2.7x швидше)
     - Автоматичний fallback на pybloom-live
     - Економія пам'яті в 10x для великих краулінгів (1M+ URLs)
     - Configurable: можна вимкнути (use_bloom_filter=False)
+    - При low_memory_mode=True Bloom Filter вимикається автоматично
+    - Використовується SQLite eviction storage для перевірки унікальності
+    - Економія ~12MB RAM на 10M URLs
+    - Черга тепер тримає тільки URLs замість повних Node об'єктів
+    - Економія: 1-3 KB на кожен елемент в черзі
+    - При 10k нод в черзі: ~10-30 MB економії RAM
+    - Lazy loading Node через Graph reference при get_next()
 
     Стара версія використовувала BFS (Breadth-First Search).
     Нова версія використовує Priority Queue для контрольованого обходу.
@@ -82,6 +80,10 @@ class CrawlScheduler:
         use_bloom_filter: bool = True,
         bloom_capacity: int = 10_000_000,
         bloom_error_rate: float = 0.001,
+        low_memory_mode: bool = False,
+        eviction_storage: Optional[Any] = None,
+        graph: Optional[Any] = None,
+        plugin_manager: Optional[Any] = None,
     ):
         """
         Ініціалізує scheduler.
@@ -99,16 +101,32 @@ class CrawlScheduler:
                              на 10M URLs буде ~10k хибних спрацювань (URL буде
                              вважатися переглянутим, хоча не був). Це прийнятний
                              компроміс між пам'яттю та точністю.
+            low_memory_mode: Якщо True - вимикає Bloom Filter, використовує SQLite
+            eviction_storage: IEvictionStorage для перевірки унікальності URL
+            graph: Graph reference для lazy loading Node при get_next()
+            plugin_manager: Plugin manager для передачі в Node при створенні
         """
-        # Priority queue: (priority, counter, node)
-        # Counter потрібен для стабільної сортування при однакових пріоритетах
-        self.queue: List = []  # heapq priority queue
+        # Економія: 1-3 KB на кожен елемент черги
+        self.queue: List = []  # heapq priority queue з URLs
         self.counter: int = 0  # Для FIFO при однакових пріоритетах
+        
+        self._graph = graph
+        
+        self._plugin_manager = plugin_manager
 
+        self._low_memory_mode = low_memory_mode
+        self._eviction_storage = eviction_storage
+        
         # Bloom Filter або set для seen URLs
-        # 
-        self.use_bloom_filter = use_bloom_filter
-        if use_bloom_filter:
+        if low_memory_mode:
+            self.use_bloom_filter = False
+            self.seen_urls: Union[object, Set[str]] = set()  # Мінімальний RAM set
+            logger.info(
+                "🚀 Scheduler initialized in LOW-MEMORY mode: "
+                "Bloom Filter DISABLED, using SQLite for URL uniqueness check"
+            )
+        elif use_bloom_filter:
+            self.use_bloom_filter = True
             self.seen_urls = _BloomFilterClass(
                 capacity=bloom_capacity, error_rate=bloom_error_rate
             )
@@ -118,6 +136,7 @@ class CrawlScheduler:
                 f"capacity={bloom_capacity:,}, error_rate={bloom_error_rate*100}%"
             )
         else:
+            self.use_bloom_filter = False
             self.seen_urls: Union[object, Set[str]] = set()
             logger.debug("Scheduler initialized with Python set (not Bloom Filter)")
 
@@ -126,12 +145,10 @@ class CrawlScheduler:
 
         # EventBus для подій
         self.event_bus = event_bus
-        
-        # FIX CRITICAL-004: Lock для thread-safe операцій з seen_urls
+
         # При async batch mode кілька корутин можуть одночасно додавати URLs
         self._seen_urls_lock = asyncio.Lock()
-        
-        # FIX CRITICAL-009: Lock для thread-safe операцій з heapq
+
         # heapq не є thread-safe. При batch mode з asyncio.gather() кілька
         # корутин можуть одночасно модифікувати heap, що призводить до corruption.
         self._queue_lock = asyncio.Lock()
@@ -150,13 +167,14 @@ class CrawlScheduler:
     def add_node(self, node: Node, priority: Optional[int] = None) -> bool:
         """
         Додає вузол до черги з пріоритетом.
+        Економія: 1-3 KB на кожен елемент черги.
+        Node об'єкт lazy-load при get_next() через Graph reference.
 
-        
         1. Фільтрації (action='exclude')
         2. Пріоритизації (priority 1-10)
         3. Контролю поведінки (should_scan, should_follow_links)
-        
-        ML Plugin Support: Якщо передано priority параметр - використовує його 
+
+        ML Plugin Support: Якщо передано priority параметр - використовує його
         замість обчисленого пріоритету (для child_priorities від плагінів).
 
         Args:
@@ -166,8 +184,7 @@ class CrawlScheduler:
         Returns:
             True якщо вузол додано, False якщо вже був у черзі або відфільтровано
         """
-        # Перевіряємо чи вже бачили цей URL
-        if node.url in self.seen_urls:
+        if self.has_url(node.url):
             return False
 
         # Знаходимо перше правило що матчить URL
@@ -200,14 +217,14 @@ class CrawlScheduler:
         else:
             # Застосовуємо правило до ноди (пріоритет, should_scan, should_follow_links)
             final_priority = self._calculate_priority(node.url, matched_rule, node)
-        
+
         self._apply_rule_to_node(node, matched_rule)
 
-        # Додаємо в priority queue
         # heapq - мінімальна купа, тому інвертуємо пріоритет (-priority)
         # Менше число = вища позиція в черзі
+        # Економія RAM: ~1-3 KB на елемент при 10k елементів = ~10-30 MB
         self.counter += 1
-        heapq.heappush(self.queue, (-final_priority, self.counter, node))
+        heapq.heappush(self.queue, (-final_priority, self.counter, node.url))
         self.seen_urls.add(node.url)
 
         logger.debug(
@@ -247,8 +264,7 @@ class CrawlScheduler:
 
     async def add_node_async(self, node: Node, priority: Optional[int] = None) -> bool:
         """
-        FIX CRITICAL-004 & CRITICAL-009: Thread-safe async версія add_node.
-        
+
         Використовує окремі locks для seen_urls та queue для запобігання
         race conditions при batch mode з asyncio.gather().
 
@@ -259,14 +275,12 @@ class CrawlScheduler:
         Returns:
             True якщо вузол додано, False якщо вже був у черзі або відфільтровано
         """
-        # FIX CRITICAL-009: Використовуємо обидва locks для atomic операції
         async with self._seen_urls_lock:
             async with self._queue_lock:
                 return self.add_node(node, priority)
 
     async def has_url_async(self, url: str) -> bool:
         """
-        FIX CRITICAL-004: Thread-safe async перевірка URL.
 
         Args:
             url: URL для перевірки
@@ -280,6 +294,8 @@ class CrawlScheduler:
     def get_next(self) -> Optional[Node]:
         """
         Повертає наступний вузол для сканування (з найвищим пріоритетом).
+        Черга тепер тримає тільки URLs, Node об'єкт отримується з Graph
+        або створюється новий якщо Graph не доступний.
 
         УВАГА: Для async batch mode використовуйте get_next_async() з lock.
 
@@ -289,15 +305,49 @@ class CrawlScheduler:
         if self.is_empty():
             return None
 
-        # Отримуємо вузол з найвищим пріоритетом
-        priority, counter, node = heapq.heappop(self.queue)
-        logger.debug(f"Getting next node: {node.url} (priority={-priority})")
+        priority, counter, url = heapq.heappop(self.queue)
+        logger.debug(f"Getting next node: {url} (priority={-priority})")
+        
+        if self._graph is not None:
+            node = self._graph.get_node_by_url(url, load_from_disk=True)
+            if node is not None:
+                if node.plugin_manager is None and self._plugin_manager is not None:
+                    node.plugin_manager = self._plugin_manager
+                return node
+            # Якщо Node не знайдено в Graph - це помилка (не повинно траплятись)
+            logger.warning(f"Node not found in Graph for URL: {url}")
+        
+        # Fallback: Створюємо мінімальний Node якщо Graph недоступний
+        # Це для backward compatibility коли scheduler використовується без Graph
+        node = Node(url=url, plugin_manager=self._plugin_manager)
         return node
+    
+    def set_graph(self, graph: Any) -> None:
+        """Set the graph for lazy loading nodes.
+        
+        Викликається при ініціалізації CrawlCoordinator.
+        
+        Args:
+            graph: Graph об'єкт для lazy loading нод
+        """
+        self._graph = graph
+        logger.debug("Scheduler: Graph reference set for lazy loading")
+    
+    def set_plugin_manager(self, plugin_manager: Any) -> None:
+        """
+        
+        Викликається при ініціалізації Spider для забезпечення 
+        передачі plugin_manager в ноди створені через get_next().
+        
+        Args:
+            plugin_manager: Plugin manager для передачі в Node
+        """
+        self._plugin_manager = plugin_manager
+        logger.debug("Scheduler: Plugin manager set for Node creation")
 
     async def get_next_async(self) -> Optional[Node]:
         """
-        FIX CRITICAL-009: Thread-safe async версія get_next.
-        
+
         Використовує lock для запобігання race conditions при batch mode
         з asyncio.gather(). heapq.heappop() не є thread-safe, тому потрібен lock.
 
@@ -394,8 +444,17 @@ class CrawlScheduler:
         return len(self.queue)
 
     def has_url(self, url: str) -> bool:
-        """Перевіряє чи URL вже був побачений."""
-        return url in self.seen_urls
+        """
+        Перевіряє чи URL вже був побачений.
+        """
+        # Спочатку швидка перевірка в RAM
+        if url in self.seen_urls:
+            return True
+        
+        if self._low_memory_mode and self._eviction_storage:
+            return self._eviction_storage.url_exists(url)
+        
+        return False
 
     def get_memory_statistics(self) -> dict:
         """

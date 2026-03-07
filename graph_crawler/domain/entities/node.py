@@ -20,20 +20,16 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 # Це вирішує circular imports через Dependency Inversion Principle
 from graph_crawler.domain.interfaces.node_interfaces import (
-    INodePluginContext,
-    INodePluginType,
     IPluginManager,
-    ISimHashStrategy,
 )
 from graph_crawler.domain.value_objects.lifecycle import (
     NodeLifecycle,
     NodeLifecycleError,
 )
 from graph_crawler.domain.value_objects.models import ContentType
-from graph_crawler.infrastructure.adapters.base import BaseTreeAdapter
 
 if TYPE_CHECKING:
-    from graph_crawler.extensions.plugins.node import NodePluginContext, NodePluginType
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +38,7 @@ logger = logging.getLogger(__name__)
 def _detect_free_threading() -> bool:
     """
     Визначає чи Python 3.14 free-threading enabled.
-    
+
     Returns:
         True якщо GIL disabled (free-threading mode)
         False якщо GIL enabled або Python < 3.14
@@ -50,7 +46,6 @@ def _detect_free_threading() -> bool:
     if not hasattr(sys, '_is_gil_enabled'):
         return False
     return not sys._is_gil_enabled()
-
 
 _is_free_threaded = _detect_free_threading()
 
@@ -72,49 +67,93 @@ else:
         f"(Python {sys.version_info.major}.{sys.version_info.minor})"
     )
 
+_parser_thread_lock = threading.Lock()
+_parser_thread_parsers: Dict[int, Any] = {}
 
 def _init_parser_thread():
     """
     Ініціалізує parser resources для кожного thread (Python 3.14 optimization).
-    
+    Раніше два потоки могли одночасно ініціалізувати parsers = {},
+    перезаписуючи один одного.
+
     В free-threaded режимі кожен thread має свій:
     - lxml parser instance (уникаємо contention)
     - BeautifulSoup cache
     - Thread-local buffer
-    
+
     Це дає 2-4x speedup для batch HTML parsing!
     """
-    thread_id = threading.get_ident()
-    
-    if not hasattr(_init_parser_thread, 'parsers'):
-        _init_parser_thread.parsers = {}
-    
-    # Створюємо parser для цього thread
-    try:
-        from lxml import etree
-        parser = etree.HTMLParser(
-            remove_blank_text=True,
-            remove_comments=True,
-            encoding='utf-8',
-            huge_tree=False,  # Security
-        )
-        _init_parser_thread.parsers[thread_id] = parser
-        logger.debug(
-            f"Parser initialized for thread {thread_id} "
-            f"(free_threaded={_is_free_threaded})"
-        )
-    except ImportError:
-        logger.warning("lxml not available, falling back to html.parser")
+    global _parser_thread_parsers
 
+    thread_id = threading.get_ident()
+
+    with _parser_thread_lock:
+        if thread_id in _parser_thread_parsers:
+            return  # Вже ініціалізовано для цього thread
+
+        # Створюємо parser для цього thread
+        try:
+            from lxml import etree
+            parser = etree.HTMLParser(
+                remove_blank_text=True,
+                remove_comments=True,
+                encoding='utf-8',
+                huge_tree=False,  # Security
+            )
+            _parser_thread_parsers[thread_id] = parser
+            logger.debug(
+                f"Parser initialized for thread {thread_id} "
+                f"(free_threaded={_is_free_threaded})"
+            )
+        except ImportError:
+            logger.warning("lxml not available, falling back to html.parser")
 
 # ============ THREAD POOL для HTML PARSING (PYTHON 3.14 OPTIMIZED) ============
 import atexit
 
-# FIX CRITICAL-007: Обмежуємо чергу завдань для ThreadPoolExecutor
 # При batch з 1000 URL без ліміту всі завдання одразу ставляться в чергу,
 # що може з'їсти RAM якщо HTML великі. BoundedSemaphore обмежує кількість
 # одночасних завдань до max_workers * 2.
-_html_executor_semaphore = asyncio.Semaphore(_max_html_workers * 2)
+
+# asyncio.Semaphore не можна створювати на рівні модуля без event loop!
+# Використовуємо lazy initialization при першому async виклику.
+_html_executor_semaphore: Optional[asyncio.Semaphore] = None
+_html_executor_semaphore_loop_id: Optional[int] = None
+_semaphore_lock = threading.Lock()
+
+def _get_html_executor_semaphore() -> asyncio.Semaphore:
+    """
+    asyncio.Semaphore повинен створюватись в контексті running event loop.
+    Цей метод забезпечує thread-safe lazy initialization.
+    
+
+    Returns:
+        asyncio.Semaphore для обмеження черги HTML парсера
+    """
+    global _html_executor_semaphore, _html_executor_semaphore_loop_id
+
+    try:
+        current_loop = asyncio.get_running_loop()
+        current_loop_id = id(current_loop)
+    except RuntimeError:
+        # Немає running loop - створимо semaphore, він буде прив'язаний до наступного loop
+        current_loop_id = None
+
+    # Перевіряємо чи потрібно створити новий semaphore
+    need_new_semaphore = (
+        _html_executor_semaphore is None or
+        (current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id)
+    )
+
+    if need_new_semaphore:
+        with _semaphore_lock:
+            # Double-check locking pattern
+            if _html_executor_semaphore is None or (current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id):
+                _html_executor_semaphore = asyncio.Semaphore(_max_html_workers * 2)
+                _html_executor_semaphore_loop_id = current_loop_id
+                logger.debug(f"Created new HTML executor semaphore for event loop {current_loop_id}")
+
+    return _html_executor_semaphore
 
 _html_executor = ThreadPoolExecutor(
     max_workers=_max_html_workers,
@@ -133,10 +172,8 @@ logger.info(
     f"python={sys.version_info.major}.{sys.version_info.minor}"
 )
 
-
 # ============ АБСТРАКЦІЇ ============
 # Dependency Inversion Principle: Node залежить від абстракцій, не конкретних реалізацій
-
 
 class ITreeAdapter(Protocol):
     """
@@ -154,7 +191,6 @@ class ITreeAdapter(Protocol):
     def parse(self, html: str) -> Any:
         """Парсить HTML в дерево."""
         ...
-
 
 class IContentHashStrategy(Protocol):
     """
@@ -191,7 +227,6 @@ class IContentHashStrategy(Protocol):
             SHA256 hex digest string (64 символи)
         """
         ...
-
 
 class ISimHashStrategyLocal(Protocol):
     """
@@ -231,7 +266,6 @@ class ISimHashStrategyLocal(Protocol):
             SimHash hex string (16 символів)
         """
         ...
-
 
 class Node(BaseModel):
     """
@@ -472,41 +506,54 @@ class Node(BaseModel):
     def _parse_html_sync(self, html: str) -> Tuple[Any, Any]:
         """
         Синхронний парсинг HTML в дерево через adapter.
-        
+
         Використовується через ThreadPoolExecutor для не блокування event loop.
-        
+
+        🔒 FIX RACE CONDITION: Тепер створюємо НОВИЙ parser instance для кожного виклику!
+        Раніше використовувався singleton get_default_parser(), що призводило до race condition
+        коли кілька нод паралельно викликали parser.parse(html) і перезаписували self._tree.
+
         Args:
             html: HTML контент
-            
+
         Returns:
             Tuple (parser, html_tree)
         """
         if self.tree_parser is None:
-            from graph_crawler.infrastructure.adapters import get_default_parser
-
-            parser = get_default_parser()
+            # Parser factory must be set during application bootstrap via set_parser_factory()
+            from graph_crawler.domain.interfaces.parser import create_parser
+            
+            parser = create_parser()
+            
+            if parser is None:
+                raise RuntimeError(
+                    "Parser factory not configured (Clean Architecture violation). "
+                    "Call set_parser_factory() during application bootstrap:\n"
+                    "  from graph_crawler.domain.interfaces.parser import set_parser_factory\n"
+                    "  from graph_crawler.infrastructure.adapters import BeautifulSoupAdapter\n"
+                    "  set_parser_factory(lambda: BeautifulSoupAdapter())"
+                )
         else:
             parser = self.tree_parser
 
         html_tree = parser.parse(html)
         return parser, html_tree
-    
+
     async def _parse_html_async(self, html: str) -> Tuple[Any, Any]:
         """
         Async парсинг HTML через ThreadPoolExecutor з обмеженою чергою.
-        
-        FIX CRITICAL-007: Використовує semaphore для обмеження кількості
         одночасних завдань в черзі executor'а. Це запобігає OOM при batch
         з 1000+ URL з великими HTML.
-        
+
         Args:
             html: HTML контент
-            
+
         Returns:
             Tuple (parser, html_tree)
         """
-        # FIX CRITICAL-007: Обмежуємо чергу завдань через semaphore
-        async with _html_executor_semaphore:
+        semaphore = _get_html_executor_semaphore()
+
+        async with semaphore:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 _html_executor,
@@ -528,6 +575,9 @@ class Node(BaseModel):
         """
         # Node залежить від Protocol interfaces для type hints, але використовує
         # конкретні реалізації через lazy import для уникнення circular deps.
+        # Shallow copy призводив до спільних вкладених структур між нодами
+        import copy as copy_module
+
         from graph_crawler.extensions.plugins.node import (
             NodePluginContext,
             NodePluginType,
@@ -542,8 +592,8 @@ class Node(BaseModel):
             html=html,
             html_tree=html_tree,
             parser=parser,
-            metadata=self.metadata.copy(),
-            user_data=self.user_data.copy(),
+            metadata=copy_module.deepcopy(self.metadata) if self.metadata else {},
+            user_data=copy_module.deepcopy(self.user_data) if self.user_data else {},
         )
 
         if self.plugin_manager:
@@ -568,12 +618,28 @@ class Node(BaseModel):
     def _update_from_context(self, context: Any):
         """
         Оновлює ноду результатами з контексту.
+        Раніше shallow copy призводив до того що вкладені словники
+        (structured_data, opengraph) були спільними між нодами.
 
         Args:
             context: NodePluginContext з результатами плагінів
         """
-        self.metadata = context.metadata
-        self.user_data.update(context.user_data)
+        import copy as copy_module
+
+        # Це критично для structured_data, opengraph та інших вкладених словників
+        if context.metadata:
+            self.metadata = copy_module.deepcopy(context.metadata)
+        else:
+            self.metadata = {}
+
+        # user_data теж може мати вкладені структури
+        if context.user_data:
+            # Merge з existing user_data, deep copy нових значень
+            for key, value in context.user_data.items():
+                if isinstance(value, (dict, list)):
+                    self.user_data[key] = copy_module.deepcopy(value)
+                else:
+                    self.user_data[key] = value
 
     def _compute_content_hash(self):
         """
@@ -769,7 +835,6 @@ class Node(BaseModel):
             NodeLifecycleError: Якщо викликано до process_html()
             ValueError: Якщо simhash_strategy повертає невалідний SimHash
         """
-        import hashlib
         import re
 
         # Перевірка lifecycle - можна викликати тільки після process_html
@@ -811,7 +876,6 @@ class Node(BaseModel):
 
         # Дефолтна стратегія - SimHash від чистого тексту сторінки
         from graph_crawler.shared.constants import (
-            DEFAULT_HASH_ENCODING,
             DEFAULT_SIMHASH_NGRAM_SIZE,
             SIMHASH_BITS,
         )
@@ -821,13 +885,12 @@ class Node(BaseModel):
 
     def _compute_simhash_default(self, text: str, ngram_size: int = 3, bits: int = 64) -> str:
         """
-        FIX CRITICAL-008 + OPTIMIZATION-002 + NUMBA: Оптимізована реалізація SimHash.
-        
+
         ОПТИМІЗАЦІЇ:
         1. Numba JIT компіляція для числових операцій (10-50x прискорення)
         2. Fallback на array module якщо Numba недоступна
         3. Фінальне згортання через оптимізований loop
-        
+
         Алгоритм:
         1. Токенізація тексту на n-grams
         2. Для кожного n-gram обчислюємо hash (md5 для швидкості)
@@ -859,9 +922,11 @@ class Node(BaseModel):
         if not tokens:
             tokens = words if words else [text]
 
-        # OPTIMIZATION-003: Використовуємо Numba-оптимізовану версію якщо доступна
         try:
-            from graph_crawler.optimizations.simhash_numba import compute_simhash_fast, is_numba_available
+            from graph_crawler.optimizations.simhash_numba import (
+                compute_simhash_fast,
+                is_numba_available,
+            )
             if is_numba_available():
                 return compute_simhash_fast(tokens, bits)
         except ImportError:
@@ -870,7 +935,7 @@ class Node(BaseModel):
         # Pure Python fallback (array module)
         import hashlib
         from array import array
-        
+
         v = array('i', [0] * bits)  # signed int array - швидше за list
         mask = (1 << bits) - 1
 

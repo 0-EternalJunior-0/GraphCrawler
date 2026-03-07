@@ -31,7 +31,6 @@
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from celery import Celery
@@ -93,7 +92,6 @@ def crawl_batch_task(
         - error_count: int
         - total_new_urls: int
     """
-    import importlib
     import inspect
     import time
 
@@ -187,7 +185,7 @@ def crawl_batch_task(
 
         # Розділяємо URLs на batches для fetch_many
         urls_only = [url for url, _ in urls_with_depth]
-        depth_map = {url: depth for url, depth in urls_with_depth}
+        depth_map = dict(urls_with_depth)
 
         # Async batch fetch
         async def process_batch():

@@ -6,7 +6,7 @@ Wrapper над бібліотекою 'ratelimit' для простих use case
 
 import functools
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 

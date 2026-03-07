@@ -180,10 +180,11 @@ class GraphOperations:
                 continue
 
             if not result.has_edge(source_id, target_id):
+                import copy as copy_module
                 new_edge = Edge(
                     source_node_id=source_id,
                     target_node_id=target_id,
-                    metadata=edge.metadata.copy() if edge.metadata else {},
+                    metadata=copy_module.deepcopy(edge.metadata) if edge.metadata else {},
                 )
                 result.add_edge(new_edge)
                 edges_added += 1
@@ -198,10 +199,11 @@ class GraphOperations:
                 continue
 
             if not result.has_edge(source_id, target_id):
+                import copy as copy_module
                 new_edge = Edge(
                     source_node_id=source_id,
                     target_node_id=target_id,
-                    metadata=edge.metadata.copy() if edge.metadata else {},
+                    metadata=copy_module.deepcopy(edge.metadata) if edge.metadata else {},
                 )
                 result.add_edge(new_edge)
                 edges_added += 1
@@ -350,10 +352,11 @@ class GraphOperations:
                 if new_source_id and new_target_id:
                     # Перевіряємо чи таке ребро вже існує
                     if not result.has_edge(new_source_id, new_target_id):
+                        import copy as copy_module
                         new_edge = Edge(
                             source_node_id=new_source_id,
                             target_node_id=new_target_id,
-                            metadata=edge.metadata.copy() if edge.metadata else {},
+                            metadata=copy_module.deepcopy(edge.metadata) if edge.metadata else {},
                         )
                         result.add_edge(new_edge)
                         edges_from_g2 += 1

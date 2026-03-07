@@ -5,12 +5,13 @@
 """
 
 import re
-import warnings
 from enum import Enum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+if TYPE_CHECKING:
+    from graph_crawler.domain.entities.node import Node
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ==================== CONTENT TYPE ====================
 
@@ -33,10 +34,10 @@ class ContentType(str, Enum):
     Examples:
         >>> # Фільтрація HTML сторінок
         >>> html_nodes = [n for n in graph if n.content_type == ContentType.HTML]
-        
+
         >>> # Пошук пустих сторінок
         >>> empty_nodes = [n for n in graph if n.content_type == ContentType.EMPTY]
-        
+
         >>> # Перевірка типу
         >>> if node.content_type in (ContentType.IMAGE, ContentType.VIDEO):
         ...     print("Media content, skip text extraction")
@@ -85,10 +86,10 @@ class ContentType(str, Enum):
         Examples:
             >>> ContentType.from_content_type_header("text/html; charset=utf-8")
             <ContentType.HTML: 'html'>
-            
+
             >>> ContentType.from_content_type_header("application/json")
             <ContentType.JSON: 'json'>
-            
+
             >>> ContentType.from_content_type_header(None)
             <ContentType.UNKNOWN: 'unknown'>
         """
@@ -182,7 +183,7 @@ class ContentType(str, Enum):
         Examples:
             >>> ContentType.from_url("https://example.com/data.json")
             <ContentType.JSON: 'json'>
-            
+
             >>> ContentType.from_url("https://example.com/image.png")
             <ContentType.IMAGE: 'image'>
         """
@@ -483,11 +484,19 @@ class FetchResponse(BaseModel):
     # Redirect information (заповнюється всіма драйверами)
     final_url: Optional[str] = None
     redirect_chain: list[str] = Field(default_factory=list)
+    
+    # Partial content flag (для timeout з частковим HTML)
+    is_partial: bool = False
 
     @property
     def is_success(self) -> bool:
-        """Перевіряє чи запит був успішним."""
-        return self.error is None and self.html is not None
+        """Перевіряє чи запит був успішним (повний контент, без помилок)."""
+        return self.error is None and self.html is not None and not self.is_partial
+
+    @property
+    def has_content(self) -> bool:
+        """Перевіряє чи є HTML контент (включаючи partial)."""
+        return self.html is not None
 
     @property
     def is_ok(self) -> bool:
@@ -594,7 +603,7 @@ class DomainFilterConfig(BaseModel):
             >>> config.has_special_patterns()
             True
         """
-        from graph_crawler.application.use_cases.crawling.filters.domain_patterns import (
+        from graph_crawler.domain.value_objects.domain_patterns import (
             AllowedDomains,
         )
 

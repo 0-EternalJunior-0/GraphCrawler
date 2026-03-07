@@ -1,6 +1,5 @@
 """Cache Middleware - кешування відповідей . Використовує aiofiles для async file I/O."""
 
-import asyncio
 import hashlib
 import json
 import logging

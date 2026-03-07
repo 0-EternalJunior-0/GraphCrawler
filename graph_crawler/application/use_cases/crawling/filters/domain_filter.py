@@ -25,7 +25,7 @@ class DomainFilter(BaseURLFilter):
     """
     Фільтр за доменом з підтримкою спеціальних патернів.
 
-    
+
     - Wildcard режим через '*' або AllowedDomains.ALL
     - Спеціальні патерни: 'domain', 'subdomains', 'domain+subdomains'
     - Автоматичне парсування та розділення патернів
@@ -82,10 +82,10 @@ class DomainFilter(BaseURLFilter):
         """
         Парсує allowed_domains і виділяє спеціальні патерни.
 
-        
+
         від конкретних доменів для оптимізації перевірок.
         """
-        special_patterns = AllowedDomains.get_special_patterns()
+        AllowedDomains.get_special_patterns()
 
         # Ініціалізуємо прапорці
         self.wildcard_mode = False

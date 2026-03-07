@@ -107,7 +107,7 @@ class MongoDBStorage(BaseStorage):
         # Створюємо індекси для швидкості
         await self._create_indexes()
         self._initialized = True
-        logger.info(f"MongoDBStorage initialized successfully (async)")
+        logger.info("MongoDBStorage initialized successfully (async)")
 
     async def _create_indexes(self) -> None:
         """Async створює індекси для оптимізації запитів."""

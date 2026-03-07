@@ -222,7 +222,8 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
                 timeout=10,
             )
             return float(response.text)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error getting 2captcha balance: {e}")
             return None
 
 
@@ -509,7 +510,8 @@ class CapSolverSolver(BaseCaptchaSolver):
                 timeout=10,
             )
             return response.json().get("balance", 0.0)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error getting CapSolver balance: {e}")
             return None
 
 

@@ -140,23 +140,32 @@ def _get_fallback_driver() -> Any:
     """
     Повертає fallback драйвер при помилках.
 
-    Спочатку пробує AsyncDriver, потім RequestsDriver.
+    Використовує DriverFactory для створення драйвера.
 
     Returns:
         Інстанс драйвера
     """
     try:
-        from graph_crawler.infrastructure.transport.async_http.driver import AsyncDriver
-
-        logger.info("Fallback to AsyncDriver")
-        return AsyncDriver({})
-    except ImportError:
-        from graph_crawler.infrastructure.transport.sync.requests_driver import (
-            RequestsDriver,
-        )
-
-        logger.info("Fallback to RequestsDriver")
-        return RequestsDriver({})
+        from graph_crawler.application.services.driver_factory import DriverFactory
+        from graph_crawler.domain.value_objects.configs import CrawlerConfig
+        
+        # Створюємо мінімальний конфіг для fallback драйвера
+        config = CrawlerConfig(url="https://localhost")
+        logger.info("Fallback to DriverFactory.create()")
+        return DriverFactory.create(config)
+    except Exception as e:
+        logger.error(f"Failed to create fallback driver via Factory: {e}")
+        # Останній fallback - lazy import конкретного драйвера
+        try:
+            from graph_crawler.infrastructure.transport.async_http.driver import AsyncDriver
+            logger.info("Last fallback to AsyncDriver")
+            return AsyncDriver({})
+        except ImportError:
+            from graph_crawler.infrastructure.transport.sync.requests_driver import (
+                RequestsDriver,
+            )
+            logger.info("Last fallback to RequestsDriver")
+            return RequestsDriver({})
 
 
 # Експортуємо для використання в інших модулях

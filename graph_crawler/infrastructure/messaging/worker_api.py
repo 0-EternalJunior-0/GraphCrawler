@@ -497,7 +497,7 @@ async def _run_distributed_crawl(job_id: str, request: DistributedCrawlRequest):
         request: Конфігурація краулінгу
     """
     storage = _get_storage()
-    
+
     try:
         from graph_crawler.infrastructure.messaging import EasyDistributedCrawler
 

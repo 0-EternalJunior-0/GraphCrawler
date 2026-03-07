@@ -201,12 +201,17 @@ graph = gc.crawl(
 
 ## Callbacks та моніторинг
 
+Всі callbacks отримують словник `data` з відповідними полями.
+
 ### Progress Callback
 
 ```python
-def on_progress(current, total, node):
+def on_progress(data):
+    current = data.get('current', 0)
+    total = data.get('total', 0)
+    url = data.get('url', '')
     percent = (current / total) * 100 if total else 0
-    print(f"[{percent:.1f}%] {current}/{total} - {node.url[:50]}...")
+    print(f"[{percent:.1f}%] {current}/{total} - {url[:50]}...")
 
 graph = gc.crawl(
     "https://example.com",
@@ -217,10 +222,12 @@ graph = gc.crawl(
 ### Node Scanned Callback
 
 ```python
-def on_node_scanned(node):
-    title = node.get_title() or 'No title'
-    status = node.response_status
-    print(f"[{status}] {title[:40]}... - {node.url}")
+def on_node_scanned(data):
+    node = data.get('node')
+    if node:
+        title = node.get_title() or 'No title'
+        status = node.response_status
+        print(f"[{status}] {title[:40]}... - {node.url}")
 
 graph = gc.crawl(
     "https://example.com",
@@ -231,7 +238,9 @@ graph = gc.crawl(
 ### Error Callback
 
 ```python
-def on_error(url, error):
+def on_error(data):
+    url = data.get('url', '')
+    error = data.get('error', '')
     print(f"ERROR: {url}")
     print(f"  Reason: {error}")
     # Можна логувати в файл
@@ -247,15 +256,17 @@ graph = gc.crawl(
 ### Completed Callback
 
 ```python
-def on_completed(graph):
-    stats = graph.get_stats()
+def on_completed(data):
+    graph = data.get('graph')
+    stats = data.get('stats', {})
     print(f"\n\nCrawl completed!")
-    print(f"  Total pages: {stats['total_nodes']}")
-    print(f"  Scanned: {stats['scanned_nodes']}")
-    print(f"  Links: {stats['total_edges']}")
+    print(f"  Total pages: {stats.get('total_nodes', 0)}")
+    print(f"  Scanned: {stats.get('scanned_nodes', 0)}")
+    print(f"  Links: {stats.get('total_edges', 0)}")
     
     # Зберегти результати
-    graph.export_edges('final_result.json', format='json')
+    if graph:
+        graph.export_edges('final_result.json', format='json')
 
 graph = gc.crawl(
     "https://example.com",
@@ -374,20 +385,26 @@ from graph_crawler import URLRule
 from graph_crawler.extensions.plugins.node import (
     MetadataExtractorPlugin,
     LinkExtractorPlugin,
-    PriceExtractorPlugin,
 )
+from graph_crawler.extensions.plugins.node.extractors import PriceExtractorPlugin
 
-def progress(current, total, node):
+def progress(data):
+    current = data.get('current', 0)
+    total = data.get('total', 0)
     if current % 100 == 0:
         print(f"Progress: {current}/{total}")
 
-def error(url, err):
+def error(data):
+    url = data.get('url', '')
+    err = data.get('error', '')
     print(f"Failed: {url} - {err}")
 
-def completed(graph):
-    stats = graph.get_stats()
-    print(f"\nDone! {stats['scanned_nodes']} pages crawled")
-    graph.export_edges('ecommerce.json', format='json')
+def completed(data):
+    graph = data.get('graph')
+    stats = data.get('stats', {})
+    print(f"\nDone! {stats.get('scanned_nodes', 0)} pages crawled")
+    if graph:
+        graph.export_edges('ecommerce.json', format='json')
 
 rules = [
     URLRule(pattern=r"/product/", priority=10),

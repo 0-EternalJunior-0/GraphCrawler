@@ -2,7 +2,7 @@
 
 import logging
 
-from graph_crawler.domain.events import CrawlerEvent, EventType
+from graph_crawler.domain.events import CrawlerEvent
 
 
 class LoggingListener:

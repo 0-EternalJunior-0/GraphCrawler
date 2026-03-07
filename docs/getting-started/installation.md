@@ -145,7 +145,7 @@ pip install graph-crawler
 
 ```python
 import graph_crawler as gc
-print(gc.__version__)  # Should print 4.0.4
+print(gc.__version__)  # Should print 4.0.19
 
 # Check free-threading
 import sys

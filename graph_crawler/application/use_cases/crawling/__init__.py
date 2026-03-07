@@ -70,31 +70,27 @@
 
 ```python
 from graph_crawler.application.use_cases.crawling import GraphSpider
-from graph_crawler.domain.entities import CrawlerConfig
-from graph_crawler.infrastructure.transport.http import HTTPDriver
-from graph_crawler.infrastructure.persistence.json_storage import JSONStorage
+from graph_crawler.domain.value_objects.configs import CrawlerConfig
+from graph_crawler.application.services.driver_factory import DriverFactory
+from graph_crawler.application.services.storage_factory import StorageFactory
 
 # Конфігурація
 config = CrawlerConfig(
-    start_url="https://example.com",
+    url="https://example.com",
     max_depth=3,
     max_pages=100,
     allowed_domains=["domain+subdomains"]  # або "*" для всіх
 )
 
-# Створити компоненти (
-driver = HTTPDriver({})
-storage = JSONStorage("./graphs_storage")
+# Створити компоненти через Factory (рекомендовано)
+driver = DriverFactory.create(config)
+storage = StorageFactory.create(config)
 
 # Запустити краулінг
-spider = GraphSpider(config, driver, storage)
-graph = spider.crawl()
+async with GraphSpider(config, driver, storage) as spider:
+    graph_dto = await spider.crawl()
 
-print(f"Просканованих: {len(graph.nodes)}")
-
-# Очистити
-driver.close()
-storage.clear()
+print(f"Просканованих: {graph_dto.stats.total_nodes}")
 ```
 
 **Підмодулі:**

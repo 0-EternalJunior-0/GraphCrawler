@@ -5,7 +5,7 @@ Standalone модуль для генерації Markdown з HTML.
 
 Приклад використання:
     >>> from graph_crawler.shared.utils.markdown import MarkdownGenerator, MarkdownOptions
-    >>> 
+    >>>
     >>> # В кастомному Node (як JobsNode)
     >>> if self.is_jobs_url:  # Тільки для потрібних сторінок!
     ...     md = MarkdownGenerator()

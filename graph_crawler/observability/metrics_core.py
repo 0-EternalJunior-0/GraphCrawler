@@ -15,15 +15,15 @@ Usage:
     ...     Histogram,
     ...     get_metrics,
     ... )
-    >>> 
+    >>>
     >>> # Get global metrics registry
     >>> metrics = get_metrics()
-    >>> 
+    >>>
     >>> # Record metrics
     >>> metrics.counter("requests_total", labels={"status": "200"}).inc()
     >>> metrics.gauge("active_connections").set(42)
     >>> metrics.histogram("request_duration_seconds").observe(0.5)
-    >>> 
+    >>>
     >>> # Export for Prometheus
     >>> print(metrics.export_prometheus())
 
@@ -31,7 +31,7 @@ Output (Prometheus format):
     # HELP requests_total Total number of requests
     # TYPE requests_total counter
     requests_total{status="200"} 1
-    
+
     # HELP active_connections Number of active connections
     # TYPE active_connections gauge
     active_connections 42
@@ -41,7 +41,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -55,36 +55,36 @@ class MetricValue:
 class Counter:
     """
     Prometheus-style Counter metric.
-    
+
     Counters only go up (or reset to zero).
-    
+
     Example:
         >>> counter = Counter("http_requests_total", "Total HTTP requests")
         >>> counter.inc()
         >>> counter.inc(5)
         >>> counter.labels(status="200", method="GET").inc()
     """
-    
+
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
         self._values: Dict[Tuple, float] = defaultdict(float)
         self._lock = threading.Lock()
-    
+
     def inc(self, amount: float = 1.0) -> None:
         """Increment counter by amount."""
         with self._lock:
             self._values[()] += amount
-    
+
     def labels(self, **kwargs) -> "LabeledCounter":
         """Return counter with labels."""
         return LabeledCounter(self, kwargs)
-    
+
     def get(self, labels: Optional[Dict[str, str]] = None) -> float:
         """Get current value."""
         key = tuple(sorted((labels or {}).items()))
         return self._values.get(key, 0.0)
-    
+
     def _inc_with_labels(self, labels: Dict[str, str], amount: float = 1.0) -> None:
         """Internal: increment with labels."""
         key = tuple(sorted(labels.items()))
@@ -94,11 +94,11 @@ class Counter:
 
 class LabeledCounter:
     """Counter with labels attached."""
-    
+
     def __init__(self, counter: Counter, labels: Dict[str, str]):
         self._counter = counter
         self._labels = labels
-    
+
     def inc(self, amount: float = 1.0) -> None:
         """Increment counter."""
         self._counter._inc_with_labels(self._labels, amount)
@@ -107,46 +107,46 @@ class LabeledCounter:
 class Gauge:
     """
     Prometheus-style Gauge metric.
-    
+
     Gauges can go up and down.
-    
+
     Example:
         >>> gauge = Gauge("active_connections", "Number of active connections")
         >>> gauge.set(10)
         >>> gauge.inc()
         >>> gauge.dec(5)
     """
-    
+
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
         self._values: Dict[Tuple, float] = defaultdict(float)
         self._lock = threading.Lock()
-    
+
     def set(self, value: float) -> None:
         """Set gauge to value."""
         with self._lock:
             self._values[()] = value
-    
+
     def inc(self, amount: float = 1.0) -> None:
         """Increment gauge."""
         with self._lock:
             self._values[()] += amount
-    
+
     def dec(self, amount: float = 1.0) -> None:
         """Decrement gauge."""
         with self._lock:
             self._values[()] -= amount
-    
+
     def labels(self, **kwargs) -> "LabeledGauge":
         """Return gauge with labels."""
         return LabeledGauge(self, kwargs)
-    
+
     def get(self, labels: Optional[Dict[str, str]] = None) -> float:
         """Get current value."""
         key = tuple(sorted((labels or {}).items()))
         return self._values.get(key, 0.0)
-    
+
     def _set_with_labels(self, labels: Dict[str, str], value: float) -> None:
         key = tuple(sorted(labels.items()))
         with self._lock:
@@ -155,19 +155,19 @@ class Gauge:
 
 class LabeledGauge:
     """Gauge with labels attached."""
-    
+
     def __init__(self, gauge: Gauge, labels: Dict[str, str]):
         self._gauge = gauge
         self._labels = labels
-    
+
     def set(self, value: float) -> None:
         self._gauge._set_with_labels(self._labels, value)
-    
+
     def inc(self, amount: float = 1.0) -> None:
         key = tuple(sorted(self._labels.items()))
         with self._gauge._lock:
             self._gauge._values[key] += amount
-    
+
     def dec(self, amount: float = 1.0) -> None:
         key = tuple(sorted(self._labels.items()))
         with self._gauge._lock:
@@ -177,20 +177,20 @@ class LabeledGauge:
 class Histogram:
     """
     Prometheus-style Histogram metric.
-    
+
     Records observations in buckets.
-    
+
     Example:
         >>> hist = Histogram("request_duration_seconds", buckets=[0.1, 0.5, 1.0, 5.0])
         >>> hist.observe(0.3)
         >>> hist.observe(1.5)
     """
-    
+
     DEFAULT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
-    
+
     def __init__(
-        self, 
-        name: str, 
+        self,
+        name: str,
         description: str = "",
         buckets: Optional[Tuple[float, ...]] = None
     ):
@@ -198,12 +198,12 @@ class Histogram:
         self.description = description
         self.buckets = tuple(sorted(buckets or self.DEFAULT_BUCKETS))
         self._counts: Dict[Tuple, Dict[float, int]] = defaultdict(
-            lambda: {b: 0 for b in self.buckets}
+            lambda: dict.fromkeys(self.buckets, 0)
         )
         self._sums: Dict[Tuple, float] = defaultdict(float)
         self._totals: Dict[Tuple, int] = defaultdict(int)
         self._lock = threading.Lock()
-    
+
     def observe(self, value: float) -> None:
         """Record an observation."""
         with self._lock:
@@ -213,15 +213,15 @@ class Histogram:
             for bucket in self.buckets:
                 if value <= bucket:
                     self._counts[key][bucket] += 1
-    
+
     def labels(self, **kwargs) -> "LabeledHistogram":
         """Return histogram with labels."""
         return LabeledHistogram(self, kwargs)
-    
+
     def get_sample_count(self, labels: Optional[Dict[str, str]] = None) -> int:
         key = tuple(sorted((labels or {}).items()))
         return self._totals.get(key, 0)
-    
+
     def get_sample_sum(self, labels: Optional[Dict[str, str]] = None) -> float:
         key = tuple(sorted((labels or {}).items()))
         return self._sums.get(key, 0.0)
@@ -229,18 +229,18 @@ class Histogram:
 
 class LabeledHistogram:
     """Histogram with labels attached."""
-    
+
     def __init__(self, histogram: Histogram, labels: Dict[str, str]):
         self._histogram = histogram
         self._labels = labels
-    
+
     def observe(self, value: float) -> None:
         key = tuple(sorted(self._labels.items()))
         with self._histogram._lock:
             self._histogram._sums[key] += value
             self._histogram._totals[key] += 1
             if key not in self._histogram._counts:
-                self._histogram._counts[key] = {b: 0 for b in self._histogram.buckets}
+                self._histogram._counts[key] = dict.fromkeys(self._histogram.buckets, 0)
             for bucket in self._histogram.buckets:
                 if value <= bucket:
                     self._histogram._counts[key][bucket] += 1
@@ -249,29 +249,29 @@ class LabeledHistogram:
 class MetricsRegistry:
     """
     Central registry for all metrics.
-    
+
     Example:
         >>> registry = MetricsRegistry()
-        >>> 
+        >>>
         >>> # Create metrics
         >>> requests = registry.counter("requests_total", "Total requests")
         >>> latency = registry.histogram("request_latency_seconds")
-        >>> 
+        >>>
         >>> # Record
         >>> requests.inc()
         >>> latency.observe(0.5)
-        >>> 
+        >>>
         >>> # Export
         >>> print(registry.export_prometheus())
     """
-    
+
     def __init__(self, prefix: str = "graphcrawler"):
         self.prefix = prefix
         self._counters: Dict[str, Counter] = {}
         self._gauges: Dict[str, Gauge] = {}
         self._histograms: Dict[str, Histogram] = {}
         self._lock = threading.Lock()
-    
+
     def counter(self, name: str, description: str = "") -> Counter:
         """Get or create a counter."""
         full_name = f"{self.prefix}_{name}" if self.prefix else name
@@ -279,7 +279,7 @@ class MetricsRegistry:
             if full_name not in self._counters:
                 self._counters[full_name] = Counter(full_name, description)
             return self._counters[full_name]
-    
+
     def gauge(self, name: str, description: str = "") -> Gauge:
         """Get or create a gauge."""
         full_name = f"{self.prefix}_{name}" if self.prefix else name
@@ -287,10 +287,10 @@ class MetricsRegistry:
             if full_name not in self._gauges:
                 self._gauges[full_name] = Gauge(full_name, description)
             return self._gauges[full_name]
-    
+
     def histogram(
-        self, 
-        name: str, 
+        self,
+        name: str,
         description: str = "",
         buckets: Optional[Tuple[float, ...]] = None
     ) -> Histogram:
@@ -300,16 +300,16 @@ class MetricsRegistry:
             if full_name not in self._histograms:
                 self._histograms[full_name] = Histogram(full_name, description, buckets)
             return self._histograms[full_name]
-    
+
     def export_prometheus(self) -> str:
         """
         Export all metrics in Prometheus text format.
-        
+
         Returns:
             Prometheus-format string
         """
         lines = []
-        
+
         # Export counters
         for name, counter in self._counters.items():
             lines.append(f"# HELP {name} {counter.description}")
@@ -317,7 +317,7 @@ class MetricsRegistry:
             for labels_tuple, value in counter._values.items():
                 labels_str = self._format_labels(dict(labels_tuple))
                 lines.append(f"{name}{labels_str} {value}")
-        
+
         # Export gauges
         for name, gauge in self._gauges.items():
             lines.append(f"# HELP {name} {gauge.description}")
@@ -325,7 +325,7 @@ class MetricsRegistry:
             for labels_tuple, value in gauge._values.items():
                 labels_str = self._format_labels(dict(labels_tuple))
                 lines.append(f"{name}{labels_str} {value}")
-        
+
         # Export histograms
         for name, hist in self._histograms.items():
             lines.append(f"# HELP {name} {hist.description}")
@@ -343,9 +343,9 @@ class MetricsRegistry:
                 lines.append(f"{name}_bucket{self._format_labels(inf_labels)} {hist._totals[labels_tuple]}")
                 lines.append(f"{name}_sum{self._format_labels(labels_dict)} {hist._sums[labels_tuple]}")
                 lines.append(f"{name}_count{self._format_labels(labels_dict)} {hist._totals[labels_tuple]}")
-        
+
         return "\n".join(lines)
-    
+
     def export_dict(self) -> Dict[str, Any]:
         """Export all metrics as dictionary."""
         return {
@@ -366,14 +366,14 @@ class MetricsRegistry:
                 for name, hist in self._histograms.items()
             },
         }
-    
+
     def _format_labels(self, labels: Dict[str, str]) -> str:
         """Format labels for Prometheus."""
         if not labels:
             return ""
         pairs = [f'{k}="{v}"' for k, v in sorted(labels.items())]
         return "{" + ",".join(pairs) + "}"
-    
+
     def reset(self) -> None:
         """Reset all metrics."""
         with self._lock:
@@ -389,10 +389,10 @@ _global_metrics: Optional[MetricsRegistry] = None
 def get_metrics(prefix: str = "graphcrawler") -> MetricsRegistry:
     """
     Get global metrics registry (singleton).
-    
+
     Args:
         prefix: Metric name prefix
-        
+
     Returns:
         MetricsRegistry instance
     """
@@ -406,20 +406,20 @@ def get_metrics(prefix: str = "graphcrawler") -> MetricsRegistry:
 class CrawlerMetrics:
     """
     Pre-defined metrics for GraphCrawler.
-    
+
     Usage:
         >>> from graph_crawler.observability.metrics import CrawlerMetrics
-        >>> 
+        >>>
         >>> CrawlerMetrics.requests_total.inc()
         >>> CrawlerMetrics.pages_crawled.inc()
         >>> CrawlerMetrics.request_duration.observe(0.5)
     """
-    
+
     _registry = get_metrics()
-    
+
     # Counters
     requests_total = _registry.counter(
-        "requests_total", 
+        "requests_total",
         "Total number of HTTP requests"
     )
     pages_crawled = _registry.counter(
@@ -430,7 +430,7 @@ class CrawlerMetrics:
         "errors_total",
         "Total number of errors"
     )
-    
+
     # Gauges
     active_requests = _registry.gauge(
         "active_requests",
@@ -444,7 +444,7 @@ class CrawlerMetrics:
         "memory_usage_bytes",
         "Current memory usage in bytes"
     )
-    
+
     # Histograms
     request_duration = _registry.histogram(
         "request_duration_seconds",
@@ -460,7 +460,7 @@ class CrawlerMetrics:
 
 __all__ = [
     "Counter",
-    "Gauge", 
+    "Gauge",
     "Histogram",
     "MetricsRegistry",
     "get_metrics",

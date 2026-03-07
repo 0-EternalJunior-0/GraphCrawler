@@ -3,7 +3,6 @@
 import logging
 from typing import Any, Dict, Optional
 
-from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import CrawlerEvent, EventType
 
 logger = logging.getLogger(__name__)

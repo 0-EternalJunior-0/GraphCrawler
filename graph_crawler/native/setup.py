@@ -3,7 +3,7 @@
 Usage:
     cd graph_crawler/native
     python setup.py build_ext --inplace
-    
+
     # Or install in development mode:
     pip install -e .
 
@@ -15,9 +15,9 @@ Cross-platform notes:
 """
 
 import os
-import sys
 import platform
-from setuptools import setup, Extension
+
+from setuptools import Extension, setup
 
 # Try to import Cython
 try:

@@ -36,26 +36,24 @@ Description:
 import asyncio
 import inspect
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from celery import Celery
 
 # Безпечне логування URL
-from graph_crawler.shared.security.url_sanitizer import sanitize_url
 
 logger = logging.getLogger(__name__)
 
 # Celery App Configuration
 
+from graph_crawler.shared.constants import (
+    DEFAULT_CELERY_BATCH_SOFT_TIME_LIMIT,
+    DEFAULT_CELERY_BATCH_TIME_LIMIT,
+    DEFAULT_CELERY_RESULT_EXPIRES,
+)
 from graph_crawler.shared.utils.celery_config import (
     get_backend_url,
     get_broker_url,
-)
-from graph_crawler.shared.constants import (
-    DEFAULT_CELERY_BATCH_TIME_LIMIT,
-    DEFAULT_CELERY_BATCH_SOFT_TIME_LIMIT,
-    DEFAULT_CELERY_RESULT_EXPIRES,
 )
 
 BROKER_URL = get_broker_url()
@@ -122,7 +120,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
 
     warnings.warn(
         "crawl_page_task is deprecated. Use crawl_batch_task for 24x better performance.",
-        DeprecationWarning,
+        DeprecationWarning, stacklevel=2,
     )
 
     from graph_crawler.application.use_cases.crawling.spider import GraphSpider
@@ -267,7 +265,7 @@ def crawl_batch_task(
         if crawl_timeout and crawl_start_time:
             elapsed = time.time() - crawl_start_time
             if elapsed >= (crawl_timeout - 5):
-                logger.warning(f"⏱ Timeout reached, skipping batch")
+                logger.warning("⏱ Timeout reached, skipping batch")
                 return {
                     "results": [],
                     "success_count": 0,
@@ -326,7 +324,7 @@ def crawl_batch_task(
         total_new_urls = []
 
         urls_only = [url for url, _ in urls_with_depth]
-        depth_map = {url: depth for url, depth in urls_with_depth}
+        depth_map = dict(urls_with_depth)
 
         async def process_batch():
             nonlocal success_count, error_count

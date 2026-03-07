@@ -8,7 +8,7 @@ class StructuredDataError(Exception):
 
 class ParserError(StructuredDataError):
     """Помилка парсингу мікророзмітки."""
-    
+
     def __init__(self, parser_name: str, message: str):
         self.parser_name = parser_name
         self.message = message

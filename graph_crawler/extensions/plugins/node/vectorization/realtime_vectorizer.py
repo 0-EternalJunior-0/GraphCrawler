@@ -125,8 +125,8 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
     async def execute(self, context: NodePluginContext) -> NodePluginContext:
         """
         ASYNC виконує векторизацію тексту з ноди.
-        
-        
+
+
         CPU-bound vectorize_text() виконується в ThreadPoolExecutor,
         не блокуючи async event loop.
 
@@ -157,9 +157,9 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
             logger.debug(
                 f"Vectorizing text for {context.url} (length: {len(text)} chars)"
             )
-            
+
             loop = asyncio.get_event_loop()
-            
+
             vectorize_func = partial(
                 vectorize_text,
                 text=text,
@@ -167,7 +167,7 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
                 target_size=self.vector_size,
                 clean=True,
             )
-            
+
             # Виконуємо CPU-bound операцію в окремому потоці
             vector = await loop.run_in_executor(
                 _vectorization_executor,

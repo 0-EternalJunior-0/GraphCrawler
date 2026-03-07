@@ -82,10 +82,25 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
 
     @property
     def text(self) -> str:
-        """Повертає весь текст з документа."""
+        """
+        Повертає весь текст з документа БЕЗ script/style/noscript.
+        
+        ВАЖЛИВО: Видаляємо script, style, noscript, svg перед витяганням тексту,
+        інакше CSS/JS код потрапляє в text_content і псує SimHash.
+        
+        """
         if not self._tree:
             return ""
-        return self._tree.get_text(separator=" ", strip=True)
+        
+        # Клонуємо дерево щоб не модифікувати оригінал
+        import copy
+        tree_copy = copy.copy(self._tree)
+        
+        # Видаляємо теги що містять код/стилі, а не контент
+        for tag in tree_copy.find_all(['script', 'style', 'noscript', 'svg', 'head']):
+            tag.decompose()
+        
+        return tree_copy.get_text(separator=" ", strip=True)
 
     def parse(self, html: str) -> BeautifulSoup:
         """
@@ -114,27 +129,27 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
     def find_all(self, selector: str) -> List[TreeElement]:
         """
         Знаходить всі елементи.
-        
-        ОПТИМІЗОВАНО: Для простих селекторів (tag[attr]) використовує 
+
+        ОПТИМІЗОВАНО: Для простих селекторів (tag[attr]) використовує
         швидший find_all замість повільного CSS select().
         """
         if not self._tree:
             return []
-        
-        # OPTIMIZATION: Для простих селекторів "a[href]", "img[src]" 
+
+        # OPTIMIZATION: Для простих селекторів "a[href]", "img[src]"
         # використовуємо швидший find_all замість select()
         if '[' in selector and ']' in selector and ' ' not in selector:
             # Parse simple selector like "a[href]"
             bracket_idx = selector.index('[')
             tag = selector[:bracket_idx]
             attr = selector[bracket_idx+1:-1]  # Remove [ and ]
-            
+
             # find_all з attrs в 2-3x швидше за select()
             elements = self._tree.find_all(tag, attrs={attr: True})
         else:
             # Fallback to CSS select for complex selectors
             elements = self._tree.select(selector)
-        
+
         return [TreeElement.from_adapter(elem, self) for elem in elements]
 
     def css(self, selector: str) -> List[TreeElement]:

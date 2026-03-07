@@ -11,7 +11,7 @@ from functools import lru_cache
 from typing import List, Optional, Tuple
 from urllib.parse import urljoin, urlparse, urlunparse
 
-from graph_crawler.shared.exceptions import InvalidURLError, URLError
+from graph_crawler.shared.exceptions import InvalidURLError
 
 
 # Кеш для urlparse - найчастіша операція
@@ -79,7 +79,7 @@ class URLUtils:
     def make_absolute(base_url: str, relative_url: str) -> str:
         """
         Перетворює відносний URL на абсолютний.
-        
+
         ОПТИМІЗОВАНО: Кешується результат для повторних комбінацій.
 
         Args:
@@ -208,7 +208,7 @@ class URLUtils:
     def clean_urls(urls: List[str]) -> List[str]:
         """
         Очищує список URL (видаляє дублікати, невалідні).
-        
+
         ОПТИМІЗОВАНО: dict.fromkeys() для O(1) дедуплікації зі збереженням порядку
 
         Args:
@@ -229,7 +229,7 @@ class URLUtils:
     def clean_urls_batch(urls: List[str]) -> List[str]:
         """
         Batch версія clean_urls з використанням native функцій.
-        
+
         Використовує Cython native функції якщо доступні.
 
         Args:
@@ -240,11 +240,11 @@ class URLUtils:
         """
         try:
             from graph_crawler.native import filter_valid_urls, normalize_urls
-            
+
             # Використовуємо native batch функції
             valid_urls = filter_valid_urls(urls)
             normalized_urls = normalize_urls(valid_urls)
-            
+
             # Дедуплікація
             return list(dict.fromkeys(normalized_urls))
         except ImportError:
@@ -252,24 +252,24 @@ class URLUtils:
             return URLUtils.clean_urls(urls)
 
     # =========================================================================
-    # SECURITY: URL Input Sanitization 
+    # SECURITY: URL Input Sanitization
     # =========================================================================
-    
+
     # Заборонені схеми (можуть бути небезпечними)
     _DANGEROUS_SCHEMES = (
-        "javascript:", "vbscript:", "data:", "file:", 
+        "javascript:", "vbscript:", "data:", "file:",
         "ftp:", "gopher:", "ldap:", "telnet:",
     )
-    
+
     # Максимальна довжина URL (захист від DoS)
     _MAX_URL_LENGTH = 8192
-    
+
     # Заборонені символи в URL
     _DANGEROUS_CHARS = ('\x00', '\n', '\r', '\t', '<', '>', '"', "'", '`')
-    
+
     # Приватні IP діапазони (SSRF protection)
     _PRIVATE_IP_PREFIXES = (
-        '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', 
+        '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.',
         '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
         '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
         '169.254.',  # Link-local
@@ -281,20 +281,20 @@ class URLUtils:
     def sanitize_url(url: str, allow_private_ips: bool = False) -> Optional[str]:
         """
         Безпечна санітизація URL для захисту від атак.
-        
+
         Захищає від:
         - XSS через javascript: URLs
         - SSRF через приватні IP
         - DoS через занадто довгі URL
         - Injection через спецсимволи
-        
+
         Args:
             url: URL для санітизації
             allow_private_ips: Дозволити приватні IP (за замовчуванням False)
-            
+
         Returns:
             Санітизований URL або None якщо URL небезпечний
-            
+
         Example:
             >>> URLUtils.sanitize_url("https://example.com/page")
             'https://example.com/page'
@@ -305,29 +305,29 @@ class URLUtils:
         """
         if not url:
             return None
-        
+
         # Trim whitespace
         url = url.strip()
-        
+
         # Перевірка довжини (DoS protection)
         if len(url) > URLUtils._MAX_URL_LENGTH:
             return None
-        
+
         # Перевірка на небезпечні символи
         url_lower = url.lower()
         for char in URLUtils._DANGEROUS_CHARS:
             if char in url:
                 return None
-        
+
         # Перевірка на небезпечні схеми
         for scheme in URLUtils._DANGEROUS_SCHEMES:
             if url_lower.startswith(scheme):
                 return None
-        
+
         # Перевірка на валідну схему
         if not url_lower.startswith(('http://', 'https://')):
             return None
-        
+
         # SSRF protection: перевірка на приватні IP
         if not allow_private_ips:
             try:
@@ -339,7 +339,7 @@ class URLUtils:
                             return None
             except Exception:
                 return None
-        
+
         # URL пройшов всі перевірки
         return url
 
@@ -347,17 +347,17 @@ class URLUtils:
     def sanitize_urls_batch(urls: List[str], allow_private_ips: bool = False) -> List[str]:
         """
         Batch санітизація списку URL.
-        
+
         Args:
             urls: Список URL для санітизації
             allow_private_ips: Дозволити приватні IP
-            
+
         Returns:
             Список безпечних URL
         """
         return [
-            sanitized 
-            for url in urls 
+            sanitized
+            for url in urls
             if (sanitized := URLUtils.sanitize_url(url, allow_private_ips)) is not None
         ]
 
@@ -365,29 +365,29 @@ class URLUtils:
     def is_safe_redirect(original_url: str, redirect_url: str) -> bool:
         """
         Перевіряє чи redirect URL безпечний (той самий домен).
-        
+
         Захищає від Open Redirect вразливостей.
-        
+
         Args:
             original_url: Оригінальний URL
             redirect_url: URL редіректу
-            
+
         Returns:
             True якщо redirect безпечний (той самий домен)
         """
         if not redirect_url:
             return False
-        
+
         # Санітизуємо redirect URL
         if not URLUtils.sanitize_url(redirect_url):
             return False
-        
+
         # Порівнюємо домени
         original_domain = URLUtils.get_root_domain(original_url)
         redirect_domain = URLUtils.get_root_domain(redirect_url)
-        
+
         if not original_domain or not redirect_domain:
             return False
-        
+
         return original_domain == redirect_domain
 

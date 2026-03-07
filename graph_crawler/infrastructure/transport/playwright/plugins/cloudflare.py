@@ -14,10 +14,9 @@ import asyncio
 import logging
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
-from graph_crawler.infrastructure.transport.context import EventPriority
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
 from graph_crawler.infrastructure.transport.playwright.stages import BrowserStage
 
@@ -86,7 +85,8 @@ class CloudflareDetector:
                 return False
 
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking IUAM challenge: {e}")
             return False
 
     @staticmethod
@@ -106,7 +106,8 @@ class CloudflareDetector:
                     re.M | re.S,
                 )
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking IUAM v2 challenge: {e}")
             return False
 
     @staticmethod
@@ -144,7 +145,8 @@ class CloudflareDetector:
                 return False
 
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking captcha challenge: {e}")
             return False
 
     @staticmethod
@@ -164,7 +166,8 @@ class CloudflareDetector:
                     re.M | re.S,
                 )
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking captcha v2 challenge: {e}")
             return False
 
     @staticmethod
@@ -195,7 +198,8 @@ class CloudflareDetector:
                     return True
 
             return False
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking turnstile challenge: {e}")
             return False
 
     @staticmethod
@@ -222,7 +226,8 @@ class CloudflareDetector:
                     r'<span class="cf-error-code">1020</span>', html, re.M | re.DOTALL
                 )
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking firewall blocked: {e}")
             return False
 
     @staticmethod
@@ -312,7 +317,8 @@ class CloudflarePlugin(BaseDriverPlugin):
                 try:
                     response_headers = await ctx.response.all_headers()
                     headers = dict(response_headers)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Error getting response headers: {e}")
                     headers = ctx.response_headers or {}
 
             return html, status_code, headers
@@ -369,7 +375,7 @@ class CloudflarePlugin(BaseDriverPlugin):
 
             # Якщо тип змінився на блокування - виходимо
             if current_type == ChallengeType.FIREWALL_1020:
-                logger.warning(f" Cloudflare Firewall 1020 block detected")
+                logger.warning(" Cloudflare Firewall 1020 block detected")
                 return False
 
             # Логуємо прогрес кожні 5 секунд

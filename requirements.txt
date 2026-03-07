@@ -14,6 +14,8 @@
 # === HTTP клієнти ===
 requests>=2.31.0
 aiohttp>=3.9.0
+lmdb
+
 
 # === HTML парсери ===
 beautifulsoup4>=4.12.0
@@ -38,3 +40,5 @@ pybloom-live
 
 # === REST API ===
 fastapi
+
+

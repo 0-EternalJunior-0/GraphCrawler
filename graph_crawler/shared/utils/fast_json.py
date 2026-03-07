@@ -12,7 +12,7 @@ Benchmark (1M об'єктів):
 
 Usage:
     >>> from graph_crawler.shared.utils.fast_json import dumps, loads
-    >>> 
+    >>>
     >>> data = {"url": "https://example.com", "depth": 1}
     >>> json_str = dumps(data)
     >>> restored = loads(json_str)
@@ -44,7 +44,7 @@ except ImportError:
 def _default_serializer(obj: Any) -> Any:
     """
     Default serializer для нестандартних типів.
-    
+
     Підтримує:
     - datetime -> ISO format string
     - UUID -> string
@@ -74,18 +74,18 @@ def dumps(
 ) -> str:
     """
     Серіалізує об'єкт в JSON string.
-    
+
     ОПТИМІЗОВАНО: Використовує orjson якщо доступний (+50% швидкості).
-    
+
     Args:
         obj: Об'єкт для серіалізації
         indent: Відступ для pretty-print (None = compact)
         sort_keys: Сортувати ключі словника
         default: Функція для серіалізації нестандартних типів
-        
+
     Returns:
         JSON string
-        
+
     Example:
         >>> dumps({"url": "https://example.com"})
         '{"url":"https://example.com"}'
@@ -93,7 +93,7 @@ def dumps(
         '{\\n  "a": 1\\n}'
     """
     serializer = default or _default_serializer
-    
+
     if _orjson_available:
         # orjson options
         options = 0
@@ -101,13 +101,13 @@ def dumps(
             options |= _orjson.OPT_INDENT_2
         if sort_keys:
             options |= _orjson.OPT_SORT_KEYS
-        
+
         try:
             # orjson повертає bytes, конвертуємо в str
             return _orjson.dumps(obj, default=serializer, option=options).decode('utf-8')
         except TypeError as e:
             logger.warning(f"orjson serialization failed: {e}, using fallback")
-    
+
     # Fallback на стандартний json
     return _json_fallback.dumps(
         obj,
@@ -121,25 +121,25 @@ def dumps(
 def dumps_bytes(obj: Any, *, default: Any = None) -> bytes:
     """
     Серіалізує об'єкт в JSON bytes (без декодування).
-    
+
     ОПТИМІЗОВАНО: Ще швидше ніж dumps() бо немає decode().
-    
+
     Args:
         obj: Об'єкт для серіалізації
         default: Функція для серіалізації нестандартних типів
-        
+
     Returns:
         JSON bytes
-        
+
     Example:
         >>> dumps_bytes({"url": "https://example.com"})
         b'{"url":"https://example.com"}'
     """
     serializer = default or _default_serializer
-    
+
     if _orjson_available:
         return _orjson.dumps(obj, default=serializer)
-    
+
     # Fallback
     return _json_fallback.dumps(obj, default=serializer, ensure_ascii=False).encode('utf-8')
 
@@ -147,22 +147,22 @@ def dumps_bytes(obj: Any, *, default: Any = None) -> bytes:
 def loads(s: Union[str, bytes]) -> Any:
     """
     Десеріалізує JSON string/bytes в об'єкт.
-    
+
     ОПТИМІЗОВАНО: Використовує orjson якщо доступний (+50% швидкості).
-    
+
     Args:
         s: JSON string або bytes
-        
+
     Returns:
         Десеріалізований об'єкт
-        
+
     Example:
         >>> loads('{"url": "https://example.com"}')
         {'url': 'https://example.com'}
     """
     if _orjson_available:
         return _orjson.loads(s)
-    
+
     # Fallback
     if isinstance(s, bytes):
         s = s.decode('utf-8')
@@ -172,7 +172,7 @@ def loads(s: Union[str, bytes]) -> Any:
 def is_orjson_available() -> bool:
     """
     Перевіряє чи orjson доступний.
-    
+
     Returns:
         True якщо orjson встановлено
     """
@@ -186,7 +186,7 @@ load = None
 
 __all__ = [
     "dumps",
-    "dumps_bytes", 
+    "dumps_bytes",
     "loads",
     "is_orjson_available",
 ]

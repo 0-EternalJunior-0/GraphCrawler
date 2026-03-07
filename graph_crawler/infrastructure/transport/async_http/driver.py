@@ -21,11 +21,11 @@ import aiohttp
 from graph_crawler.domain.events import EventBus
 from graph_crawler.domain.value_objects.models import FetchResponse
 from graph_crawler.infrastructure.transport.async_http.context import AsyncHTTPContext
+from graph_crawler.infrastructure.transport.async_http.plugins.retry import AsyncRetryPlugin
 from graph_crawler.infrastructure.transport.async_http.stages import AsyncHTTPStage
 from graph_crawler.infrastructure.transport.base import BaseDriver
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.plugin_manager import DriverPluginManager
-from graph_crawler.infrastructure.transport.async_http.plugins.retry import AsyncRetryPlugin
 from graph_crawler.shared.constants import (
     DEFAULT_MAX_CONCURRENT_REQUESTS,
     DEFAULT_REQUEST_TIMEOUT,
@@ -63,7 +63,7 @@ class AsyncDriver(BaseDriver):
     ):
         """
         Ініціалізація AsyncDriver з плагінами.
-        
+
         Python 3.14: Автоматично збільшує connection limits для кращого масштабування.
 
         Args:
@@ -83,7 +83,7 @@ class AsyncDriver(BaseDriver):
             )
         else:
             default_concurrent = DEFAULT_MAX_CONCURRENT_REQUESTS
-        
+
         # Кількість одночасних запитів
         self.max_concurrent = self.config.get(
             "max_concurrent_requests", default_concurrent
@@ -125,7 +125,7 @@ class AsyncDriver(BaseDriver):
     async def _get_session(self) -> aiohttp.ClientSession:
         """
         Отримує або створює aiohttp session з оптимізованим connector.
-        
+
         Використовує get_connector_settings() для автоматичного вибору
         оптимальних налаштувань залежно від версії Python.
         """
@@ -133,7 +133,7 @@ class AsyncDriver(BaseDriver):
             timeout = aiohttp.ClientTimeout(
                 total=self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
             )
-            
+
             # aiodns для швидшого async DNS resolution
             try:
                 resolver = aiohttp.AsyncResolver()
@@ -144,26 +144,26 @@ class AsyncDriver(BaseDriver):
             # Отримуємо оптимальні налаштування connector для поточної версії Python
             connector_settings = get_connector_settings()
             connector_settings["resolver"] = resolver
-            
+
             # Додаємо TCP keepalive для Python 3.14+
             if sys.version_info >= (3, 14):
                 connector_settings["enable_sock_keepalive"] = True
-            
+
             connector = aiohttp.TCPConnector(**connector_settings)
-            
+
             self.session = aiohttp.ClientSession(
                 headers={"User-Agent": self.config.get("user_agent", DEFAULT_USER_AGENT)},
                 timeout=timeout,
                 connector=connector
             )
-            
+
             logger.info(
                 f"AsyncDriver session created: "
                 f"limit={connector.limit}, "
                 f"limit_per_host={connector.limit_per_host}, "
                 f"python={sys.version_info.major}.{sys.version_info.minor}"
             )
-            
+
         return self.session
 
     async def fetch(self, url: str) -> FetchResponse:

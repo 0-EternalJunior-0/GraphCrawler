@@ -1,6 +1,6 @@
 """Protocol для планувальника URL."""
 
-from typing import Optional, Protocol
+from typing import Protocol
 
 
 class IScheduler(Protocol):

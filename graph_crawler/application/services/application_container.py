@@ -15,7 +15,7 @@
 """
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -185,7 +185,6 @@ class ApplicationContainer:
                 driver = self._driver._driver_instance
                 if hasattr(driver, "close"):
                     if callable(getattr(driver, "close", None)):
-                        import asyncio
                         import inspect
 
                         if inspect.iscoroutinefunction(driver.close):
@@ -196,7 +195,6 @@ class ApplicationContainer:
             if self._storage._storage_instance:
                 storage = self._storage._storage_instance
                 if hasattr(storage, "close"):
-                    import asyncio
                     import inspect
 
                     if inspect.iscoroutinefunction(storage.close):

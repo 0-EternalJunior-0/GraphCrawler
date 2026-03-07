@@ -112,7 +112,7 @@ class EmailExtractorPlugin(BaseNodePlugin):
             except Exception as e:
                 logger.debug(f"Error parsing mailto: links: {e}")
 
-        context.user_data["emails"] = sorted(list(emails))
+        context.user_data["emails"] = sorted(emails)
         context.user_data["email_count"] = len(emails)
 
         if emails:

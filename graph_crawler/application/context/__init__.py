@@ -40,19 +40,19 @@
 """
 
 from graph_crawler.application.context.dependency_registry import (
-    DependencyRegistry,
     DependencyConfig,
-)
-from graph_crawler.application.context.merge_context import (
-    MergeContext,
-    MergeContextManager,
-    with_merge_strategy,
-    get_current_merge_strategy,
+    DependencyRegistry,
 )
 from graph_crawler.application.context.graph_context import (
     GraphContext,
     get_graph_context,
     set_graph_context,
+)
+from graph_crawler.application.context.merge_context import (
+    MergeContext,
+    MergeContextManager,
+    get_current_merge_strategy,
+    with_merge_strategy,
 )
 
 __all__ = [

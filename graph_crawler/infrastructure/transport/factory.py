@@ -11,7 +11,7 @@
 
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ class DriverFactory:
         """
         available = []
 
-        for driver_type, (module_path, class_name) in cls._registry.items():
+        for driver_type, (module_path, _class_name) in cls._registry.items():
             try:
                 import importlib
 

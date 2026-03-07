@@ -9,8 +9,8 @@ Edge Analysis - методи для аналізу edges та графу.
 """
 
 import logging
-from collections import defaultdict, deque
-from typing import Any, Dict, List, Optional, Set, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ class EdgeAnalysis:
 
         # Стани вузлів: white (не відвіданий), gray (в процесі), black (завершений)
         WHITE, GRAY, BLACK = 0, 1, 2
-        color = {node_id: WHITE for node_id in graph.nodes.keys()}
+        color = dict.fromkeys(graph.nodes.keys(), WHITE)
 
         cycles = []
         parent = {}

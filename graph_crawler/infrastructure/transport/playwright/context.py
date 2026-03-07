@@ -17,12 +17,10 @@ from graph_crawler.infrastructure.transport.context import DriverContext
 try:
     from playwright.async_api import (
         Browser,
-    )
-    from playwright.async_api import BrowserContext as PWContext
-    from playwright.async_api import (
         Page,
         Response,
     )
+    from playwright.async_api import BrowserContext as PWContext
 except ImportError:
     # Fallback якщо playwright не встановлено
     Browser = Any

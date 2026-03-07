@@ -7,7 +7,10 @@ Error Handler - Централізована обробка помилок кр�
 
 import logging
 from enum import Enum
-from typing import Any, Callable, Optional, Type
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from graph_crawler.application.use_cases.crawling.dead_letter_queue import DeadLetterQueue
 
 logger = logging.getLogger(__name__)
 

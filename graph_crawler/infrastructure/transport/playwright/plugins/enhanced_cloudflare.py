@@ -13,7 +13,7 @@ import logging
 import random
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
@@ -162,7 +162,7 @@ class EnhancedCloudflareDetector:
         # IUAM v1
         if EnhancedCloudflareDetector.is_iuam_challenge(html, status_code, headers):
             return ChallengeType.IUAM_V1
-        
+
         return ChallengeType.NONE
 
 
@@ -237,30 +237,30 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
 
             # Кількість кроків
             steps = random.randint(15, 30)
-            
+
             for i in range(steps):
                 # Bezier-подібний рух
                 t = i / steps
                 # Додаємо невеликий noise
                 noise_x = random.uniform(-3, 3)
                 noise_y = random.uniform(-3, 3)
-                
+
                 x = current_x + (target_x - current_x) * t + noise_x
                 y = current_y + (target_y - current_y) * t + noise_y
-                
+
                 await page.mouse.move(x, y)
                 await asyncio.sleep(random.uniform(0.005, 0.02))
 
             # Фінальний рух до точної позиції
             await page.mouse.move(target_x, target_y)
-            
+
         except Exception as e:
             logger.debug(f"Mouse move error: {e}")
 
     async def _solve_turnstile(self, page, ctx: BrowserContext) -> bool:
         """
         Автоматичне вирішення Turnstile challenge.
-        
+
         Turnstile зазвичай вирішується автоматично, якщо:
         1. Браузер виглядає як справжній (stealth mode)
         2. Є human-like взаємодія
@@ -295,7 +295,7 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
             if not turnstile_element:
                 # Можливо Turnstile ще завантажується
                 await asyncio.sleep(2)
-                
+
                 # Спробуємо знайти знову
                 for selector in turnstile_selectors:
                     try:
@@ -319,20 +319,20 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
                     # Клікаємо в центр з невеликим offset
                     click_x = box["x"] + box["width"] / 2 + random.uniform(-5, 5)
                     click_y = box["y"] + box["height"] / 2 + random.uniform(-5, 5)
-                    
+
                     # Human-like mouse movement
                     await self._human_mouse_move(page, click_x, click_y)
-                    
+
                     # Невелика пауза перед кліком
                     await asyncio.sleep(random.uniform(0.1, 0.3))
-                    
+
                     # Клік
                     await page.mouse.click(click_x, click_y)
                     logger.info("✅ Clicked on Turnstile checkbox")
-                    
+
                     # Чекаємо на вирішення довше
                     await asyncio.sleep(3)
-                    
+
                     # Перевіряємо чи є cf-turnstile-response
                     try:
                         response_input = await page.query_selector('input[name="cf-turnstile-response"]')
@@ -343,9 +343,9 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
                                 return True
                     except Exception:
                         pass
-                    
+
                     return True
-            
+
             logger.info("⏳ Waiting for Turnstile auto-solve...")
             return True
 
@@ -377,10 +377,10 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
         self, page, ctx: BrowserContext, challenge_type: ChallengeType
     ) -> bool:
         """Очікує завершення Cloudflare challenge з exponential backoff."""
-        
+
         wait_timeout = self.config.get("wait_timeout", 60)
         base_interval = self.config.get("check_interval", 0.5)
-        max_retries = self.config.get("max_retries", 3) 
+        max_retries = self.config.get("max_retries", 3)
 
         logger.info(
             f"⏳ Waiting for Cloudflare {challenge_type.value} challenge "
@@ -398,7 +398,7 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
         while elapsed < wait_timeout:
             check_interval = base_interval * (1 + check_count * 0.1)
             check_interval = min(check_interval, 3.0)
-            
+
             await asyncio.sleep(check_interval)
             elapsed += check_interval
             check_count += 1
@@ -419,7 +419,7 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
             if current_type != challenge_type:
                 logger.info(f"Challenge type changed: {challenge_type.value} -> {current_type.value}")
                 challenge_type = current_type
-                
+
                 if current_type == ChallengeType.TURNSTILE:
                     await self._solve_turnstile(page, ctx)
 
@@ -472,10 +472,10 @@ class EnhancedCloudflarePlugin(BaseDriverPlugin):
             if await self._wait_for_challenge_completion(ctx.page, ctx, challenge_type):
                 ctx.emit("cloudflare_passed", url=ctx.url, challenge_type=challenge_type.value)
                 ctx.data["cloudflare_passed"] = True
-                
+
                 # Оновлюємо HTML
                 ctx.html = await ctx.page.content()
-                
+
                 # Зберігаємо cookies для майбутніх запитів
                 cookies = await ctx.context.cookies() if ctx.context else []
                 ctx.data["cloudflare_cookies"] = cookies

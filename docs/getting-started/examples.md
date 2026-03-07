@@ -191,7 +191,7 @@ os.system("dot -Tsvg site_map.dot -o site_map.svg")
 
 ```python
 import graph_crawler as gc
-from graph_crawler.extensions.plugins.node import (
+from graph_crawler.extensions.plugins.node.extractors import (
     PhoneExtractorPlugin,
     EmailExtractorPlugin,
 )
@@ -407,7 +407,7 @@ asyncio.run(compare_competitors())
 ```python
 import graph_crawler as gc
 from graph_crawler import URLRule
-from graph_crawler.extensions.plugins.node import PriceExtractorPlugin
+from graph_crawler.extensions.plugins.node.extractors import PriceExtractorPlugin
 
 # URL правила для e-commerce
 rules = [
@@ -446,7 +446,7 @@ for p in products[:10]:
 
 ```python
 import graph_crawler as gc
-from graph_crawler.extensions.plugins.node import PriceExtractorPlugin
+from graph_crawler.extensions.plugins.node.extractors import PriceExtractorPlugin
 import json
 
 def monitor_prices(url, history_file='price_history.json'):

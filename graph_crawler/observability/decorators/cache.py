@@ -22,7 +22,7 @@ class SimpleCache:
     - Кеш очищується при restart процесу
     - Немає персистентності на диск
     - Для персистентного кешу використовуйте diskcache або Redis
-    
+
     Thread-safety: Використовує RLock для захисту від race conditions.
     """
 

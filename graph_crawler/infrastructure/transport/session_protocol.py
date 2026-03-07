@@ -6,7 +6,7 @@ Dependency Inversion Principle
 - Можливість підключення різних HTTP бібліотек (httpx, aiohttp, etc.)
 """
 
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Protocol
 
 from requests import Response
 

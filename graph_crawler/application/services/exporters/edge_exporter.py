@@ -1,6 +1,6 @@
 """Edge Exporter - Clean Architecture з DTO.
 
-
+ВИПРАВЛЕНО: Додано async методи з executor для неблокуючих операцій.
 
 Надає функціонал експорту edges з графу:
 - JSON експорт (детальний з metadata)
@@ -8,22 +8,27 @@
 - DOT експорт (для Graphviz візуалізації)
 """
 
+import asyncio
 import csv
 import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from typing import Any, Dict, Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO
+from graph_crawler.application.dto import GraphDTO
 
 logger = logging.getLogger(__name__)
+
+# Thread pool для неблокуючих file I/O операцій
+_edge_exporter_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="edge_export_")
 
 
 class EdgeExporter:
     """
     Експортер edges в різні формати через DTO.
 
-    
+
 
     Відповідальність: експорт edges з графу в JSON, CSV, DOT формати.
 
@@ -44,7 +49,7 @@ class EdgeExporter:
         """
         Експортує edges в JSON формат через DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -126,7 +131,7 @@ class EdgeExporter:
         """
         Експортує edges в CSV формат через DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -238,7 +243,7 @@ class EdgeExporter:
         """
         Експортує граф в DOT формат через DTO.
 
-        
+
 
         Створює файл .dot який можна відкрити в Graphviz або конвертувати:
         - `dot -Tpng graph.dot -o graph.png` (PNG зображення)
@@ -365,3 +370,95 @@ class EdgeExporter:
         logger.info(f" Convert to image: dot -Tpng {filepath} -o graph.png")
 
         return dot_content
+
+    # ============= ASYNC МЕТОДИ =============
+
+    @staticmethod
+    async def export_to_json_async(
+        graph_dto: GraphDTO,
+        filepath: str,
+        include_metadata: bool = True,
+        include_nodes_info: bool = True,
+        pretty: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Async версія експорту edges в JSON (неблокуюча).
+
+        Args:
+            graph_dto: GraphDTO для експорту
+            filepath: Шлях до файлу
+            include_metadata: Чи включати metadata edges
+            include_nodes_info: Чи включати інформацію про nodes
+            pretty: Чи форматувати JSON
+
+        Returns:
+            Словник з даними edges
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _edge_exporter_executor,
+            partial(
+                EdgeExporter.export_to_json,
+                graph_dto, filepath, include_metadata, include_nodes_info, pretty
+            )
+        )
+
+    @staticmethod
+    async def export_to_csv_async(
+        graph_dto: GraphDTO,
+        filepath: str,
+        include_metadata: bool = True,
+        metadata_as_json: bool = True,
+    ) -> int:
+        """
+        Async версія експорту edges в CSV (неблокуюча).
+
+        Args:
+            graph_dto: GraphDTO для експорту
+            filepath: Шлях до CSV файлу
+            include_metadata: Чи включати metadata
+            metadata_as_json: Чи зберігати metadata як JSON string
+
+        Returns:
+            Кількість експортованих edges
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _edge_exporter_executor,
+            partial(
+                EdgeExporter.export_to_csv,
+                graph_dto, filepath, include_metadata, metadata_as_json
+            )
+        )
+
+    @staticmethod
+    async def export_to_dot_async(
+        graph_dto: GraphDTO,
+        filepath: str,
+        node_label: str = "url",
+        edge_label: Optional[str] = None,
+        max_label_length: int = 50,
+        color_by: str = "depth",
+    ) -> str:
+        """
+        Async версія експорту в DOT (неблокуюча).
+
+        Args:
+            graph_dto: GraphDTO для експорту
+            filepath: Шлях до .dot файлу
+            node_label: Поле node для відображення
+            edge_label: Поле edge metadata для label
+            max_label_length: Максимальна довжина label
+            color_by: Критерій кольорування nodes
+
+        Returns:
+            DOT string
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _edge_exporter_executor,
+            partial(
+                EdgeExporter.export_to_dot,
+                graph_dto, filepath, node_label, edge_label, max_label_length, color_by
+            )
+        )

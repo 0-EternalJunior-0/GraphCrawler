@@ -102,6 +102,7 @@ class MemoryProfiler:
         max_snapshots: int = 50,
         memory_warning_threshold_mb: float = 500.0,
         enable_tracemalloc: bool = True,
+        max_warnings: int = 100,
     ):
         """
         Ініціалізує MemoryProfiler.
@@ -112,12 +113,14 @@ class MemoryProfiler:
             max_snapshots: Максимальна кількість snapshots (старі видаляються)
             memory_warning_threshold_mb: Поріг для warning (MB)
             enable_tracemalloc: Чи включати tracemalloc (може уповільнити краулінг)
+            max_warnings: Максимальна кількість warnings в історії (запобігає memory leak)
         """
         self.event_bus = event_bus
         self.snapshot_interval = snapshot_interval
         self.max_snapshots = max_snapshots
         self.memory_warning_threshold_mb = memory_warning_threshold_mb
         self.enable_tracemalloc = enable_tracemalloc
+        self._max_warnings = max_warnings
 
         # Стан
         self.is_running = False
@@ -132,7 +135,8 @@ class MemoryProfiler:
         # Статистика
         self.peak_memory_mb = 0.0
         self.warnings_issued = 0
-        self.warning_history: List[Dict[str, Any]] = []
+        from collections import deque
+        self.warning_history: deque = deque(maxlen=max_warnings)
 
         # Tracemalloc
         self.tracemalloc_started = False
@@ -352,7 +356,7 @@ class MemoryProfiler:
 
         # Порівнюємо з останнім snapshot
         growing = []
-        for filename, size, count in last.top_stats:
+        for filename, size, _count in last.top_stats:
             initial_size = first_sizes.get(filename, 0)
             growth = size - initial_size
 
@@ -384,7 +388,7 @@ class MemoryProfiler:
         lines.append("=" * 60)
 
         # Загальна інформація
-        lines.append(f"\n General Statistics:")
+        lines.append("\n General Statistics:")
         lines.append(f"  Pages crawled: {self.pages_crawled}")
         lines.append(f"  Snapshots taken: {len(self.snapshots)}")
         lines.append(f"  Peak memory: {self.peak_memory_mb:.2f} MB")
@@ -399,7 +403,7 @@ class MemoryProfiler:
             first = self.snapshots[0]
             last = self.snapshots[-1]
 
-            lines.append(f"\n Memory Snapshots:")
+            lines.append("\n Memory Snapshots:")
             lines.append(f"  Initial memory: {first.current_memory:.2f} MB")
             lines.append(f"  Final memory: {last.current_memory:.2f} MB")
             lines.append(
@@ -413,13 +417,13 @@ class MemoryProfiler:
         # Витоки пам'яті
         leaks = self.detect_memory_leaks()
         if leaks:
-            lines.append(f"\n MEMORY LEAK DETECTED:")
+            lines.append("\n MEMORY LEAK DETECTED:")
             lines.append(f"  Growth rate: {leaks['growth_rate_mb_per_page']} MB/page")
             lines.append(f"  Total growth: {leaks['memory_growth_mb']} MB")
             lines.append(f"  Recommendation: {leaks['recommendation']}")
 
             if leaks.get("growing_files"):
-                lines.append(f"\n  Top growing files:")
+                lines.append("\n  Top growing files:")
                 for file_info in leaks["growing_files"][:5]:
                     lines.append(
                         f"    - {file_info['file']}: "
@@ -427,11 +431,11 @@ class MemoryProfiler:
                         f"({file_info['initial_mb']} → {file_info['final_mb']} MB)"
                     )
         else:
-            lines.append(f"\nNo significant memory leaks detected")
+            lines.append("\nNo significant memory leaks detected")
 
         # Warnings
         if self.warning_history:
-            lines.append(f"\n Warnings History:")
+            lines.append("\n Warnings History:")
             for warning in self.warning_history[-5:]:
                 lines.append(
                     f"  - Pages {warning['pages_crawled']}: "
@@ -442,7 +446,7 @@ class MemoryProfiler:
         # Топ споживачі
         if self.snapshots:
             last_snapshot = self.snapshots[-1]
-            lines.append(f"\n Top Memory Consumers (Current):")
+            lines.append("\n Top Memory Consumers (Current):")
             for i, stat in enumerate(last_snapshot.top_stats[:10], 1):
                 filename, size, count = stat
                 size_mb = size / (1024 * 1024)

@@ -1,18 +1,35 @@
-"""Репозиторій для збереження/завантаження іменованих графів через GraphDTO (Repository Pattern SRP)."""
+"""Репозиторій для збереження/завантаження іменованих графів через GraphDTO (Repository Pattern SRP).
 
+ВИПРАВЛЕНО: Додано async методи з executor для неблокуючих операцій.
+"""
+
+import asyncio
 import json
 import logging
-import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.application.dto import GraphDTO, GraphStatsDTO
+try:
+    import aiofiles
+    import aiofiles.os
+
+    AIOFILES_AVAILABLE = True
+except ImportError:
+    AIOFILES_AVAILABLE = False
+
+# Import from shared layer (Clean Architecture fix)
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.domain.value_objects.models import GraphMetadata
 from graph_crawler.infrastructure.persistence.naming_strategy import GraphNamingStrategy
-from graph_crawler.shared.exceptions import LoadError, SaveError, StorageError
+from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
+
+# Thread pool для неблокуючих file I/O операцій
+_repo_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="graph_repo_")
 
 
 class GraphRepository:
@@ -40,17 +57,17 @@ class GraphRepository:
 
     Examples:
         >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>> 
+        >>>
         >>> repo = GraphRepository('/data/graphs')
         >>> # Серіалізація Domain → DTO → Repository
         >>> graph_dto = GraphMapper.to_dto(graph)
         >>> repo.save_graph(graph_dto, name='mysite_v1')
-        >>> 
+        >>>
         >>> # Десеріалізація Repository → DTO → Domain
         >>> graph_dto = repo.load_graph('mysite_v1')
         >>> context = {'plugin_manager': pm, 'tree_parser': parser}
         >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>> 
+        >>>
         >>> graphs = repo.list_graphs()
     """
 
@@ -122,7 +139,7 @@ class GraphRepository:
 
             # Створюємо метадані через Pydantic модель
             from graph_crawler.domain.value_objects.models import GraphStats
-            
+
             graph_meta = GraphMetadata(
                 name=name,
                 full_name=full_name,
@@ -347,3 +364,91 @@ class GraphRepository:
         except Exception as e:
             logger.error(f"Failed to read metadata for '{name}': {e}")
             return None
+
+    # ============= ASYNC МЕТОДИ (неблокуючі) =============
+
+    async def save_graph_async(
+        self,
+        graph_dto: GraphDTO,
+        name: str,
+        description: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Async зберігає GraphDTO з унікальним ім'ям (неблокуюча версія).
+
+        Args:
+            graph_dto: GraphDTO для збереження
+            name: Ім'я графа (без дати, додається автоматично)
+            description: Опис графа
+            metadata: Додаткові метадані
+
+        Returns:
+            Повне ім'я збереженого графа (з датою)
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _repo_executor,
+            partial(self.save_graph, graph_dto, name, description, metadata)
+        )
+
+    async def load_graph_async(self, name: str, latest: bool = True) -> Optional[GraphDTO]:
+        """
+        Async завантажує GraphDTO за ім'ям (неблокуюча версія).
+
+        Args:
+            name: Ім'я графа (без дати) або повне ім'я (з датою)
+            latest: Якщо True - завантажує останню версію графа
+
+        Returns:
+            GraphDTO або None якщо не знайдено
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _repo_executor,
+            partial(self.load_graph, name, latest)
+        )
+
+    async def delete_graph_async(self, name: str) -> bool:
+        """
+        Async видаляє граф за ім'ям (неблокуюча версія).
+
+        Args:
+            name: Повне ім'я графа (з датою)
+
+        Returns:
+            True якщо успішно видалено
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _repo_executor,
+            partial(self.delete_graph, name)
+        )
+
+    async def get_metadata_async(self, name: str) -> Optional[GraphMetadata]:
+        """
+        Async повертає метадані графа (неблокуюча версія).
+
+        Args:
+            name: Повне ім'я графа
+
+        Returns:
+            GraphMetadata модель або None
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _repo_executor,
+            partial(self.get_metadata, name)
+        )
+
+    @staticmethod
+    def _sync_write_file(file_path: Path, content: str) -> None:
+        """Синхронний запис файлу (для виконання в executor)."""
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @staticmethod
+    def _sync_read_json_file(file_path: Path) -> Dict[str, Any]:
+        """Синхронне читання JSON файлу (для виконання в executor)."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO
+from graph_crawler.application.dto import GraphDTO
 from graph_crawler.application.services.exporters.base_exporter import BaseExporter
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
@@ -31,7 +31,7 @@ class ParquetExporter(BaseExporter):
     """
     Export graph to Parquet format через DTO.
 
-    
+
 
     Features:
     - Columnar storage (efficient for big data)
@@ -90,7 +90,7 @@ class ParquetExporter(BaseExporter):
         """
         Export graph to Parquet files through DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту

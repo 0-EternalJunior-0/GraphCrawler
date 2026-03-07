@@ -9,7 +9,7 @@ import time
 from typing import Any, Optional
 
 from graph_crawler.api._shared import DriverType
-from graph_crawler.application.services import create_driver, create_storage
+from graph_crawler.application.services import create_driver
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.value_objects.configs import (
     CeleryConfig,

@@ -38,9 +38,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
-
-from celery import Celery
+from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +47,14 @@ from graph_crawler.infrastructure.messaging.celery_unified import celery
 
 # Import constants
 from graph_crawler.shared.constants import (
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_PROGRESS_UPDATE_INTERVAL,
-    DEFAULT_JOBS_MAX_PAGES,
-    DEFAULT_JOB_TIMEOUT,
     DEFAULT_BATCH_SAVE_THRESHOLD,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_JOB_TIMEOUT,
+    DEFAULT_JOBS_MAX_PAGES,
+    DEFAULT_PROGRESS_UPDATE_INTERVAL,
+    DEFAULT_REDIS_DB,
     DEFAULT_REDIS_HOST,
     DEFAULT_REDIS_PORT,
-    DEFAULT_REDIS_DB,
 )
 
 # Constants
@@ -110,11 +108,9 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     import redis.asyncio as aioredis
     from motor.motor_asyncio import AsyncIOMotorClient
-    from pymongo import UpdateOne
 
     from graph_crawler.application.use_cases.crawling.spider import GraphSpider
     from graph_crawler.domain.entities.edge import Edge
-    from graph_crawler.domain.entities.graph import Graph
     from graph_crawler.domain.entities.node import Node
     from graph_crawler.domain.value_objects.configs import CrawlerConfig
     from graph_crawler.infrastructure.persistence.memory_storage import MemoryStorage
@@ -260,7 +256,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
             # Fetch batch
             try:
                 urls_only = [u for u, _ in batch_urls]
-                depth_map = {u: d for u, d in batch_urls}
+                depth_map = dict(batch_urls)
 
                 responses = await driver.fetch_many(urls_only)
 

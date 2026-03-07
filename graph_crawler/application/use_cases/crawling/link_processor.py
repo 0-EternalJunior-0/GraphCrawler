@@ -11,7 +11,10 @@ Features:
 import logging
 import re
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from graph_crawler.domain.value_objects.models import FetchResponse
 
 from graph_crawler.application.use_cases.crawling.filters.domain_filter import (
     DomainFilter,
@@ -27,7 +30,6 @@ from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
 
-
 class LinkProcessor:
     """
     Відповідає за обробку знайдених посилань та створення нових нод.
@@ -35,7 +37,6 @@ class LinkProcessor:
     Single Responsibility: ТІЛЬКИ обробка посилань, фільтрація, створення нод та edges.
     Не знає про сканування, драйвери - тільки про граф та фільтри.
 
-    
     - URLRule пріоритет: перевіряється ПЕРШИЙ (перед фільтрами)
     - Повертає (should_scan, can_create_edges) замість просто bool
     - URLRule може перебивати фільтри через should_scan=True/False
@@ -106,7 +107,6 @@ class LinkProcessor:
         """
         Обробляє знайдені посилання з вузла.
 
-        
         - URLRule перевіряється ПЕРШИЙ
         - can_create_edges встановлюється згідно URLRule
         - URLRule може перебивати фільтри
@@ -140,7 +140,6 @@ class LinkProcessor:
         fetch_response: Optional["FetchResponse"] = None,
     ) -> int:
         """
-        FIX CRITICAL-003: Повністю async версія process_links.
 
         Обробляє посилання асинхронно з використанням async версій graph методів
         для thread-safety при batch mode з asyncio.gather().
@@ -156,8 +155,6 @@ class LinkProcessor:
         """
         import asyncio
 
-        from graph_crawler.domain.value_objects.models import FetchResponse
-
         # КРИТИЧНА ПЕРЕВІРКА: чи може source_node створювати нові edges
         if not source_node.can_create_edges:
             logger.debug(
@@ -171,8 +168,6 @@ class LinkProcessor:
             # Yield control кожні batch_size links
             if i > 0 and i % batch_size == 0:
                 await asyncio.sleep(0)  # Yield to event loop
-
-            # FIX: Використовуємо async версію
             count = await self._process_single_link_async(
                 source_node, link, fetch_response
             )
@@ -187,8 +182,7 @@ class LinkProcessor:
         fetch_response: Optional["FetchResponse"] = None,
     ) -> int:
         """
-        FIX CRITICAL-003: Async версія _process_single_link з thread-safe операціями.
-
+        
         Використовує async версії graph.add_node_async() та graph.add_edge_async()
         для запобігання race conditions при batch mode.
 
@@ -214,11 +208,12 @@ class LinkProcessor:
             logger.debug(f"URL filtered out: {link}")
             return 0
 
-        # Перевіряємо чи вузол вже існує
-        target_node = self.graph.get_node_by_url(link)
+        # Перевіряємо scheduler + graph одночасно
+        url_already_known = self.scheduler.has_url(link)
+        url_known_in_graph, target_node = self.graph.get_url_status(link)
 
         # Запам'ятовуємо чи нода була НОВОЮ (для NEW_ONLY стратегії)
-        is_new_node = target_node is None
+        is_new_node = target_node is None and not url_already_known and not url_known_in_graph
         new_node_created = 0
 
         # ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
@@ -229,7 +224,7 @@ class LinkProcessor:
                 child_priority = child_priorities[link]
                 logger.debug(f"Using ML plugin priority {child_priority} for {link}")
 
-        if not target_node:
+        if not target_node and not url_already_known and not url_known_in_graph:
             # Створюємо новий вузол (ЕТАП 1: URL_STAGE)
             target_node = self.custom_node_class(
                 url=link,
@@ -238,12 +233,10 @@ class LinkProcessor:
                 can_create_edges=can_create_edges,
                 plugin_manager=self.plugin_manager,
             )
-            
+
             # ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
             if child_priority is not None:
                 target_node.user_data['ml_priority'] = child_priority
-            
-            # FIX: Використовуємо async версію для thread-safety
             await self.graph.add_node_async(target_node)
             new_node_created = 1
 
@@ -251,6 +244,11 @@ class LinkProcessor:
             if should_scan:
                 # Scheduler буде використовувати ml_priority якщо є
                 self.scheduler.add_node(target_node, priority=child_priority)
+
+        # Edge вже був створений коли ноду вперше знайшли
+        if (url_already_known or url_known_in_graph) and target_node is None:
+            logger.debug(f"URL already processed (evicted), skipping edge: {link}")
+            return new_node_created
 
         # Перевіряємо чи треба створювати edge
         if self._should_create_edge(
@@ -268,8 +266,6 @@ class LinkProcessor:
                 edge.add_metadata("source_had_redirect", True)
                 edge.add_metadata("source_original_url", fetch_response.url)
                 edge.add_metadata("source_final_url", fetch_response.final_url)
-
-            # FIX: Використовуємо async версію для thread-safety
             await self.graph.add_edge_async(edge)
         else:
             logger.debug(
@@ -285,6 +281,8 @@ class LinkProcessor:
         fetch_response: Optional["FetchResponse"] = None,
     ) -> int:
         """
+
+        
         Обробляє одне посилання. Винесено для DRY між sync та async версіями.
 
         Підтримує обробку HTTP редіректів - якщо source_node була завантажена
@@ -306,21 +304,20 @@ class LinkProcessor:
         # Нормалізація URL
         link = URLUtils.normalize_url(link)
 
-        #  
         should_scan, can_create_edges = self._should_scan_url(link, source_node.url)
 
         if not should_scan:
             logger.debug(f"URL filtered out: {link}")
             return 0
 
-        # Перевіряємо чи вузол вже існує
-        target_node = self.graph.get_node_by_url(link)
+        url_already_known = self.scheduler.has_url(link)
+        url_known_in_graph, target_node = self.graph.get_url_status(link)
 
         # Запам'ятовуємо чи нода була НОВОЮ (для NEW_ONLY стратегії)
-        is_new_node = target_node is None
+        is_new_node = target_node is None and not url_already_known and not url_known_in_graph
         new_node_created = 0
 
-        #  ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
+        # ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
         child_priority = None
         if source_node and source_node.user_data:
             child_priorities = source_node.user_data.get('child_priorities', {})
@@ -328,20 +325,20 @@ class LinkProcessor:
                 child_priority = child_priorities[link]
                 logger.debug(f"Using ML plugin priority {child_priority} for {link}")
 
-        if not target_node:
+        if not target_node and not url_already_known and not url_known_in_graph:
             # Створюємо новий вузол (ЕТАП 1: URL_STAGE)
             target_node = self.custom_node_class(
                 url=link,
                 depth=source_node.depth + 1,
                 should_scan=should_scan,
-                can_create_edges=can_create_edges,  #  
+                can_create_edges=can_create_edges,
                 plugin_manager=self.plugin_manager,
             )
-            
-            #  ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
+
+            # ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
             if child_priority is not None:
                 target_node.user_data['ml_priority'] = child_priority
-            
+
             self.graph.add_node(target_node)
             new_node_created = 1
 
@@ -350,6 +347,9 @@ class LinkProcessor:
                 # Scheduler буде використовувати ml_priority якщо є
                 self.scheduler.add_node(target_node, priority=child_priority)
 
+        if (url_already_known or url_known_in_graph) and target_node is None:
+            logger.debug(f"URL already processed (evicted), skipping edge: {link}")
+            return new_node_created
 
         # Перевіряємо чи треба створювати edge
         # Порядок: URLRule.create_edge → EdgeRule → Edge Creation Strategies
@@ -363,11 +363,8 @@ class LinkProcessor:
             # Заповнюємо edge metadata
             self._populate_edge_metadata(edge, source_node, target_node, link)
 
-            #  REDIRECT INFO: Якщо source_node мав редірект, зберігаємо це в edge
-            # Примітка: це НЕ стосується target (link), а source_node!
-            # Редірект link буде виявлено коли target_node буде завантажуватись
+            # REDIRECT INFO: Якщо source_node мав редірект, зберігаємо це в edge
             if fetch_response and fetch_response.is_redirect:
-                # Це інформація про source_node редірект (для діагностики)
                 edge.add_metadata("source_had_redirect", True)
                 edge.add_metadata("source_original_url", fetch_response.url)
                 edge.add_metadata("source_final_url", fetch_response.final_url)
@@ -409,7 +406,9 @@ class LinkProcessor:
         """
         #  КРОК 0: НОВИЙ МЕХАНІЗМ - Explicit decisions від плагінів (НАЙВИЩИЙ ПРІОРИТЕТ)
         # Дозволяє плагінам (ML, SEO, тощо) повністю контролювати які URL обробляти
-        source_node = self.graph.get_node_by_url(source_url)
+
+        # Використовуємо load_from_disk=False для економії RAM
+        source_node = self.graph.get_node_by_url(source_url, load_from_disk=False)
         if source_node:
             explicit_decisions = source_node.user_data.get(
                 "explicit_scan_decisions", {}
@@ -472,8 +471,6 @@ class LinkProcessor:
     def _match_url_rule(self, url: str) -> Optional[URLRule]:
         """
         Знаходить перше правило що матчить URL.
-
-        
 
         Args:
             url: URL для перевірки
@@ -648,7 +645,7 @@ class LinkProcessor:
     ) -> list[str]:
         """
         OPTIMIZATION-003: Оптимізоване визначення типів посилання.
-        
+
         Використовує пряму побудову списку замість list comprehension з tuple.
 
         Можливі типи (комбінації):
@@ -675,13 +672,13 @@ class LinkProcessor:
 
         # OPTIMIZATION-003: Пряма побудова списку - швидше за list comprehension з tuple
         link_types = []
-        
+
         # Domain type (взаємовиключні)
         if source_domain == target_domain:
             link_types.append("internal")
         else:
             link_types.append("external")
-        
+
         # Depth type (взаємовиключні)
         if depth_diff == 0:
             link_types.append("same_depth")
@@ -689,11 +686,11 @@ class LinkProcessor:
             link_types.append("deeper")
         else:
             link_types.append("back")
-        
+
         # Scan status (взаємовиключні)
         if target_node.scanned:
             link_types.append("to_scanned")
         else:
             link_types.append("to_unscanned")
-        
+
         return link_types

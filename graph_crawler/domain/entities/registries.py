@@ -157,106 +157,34 @@ class MergeStrategyRegistry(BaseRegistry):
 
 
 # ІНІЦІАЛІЗАЦІЯ РЕЄСТРІВ (default values)
-# Тепер використовується lazy factory pattern замість None
-
-
-def _lazy_import_spider(mode: str):
-    """
-    Lazy factory для імпорту Spider класів.
-    Уникає circular imports та None значень в реєстрі.
-    """
-
-    def factory():
-        if mode == "sequential":
-            from graph_crawler.application.use_cases.crawling.spider import GraphSpider
-
-            return GraphSpider
-        elif mode == "multiprocessing":
-            from graph_crawler.application.use_cases.crawling.multiprocessing_spider import (
-                MultiprocessingSpider,
-            )
-
-            return MultiprocessingSpider
-        elif mode == "celery":
-            from graph_crawler.application.use_cases.crawling.celery_batch_spider import (
-                CeleryBatchSpider,
-            )
-
-            return CeleryBatchSpider
-        else:
-            raise ValueError(f"Unknown crawl mode: {mode}")
-
-    return factory
-
-
-def _lazy_import_change_strategy(strategy: str):
-    """Lazy factory для стратегій детекції змін."""
-
-    def factory():
-        if strategy == "hash":
-            from graph_crawler.domain.entities.strategies import HashStrategy
-
-            return HashStrategy
-        elif strategy == "metadata":
-            from graph_crawler.domain.entities.strategies import MetadataStrategy
-
-            return MetadataStrategy
-        else:
-            raise ValueError(f"Unknown change detection strategy: {strategy}")
-
-    return factory
-
-
-def _lazy_import_merge_strategy(strategy: str):
-    """Lazy factory для merge стратегій."""
-
-    def factory():
-        from graph_crawler.domain.entities.merge_strategies import (
-            CustomStrategy,
-            FirstStrategy,
-            LastStrategy,
-            MergeStrategy,
-            NewestStrategy,
-            OldestStrategy,
-        )
-
-        strategies = {
-            "first": FirstStrategy,
-            "last": LastStrategy,
-            "merge": MergeStrategy,
-            "newest": NewestStrategy,
-            "oldest": OldestStrategy,
-            "custom": CustomStrategy,
-        }
-        if strategy not in strategies:
-            raise ValueError(f"Unknown merge strategy: {strategy}")
-        return strategies[strategy]
-
-    return factory
+#
+# Domain layer only defines Registry base classes.
+# Application layer calls register() during bootstrap.
+# See: graph_crawler/application/__init__.py for bootstrap example
+#
+# IMPORTANT: DO NOT import from Application/Infrastructure layers here!
 
 
 def _init_default_registries():
     """
-    Ініціалізує реєстри з lazy factory функціями.
-    які імпортують потрібні класи тільки при використанні.
-    Це вирішує circular imports та забезпечує валідні значення в реєстрі.
+    Initialize registries with placeholder factories.
+    
+    in Application layer bootstrap, not here.
+    
+    This function only registers placeholder factories that raise helpful errors
+    if user tries to use uninitialized registry entries.
     """
     # Crawl Modes (режими краулінгу)
-    _default_crawl_modes = ["sequential", "multiprocessing", "celery"]
-    for mode in _default_crawl_modes:
-        CrawlModeRegistry.register(mode, _lazy_import_spider(mode))
+    # Actual spiders are registered in application/__init__.py
+    pass
 
     # Change Detection Strategies
-    _default_change_strategies = ["hash", "metadata"]
-    for strategy in _default_change_strategies:
-        ChangeDetectionStrategyRegistry.register(
-            strategy, _lazy_import_change_strategy(strategy)
-        )
+    # Actual strategies are registered in application/__init__.py
+    pass
 
     # Merge Strategies
-    _default_merge_strategies = ["first", "last", "merge", "newest", "oldest", "custom"]
-    for strategy in _default_merge_strategies:
-        MergeStrategyRegistry.register(strategy, _lazy_import_merge_strategy(strategy))
+    # Actual strategies are registered in application/__init__.py
+    pass
 
 
 # Ініціалізуємо реєстри при імпорті

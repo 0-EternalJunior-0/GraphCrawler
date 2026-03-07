@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.models import ContentType, FetchResponse
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.interfaces.driver import IDriver
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,11 @@ class NodeScanner:
 
     Single Responsibility: ТІЛЬКИ завантаження HTML та обробка через плагіни.
     Не знає про граф, scheduler, фільтри - тільки про окремі ноди.
-    
+
     Детекція content_type делегована ContentType.detect() (Domain Layer).
     """
 
-    def __init__(self, driver: BaseDriver):
+    def __init__(self, driver: IDriver):
         """
         Args:
             driver: Async драйвер для завантаження сторінок
@@ -54,12 +54,12 @@ class NodeScanner:
                 - should_process_html: True якщо потрібно викликати process_html()
         """
         html = result.html if result else None
-        
+
         # Визначаємо content_type через Domain Layer метод
         content_type_header = None
         if result and result.headers:
             content_type_header = result.headers.get("content-type") or result.headers.get("Content-Type")
-        
+
         node.content_type = ContentType.detect(
             content_type_header=content_type_header,
             url=node.url,
@@ -134,7 +134,7 @@ class NodeScanner:
 
             # Обробляємо результат через спільний метод
             links, result, should_process = self._process_fetch_result(node, result)
-            
+
             if not should_process:
                 return (links, result)
 
@@ -181,7 +181,7 @@ class NodeScanner:
             try:
                 # Обробляємо результат через спільний метод
                 links, result, should_process = self._process_fetch_result(node, result)
-                
+
                 if not should_process:
                     return (node, links, result)
 
@@ -200,7 +200,7 @@ class NodeScanner:
                 return (node, [], None)
 
         # Запускаємо ВСІ обробки паралельно!
-        tasks = [process_single(node, result) for node, result in zip(nodes, results)]
+        tasks = [process_single(node, result) for node, result in zip(nodes, results, strict=False)]
         scan_results = await asyncio.gather(*tasks, return_exceptions=False)
 
         return list(scan_results)

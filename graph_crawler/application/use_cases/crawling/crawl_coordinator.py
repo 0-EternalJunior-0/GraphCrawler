@@ -26,7 +26,6 @@ from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
 from graph_crawler.infrastructure.transport.base import BaseDriver
-from graph_crawler.observability.decorators.timing import measure_time
 from graph_crawler.shared.constants import DEFAULT_BATCH_SIZE, MAX_PAGES_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -79,7 +78,7 @@ class CrawlCoordinator:
         self.incremental_strategy = incremental_strategy
         self.checkpoint_manager = checkpoint_manager
         self.spider = None
-        
+
         # Timeout support
         self.timeout = timeout
         self.start_time: Optional[float] = None
@@ -103,7 +102,7 @@ class CrawlCoordinator:
             Граф з результатами краулінгу
         """
         self.spider = spider
-        
+
         # Запам'ятовуємо час старту для timeout
         self.start_time = time.time()
 
@@ -152,6 +151,10 @@ class CrawlCoordinator:
             # ASYNC ДЕЛЕГУВАННЯ: Scanner сканує ноду та повертає redirect info
             links, fetch_response = await self.scanner.scan_node(node)
             self.progress_tracker.increment_pages()
+            
+            if hasattr(self.graph, '_low_memory_mode') and self.graph._low_memory_mode:
+                self.graph.set_current_depth(node.depth)
+                await self.graph.maybe_evict_async()
 
             # REDIRECT HANDLING: Якщо сторінка редіректить - оновлюємо граф
             # Граф завжди відображає РЕАЛЬНИЙ стан сайту!
@@ -256,6 +259,12 @@ class CrawlCoordinator:
             batch_start = time.time()
             scan_results = await self.scanner.scan_batch(batch_nodes)
             self.progress_tracker.increment_pages(len(scan_results))
+            
+            # Оновлюємо current_depth до максимальної глибини в батчі
+            if hasattr(self.graph, '_low_memory_mode') and self.graph._low_memory_mode:
+                max_batch_depth = max((n.depth for n in batch_nodes), default=0)
+                self.graph.set_current_depth(max_batch_depth)
+                await self.graph.maybe_evict_async()
 
             # Паралельна обробка links через asyncio.gather()
             async def process_node_links(node: Node, links: List[str], fetch_response) -> None:
@@ -357,7 +366,7 @@ class CrawlCoordinator:
     def _should_continue(self) -> bool:
         """
         Перевіряє чи треба продовжувати краулінг.
-        
+
         Враховує:
         - Системний ліміт сторінок (MAX_PAGES_LIMIT)
         - Користувацький ліміт сторінок (max_pages)
@@ -374,7 +383,7 @@ class CrawlCoordinator:
         if self.config.max_pages and pages_crawled >= self.config.max_pages:
             logger.info(f"Reached user limit: {self.config.max_pages} pages")
             return False
-        
+
         # Перевірка таймауту
         if self.timeout and self.start_time:
             elapsed = time.time() - self.start_time

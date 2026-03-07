@@ -1,14 +1,17 @@
 """Base Exporter Interface - Clean Architecture з DTO.
 
-
+ВИПРАВЛЕНО: Додано async методи з executor для неблокуючих операцій.
 
 Всі exporters тепер працюють ТІЛЬКИ з DTO для ізоляції Domain Layer.
 Domain entities (Graph, Node, Edge) НЕ використовуються в exporters.
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from typing import Optional
 
 from graph_crawler.application.dto import GraphDTO
 from graph_crawler.domain.events.event_bus import EventBus
@@ -16,12 +19,15 @@ from graph_crawler.shared.utils.event_publisher_mixin import EventPublisherMixin
 
 logger = logging.getLogger(__name__)
 
+# Thread pool для неблокуючих file I/O операцій
+_exporter_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="exporter_")
+
 
 class BaseExporter(EventPublisherMixin, ABC):
     """
     Base class для всіх graph exporters з Clean Architecture.
 
-    
+
     для повної ізоляції Domain Layer.
 
     Архітектурні принципи:
@@ -53,7 +59,7 @@ class BaseExporter(EventPublisherMixin, ABC):
         """
         Експортувати граф у вказаний формат через DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -124,3 +130,25 @@ class BaseExporter(EventPublisherMixin, ABC):
             "max_depth": graph_dto.stats.max_depth,
             "format": self.__class__.__name__,
         }
+
+    # ============= ASYNC МЕТОДИ =============
+
+    async def export_async(self, graph_dto: GraphDTO, output_path: str, **options) -> bool:
+        """
+        Async версія експорту (неблокуюча).
+
+        Виконує sync export() в thread pool executor.
+
+        Args:
+            graph_dto: GraphDTO для експорту
+            output_path: Шлях до output файлу
+            **options: Додаткові опції експорту
+
+        Returns:
+            bool: True якщо успішно
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _exporter_executor,
+            partial(self.export, graph_dto, output_path, **options)
+        )

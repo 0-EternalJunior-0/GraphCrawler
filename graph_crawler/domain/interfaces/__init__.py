@@ -23,6 +23,11 @@ from graph_crawler.domain.interfaces.storage import (
     IStorageReader,
     IStorageWriter,
 )
+from graph_crawler.domain.interfaces.eviction_storage import (
+    IEvictionStorage,
+    IEvictionStorageAsync,
+)
+from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
 
 # Alias для зворотної сумісності
 IURLFilter = IDomainFilter
@@ -34,14 +39,16 @@ __all__ = [
     "IStorage",
     "IStorageReader",
     "IStorageWriter",
-    "IStorageLifecycle",
+    "IStorageLifecycle",    "IEvictionStorage",
+    "IEvictionStorageAsync",
     # Filters
     "IDomainFilter",
     "IPathFilter",
     "IURLFilter",  # Alias
-    # Other
+    # Spider interfaces
     "IScanner",
     "IScheduler",
     "ISpider",
+    "IDistributedSpider",
     "IProcessor",
 ]

@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO
+from graph_crawler.application.dto import GraphDTO
 from graph_crawler.application.services.exporters.base_exporter import BaseExporter
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
@@ -30,7 +30,7 @@ class SQLExporter(BaseExporter):
     """
     Export graph to SQL database через DTO.
 
-    
+
 
     Supports:
     - PostgreSQL
@@ -98,7 +98,7 @@ class SQLExporter(BaseExporter):
         """
         Export graph to SQL database through DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту

@@ -1,20 +1,19 @@
 """MultiprocessSpider - розподілений краулер з підтримкою множинних процесів."""
 
 import logging
-from multiprocessing import Lock, Manager, Pool
+from multiprocessing import Manager, Pool
 from typing import List, Optional, Tuple
 
-from graph_crawler.application.use_cases.crawling.scheduler import CrawlScheduler
 from graph_crawler.application.use_cases.crawling.spider import GraphSpider
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
-
 
 # Глобальна функція для multiprocessing (має бути поза класом для pickle)
 def _process_batch_global(batch_data: Tuple) -> Tuple[List, List, List]:
@@ -84,8 +83,7 @@ def _process_batch_global(batch_data: Tuple) -> Tuple[List, List, List]:
 
     return nodes_data, edges_data, new_urls
 
-
-class MultiprocessSpider:
+class MultiprocessSpider(IDistributedSpider):
     """
     Розподілений краулер з підтримкою множинних процесів.
 
@@ -120,8 +118,8 @@ class MultiprocessSpider:
     def __init__(
         self,
         config: CrawlerConfig,
-        driver: BaseDriver,
-        storage: BaseStorage,
+        driver: IDriver,
+        storage: IStorage,
         workers: int = 10,
         event_bus=None,
     ):
@@ -148,7 +146,26 @@ class MultiprocessSpider:
         self.shared_lock = self._get_manager_lock()
 
         # Локальний граф (для збірки результатів)
-        self.graph = Graph()
+        low_memory_mode = getattr(config, 'low_memory_mode', False)
+        eviction_storage = None
+        
+        if low_memory_mode:
+            storage_path = getattr(config, 'eviction_storage_path', None)
+            if storage_path:
+                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                eviction_storage = SQLiteEvictionStorage(storage_path)
+            else:
+                import tempfile
+                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                temp_path = tempfile.mkdtemp(prefix='graph_eviction_')
+                eviction_storage = SQLiteEvictionStorage(temp_path)
+        
+        self.graph = Graph(
+            low_memory_mode=low_memory_mode,
+            evict_threshold=getattr(config, 'evict_threshold', 500),
+            evict_batch_size=getattr(config, 'evict_batch_size', 100),
+            eviction_storage=eviction_storage,
+        )
         self.pages_crawled = 0
 
         logger.info(f"MultiprocessSpider initialized with {workers} workers")
@@ -427,7 +444,6 @@ class MultiprocessSpider:
     def _create_worker_spider_from_config(self, config: CrawlerConfig) -> GraphSpider:
         """Створює екземпляр GraphSpider з конфігурації.
 
-        
         """
         from graph_crawler.infrastructure.persistence.memory_storage import (
             MemoryStorage,
@@ -515,4 +531,14 @@ class MultiprocessSpider:
         stats = self.graph.get_stats()
         stats["pages_crawled"] = self.pages_crawled
         stats["workers"] = self.workers
+        stats["mode"] = "multiprocess"
         return stats
+
+    def get_partial_graph(self) -> Graph:
+        """
+        Повертає частковий граф (для випадку timeout/shutdown).
+        
+        Returns:
+            Поточний стан графу
+        """
+        return self.graph

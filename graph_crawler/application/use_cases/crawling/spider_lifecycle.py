@@ -6,7 +6,6 @@ Spider Lifecycle Manager - управління життєвим циклом к
 """
 
 import logging
-from typing import Any, Dict, Optional
 
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.value_objects.configs import CrawlerConfig

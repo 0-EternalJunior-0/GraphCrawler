@@ -16,11 +16,11 @@ Usage:
 """
 
 from .simhash_numba import (
+    benchmark_simhash,
     compute_simhash_fast,
+    get_optimization_status,
     hamming_distance_fast,
     is_numba_available,
-    get_optimization_status,
-    benchmark_simhash,
 )
 
 __all__ = [

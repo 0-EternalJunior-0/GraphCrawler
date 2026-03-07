@@ -11,7 +11,7 @@ Note: FetchResponse залишається в domain/value_objects/models.py
       (правильне місце для value objects в Clean Architecture)
 """
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, List, Protocol, runtime_checkable
 
 from graph_crawler.domain.value_objects.models import FetchResponse
 

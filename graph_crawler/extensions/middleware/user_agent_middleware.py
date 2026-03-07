@@ -174,7 +174,7 @@ class UserAgentMiddleware(BaseMiddleware):
         # Для sticky mode - вибираємо один UA при ініціалізації
         if self.strategy == "sticky":
             self.sticky_ua = random.choice(self.user_agents)
-            logger.info(f"Sticky mode: using fixed User-Agent")
+            logger.info("Sticky mode: using fixed User-Agent")
 
         logger.info(f"User-Agent rotation initialized: strategy={self.strategy}")
 

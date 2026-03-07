@@ -12,7 +12,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

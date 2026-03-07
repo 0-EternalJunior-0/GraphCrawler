@@ -20,7 +20,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Optional
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -185,7 +185,7 @@ class BatchVectorizerPlugin(BaseNodePlugin):
             nodes_to_vectorize = []
             texts_to_vectorize = []
 
-            for node_id, node in graph.nodes.items():
+            for _node_id, node in graph.nodes.items():
                 self._stats["total_nodes"] += 1
 
                 # Перевіряємо чи потрібно пропустити
@@ -232,7 +232,7 @@ class BatchVectorizerPlugin(BaseNodePlugin):
                 batch_size=self.batch_size,
             )
 
-            for node, vector in zip(nodes_to_vectorize, vectors):
+            for node, vector in zip(nodes_to_vectorize, vectors, strict=False):
                 try:
                     node.user_data[self.vector_key] = vector.tolist()
                     self._stats["vectorized_nodes"] += 1

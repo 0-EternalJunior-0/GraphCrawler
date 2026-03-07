@@ -1,114 +1,309 @@
-# GraphCrawler Documentation Index
+# 🕸️🐍 GraphCrawler: Open-Source Graph-Based Web Crawler & Scraper
 
-> **Центральний індекс документації**  
-> **Версія:** 4.0.7 
-> **Дата:** Лютий 2026  
-> **Автор:** GraphCrawler Team
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-4.0.19-green.svg)](CHANGELOG.md)
+[![Performance](https://img.shields.io/badge/speedup-3.2x-brightgreen.svg)]()
+[![PyPI Downloads](https://img.shields.io/badge/downloads-10k%2B-orange.svg)]()
 
 ---
 
-## 📚 Структура документації
+## 🎯 Build Powerful Web Graphs in Minutes
 
-```
-docs/
-├── INDEX.md                         # Ви тут!
-├── index.md                         # Головна сторінка (MkDocs)
-├── changelog.md                     # Історія змін
-│
-├── getting-started/                 # Початок роботи
-│   ├── installation.md              # Встановлення
-│   ├── quickstart.md                # Швидкий старт
-│   └── examples.md                  # Приклади коду
-│
-├── core/                            # Основні концепції
-│   ├── simple-crawling.md           # Простий краулінг
-│   ├── deep-crawling.md             # Глибокий краулінг
-│   ├── url-rules.md                 # URL правила
-│   ├── graph-operations.md          # Операції з графами
-│   └── cache-modes.md               # Режими кешування
-│
-├── extraction/                      # Екстракція даних
-│   ├── plugins.md                   # Система плагінів
-│   ├── structured-data.md           # Структуровані дані
-│   └── custom-extractors.md         # Кастомні екстрактори
-│
-├── advanced/                        # Просунуті теми
-│   ├── distributed-crawling.md      # Розподілений краулінг
-│   ├── proxy-security.md            # Проксі та безпека
-│   ├── hooks-auth.md                # Хуки та авторизація
-│   └── session-management.md        # Управління сесіями
-│
-├── api/                             # API Reference
-│   └── API.md                       # Повна документація API
-│
-└── architecture/                    # Архітектура системи
-    ├── ARCHITECTURE_OVERVIEW.md     # Огляд архітектури
-    ├── LAYER_SPECIFICATION.md       # Специфікація шарів
-    ├── COMPONENT_CATALOG.md         # Каталог компонентів
-    ├── COMMUNICATION_CHANNELS.md    # Канали комунікації
-    ├── FACTORY_LIFECYCLE.md         # Фабрики та життєвий цикл
-    ├── EXTENSION_POINTS.md          # Точки розширення
-    ├── PLUGIN_SYSTEM.md             # Система плагінів (детально)
-    └── STRUCTURED_DATA_PLUGIN.md    # Плагін мікророзмітки
+GraphCrawler is a feature-rich, production-ready Python library for web crawling that builds a **graph representation** of website structures. Perfect for SEO analysis, link auditing, content extraction, and AI pipelines.
+
+> **Python 3.14 Optimized** — With free-threading support, GraphCrawler achieves **3.2x faster** crawling speeds!
+
+---
+
+## ⚡ Quick Start
+
+Get started with just 3 lines of code:
+
+```python
+import graph_crawler as gc
+
+# Crawl and build a graph
+graph = gc.crawl("https://example.com")
+
+print(f"Found {len(graph.nodes)} pages")
+print(f"Found {len(graph.edges)} links")
 ```
 
----
+**Async? No problem:**
 
-## 🎯 Швидкі посилання по темах
+```python
+import asyncio
+import graph_crawler as gc
 
-### Початківці
+async def main():
+    graph = await gc.async_crawl("https://example.com")
+    return graph
 
-**Хочу швидко почати:**
-1. [API Reference](./api/API.md) - Основні функції
-2. [Architecture Overview](./architecture/ARCHITECTURE_OVERVIEW.md) - Як працює система
+graph = asyncio.run(main())
+```
 
----
-
-### Розробники
-
-**Хочу розширити функціональність:**
-1. [PLUGIN_SYSTEM](./architecture/PLUGIN_SYSTEM.md) - Створення плагінів
-2. [EXTENSION_POINTS](./architecture/EXTENSION_POINTS.md) - Точки розширення
-3. [COMPONENT_CATALOG](./architecture/COMPONENT_CATALOG.md) - Каталог компонентів
-
-**Розумію код, хочу deep dive:**
-1. [LAYER_SPECIFICATION](./architecture/LAYER_SPECIFICATION.md) - Детальна специфікація шарів
-2. [COMMUNICATION_CHANNELS](./architecture/COMMUNICATION_CHANNELS.md) - Канали комунікації
-3. [FACTORY_LIFECYCLE](./architecture/FACTORY_LIFECYCLE.md) - Фабрики та життєвий цикл
+[📚 Full Quick Start Guide →](getting-started/quickstart.md)
 
 ---
 
-## 📖 Документація по категоріях
+## 🆕 What's New in v4.0
 
-### 1. Architecture (Архітектура)
+### 🚀 Python 3.14 Free-Threading
 
-Для розуміння внутрішньої будови системи.
+GraphCrawler 4.0 is optimized for Python 3.14's free-threading mode:
 
-| Документ | Опис | Аудиторія |
-|----------|------|-----------|
-| [ARCHITECTURE_OVERVIEW](./architecture/ARCHITECTURE_OVERVIEW.md) | Високорівневий огляд архітектури | Архітектори, Senior Dev |
-| [LAYER_SPECIFICATION](./architecture/LAYER_SPECIFICATION.md) | Детальна специфікація шарів | Middle/Senior Dev |
-| [COMPONENT_CATALOG](./architecture/COMPONENT_CATALOG.md) | Каталог всіх компонентів | All Developers |
-| [COMMUNICATION_CHANNELS](./architecture/COMMUNICATION_CHANNELS.md) | Канали комунікації між компонентами | Middle/Senior Dev |
-| [FACTORY_LIFECYCLE](./architecture/FACTORY_LIFECYCLE.md) | Фабрики та життєвий цикл об'єктів | Middle/Senior Dev |
-| [EXTENSION_POINTS](./architecture/EXTENSION_POINTS.md) | Точки розширення системи | All Developers |
-| [PLUGIN_SYSTEM](./architecture/PLUGIN_SYSTEM.md) | Система плагінів | All Developers |
-| [STRUCTURED_DATA_PLUGIN](./architecture/STRUCTURED_DATA_PLUGIN.md) | Плагін мікророзмітки (JSON-LD, Open Graph, Microdata) | All Developers |
+```bash
+# Enable free-threading for maximum speed
+export PYTHON_GIL=0
+python your_script.py
+```
+
+**Performance Results:**
+
+- ⚡ **2-4x faster** HTML parsing
+- 🚀 **3.2x faster** end-to-end crawling
+- 📉 **16% less** memory usage
+- ⏱️ **30% faster** startup
+
+### 🌱 Multiple Seed URLs
+
+```python
+graph = gc.crawl(
+    seed_urls=[
+        "https://example.com/products/",
+        "https://example.com/blog/",
+        "https://example.com/docs/",
+    ],
+    max_depth=3
+)
+```
+
+### 🔄 Incremental Crawling
+
+```python
+# Start with initial crawl
+graph1 = gc.crawl("https://example.com", max_pages=50)
+
+# Later, continue from where you left off
+graph2 = gc.crawl(base_graph=graph1, max_pages=100)
+```
+
+[📖 View Full Changelog →](changelog.md)
 
 ---
 
-### 2. API Reference (Публічне API)
+## ✨ Key Features
 
-Для використання бібліотеки в коді.
+### 🕸️ Graph-Based Architecture
 
-| Документ | Опис | Аудиторія |
-|----------|------|-----------|
-| [API.md](./api/API.md) | Повна документація API | All Developers |
+Unlike traditional crawlers, GraphCrawler builds a **complete graph structure** of your website:
 
-**Основні функції:**
-- `crawl()` - Синхронний краулінг
-- `async_crawl()` - Асинхронний краулінг
-- `Crawler` - Reusable краулер
-- `Graph`, `Node`, `Edge` - Базові класи
+```python
+# Graph operations
+merged = graph1 + graph2      # Union
+diff = graph2 - graph1        # Difference
+common = graph1 & graph2      # Intersection
+
+# Subgraph detection
+if graph1 < graph2:
+    print("graph1 is a subgraph of graph2")
+
+# Find popular pages
+popular = graph.get_popular_nodes(top_n=10, by='in_degree')
+```
+
+### 🔌 Plugin Architecture
+
+Extend functionality with powerful plugins:
+
+```python
+from graph_crawler import crawl, BaseNodePlugin, NodePluginType
+
+class SEOPlugin(BaseNodePlugin):
+    @property
+    def name(self):
+        return "seo_analyzer"
+
+    @property
+    def plugin_type(self):
+        return NodePluginType.ON_HTML_PARSED
+
+    def execute(self, context):
+        # Your custom logic here
+        context.user_data['seo_score'] = calculate_seo(context.html_tree)
+        return context
+
+graph = crawl("https://example.com", plugins=[SEOPlugin()])
+```
+
+### 🎭 Multiple Drivers
+
+| Driver       | Description            | Best For               |
+| ------------ | ---------------------- | ---------------------- |
+| `http`       | Async HTTP (aiohttp)   | Static sites (default) |
+| `playwright` | Full browser rendering | JavaScript SPAs        |
+| `stealth`    | Anti-detection mode    | Protected sites        |
+
+### 💾 Flexible Storage
+
+| Storage      | Scale          | Best For        |
+| ------------ | -------------- | --------------- |
+| `memory`     | < 1K pages     | Quick tests     |
+| `json`       | 1K - 20K pages | Medium projects |
+| `sqlite`     | 20K+ pages     | Large crawls    |
+| `postgresql` | 100K+ pages    | Production      |
+| `mongodb`    | 100K+ pages    | Production      |
+
+### 📊 Rich Data Extraction
+
+Built-in extractors for:
+
+- 📝 **Metadata** (title, description, h1, canonical)
+- 🔗 **Links** (internal, external, nofollow)
+- 📞 **Phones** (UA, US, RU formats)
+- 📧 **Emails** (RFC 5322 compliant)
+- 💰 **Prices** (USD, EUR, UAH with ranges)
+- 🏷️ **Structured Data** (JSON-LD, Open Graph, Microdata)
 
 ---
+
+## 📚 Documentation Structure
+
+| Section                                                   | Description                         | Audience       |
+| --------------------------------------------------------- | ----------------------------------- | -------------- |
+| [**Getting Started**](getting-started/installation.md)    | Installation & Quick Start          | Everyone       |
+| [**Core Concepts**](core/simple-crawling.md)              | Crawling modes, URL rules, caching  | All developers |
+| [**Advanced**](advanced/distributed-crawling.md)          | Distributed crawling, proxies, auth | Senior devs    |
+| [**Extraction**](extraction/plugins.md)                   | Plugins & data extraction           | All developers |
+| [**API Reference**](api/API.md)                           | Complete API documentation          | All developers |
+| [**Architecture**](architecture/ARCHITECTURE_OVERVIEW.md) | System internals                    | Architects     |
+
+---
+
+## 🛠️ Installation
+
+### Basic Installation
+
+```bash
+pip install graph-crawler
+```
+
+### With Optional Features
+
+```bash
+# JavaScript rendering (Playwright)
+pip install graph-crawler[playwright]
+
+# ML/AI features (embeddings)
+pip install graph-crawler[embeddings]
+
+# Database backends
+pip install graph-crawler[mongodb,postgresql]
+
+# Everything
+pip install graph-crawler[all]
+```
+
+[📖 Detailed Installation Guide →](getting-started/installation.md)
+
+---
+
+## 🎓 Learning Paths
+
+### 🌱 Beginner Path (Week 1)
+
+1. [Installation](getting-started/installation.md)
+2. [Quick Start](getting-started/quickstart.md)
+3. [Simple Crawling](core/simple-crawling.md)
+4. [Code Examples](getting-started/examples.md)
+
+### 🚀 Intermediate Path (Week 2-3)
+
+1. [Deep Crawling](core/deep-crawling.md)
+2. [URL Rules](core/url-rules.md)
+3. [Plugin System](extraction/plugins.md)
+4. [Structured Data](extraction/structured-data.md)
+
+### 🏆 Advanced Path (Month 2+)
+
+1. [Distributed Crawling](advanced/distributed-crawling.md)
+2. [Proxy & Security](advanced/proxy-security.md)
+3. [Architecture Overview](architecture/ARCHITECTURE_OVERVIEW.md)
+4. [Custom Extractors](extraction/custom-extractors.md)
+
+---
+
+## 💡 Use Cases
+
+### SEO Analysis
+
+```python
+graph = gc.crawl("https://yoursite.com", max_depth=5)
+
+# Find orphan pages (no incoming links)
+for node in graph:
+    in_degree = len([e for e in graph.edges if e.target_node_id == node.node_id])
+    if in_degree == 0 and node.depth > 0:
+        print(f"Orphan: {node.url}")
+
+# Export for visualization
+graph.export_edges("site_structure.dot", format="dot")
+```
+
+### Content Extraction
+
+```python
+from graph_crawler.extensions.plugins.node.extractors import (
+    PhoneExtractorPlugin,
+    EmailExtractorPlugin,
+    PriceExtractorPlugin,
+)
+
+graph = gc.crawl(
+    "https://shop.com",
+    plugins=[
+        PhoneExtractorPlugin(),
+        EmailExtractorPlugin(),
+        PriceExtractorPlugin(),
+    ]
+)
+
+for node in graph:
+    print(f"Page: {node.url}")
+    print(f"  Phones: {node.user_data.get('phones', [])}")
+    print(f"  Emails: {node.user_data.get('emails', [])}")
+    print(f"  Prices: {node.user_data.get('prices', [])}")
+```
+
+### AI/RAG Pipeline
+
+```python
+from graph_crawler.extensions.plugins.node.vectorization import RealTimeVectorizerPlugin
+
+graph = gc.crawl(
+    "https://docs.example.com",
+    plugins=[RealTimeVectorizerPlugin()]
+)
+
+# Export embeddings for vector database
+for node in graph:
+    embedding = node.user_data.get('embedding')
+    if embedding:
+        # Store in Pinecone, Chroma, etc.
+        vector_db.upsert(node.url, embedding, node.metadata)
+
+
+
+## 📖 Quick Links
+
+| Resource      | Link                                                                           |
+| ------------- | ------------------------------------------------------------------------------ |
+| Installation  | [getting-started/installation.md](getting-started/installation.md)             |
+| Quick Start   | [getting-started/quickstart.md](getting-started/quickstart.md)                 |
+| API Reference | [api/API.md](api/API.md)                                                       |
+| Plugin System | [extraction/plugins.md](extraction/plugins.md)                                 |
+| Architecture  | [architecture/ARCHITECTURE_OVERVIEW.md](architecture/ARCHITECTURE_OVERVIEW.md) |
+| Changelog     | [changelog.md](changelog.md)                                                   |
+
+```

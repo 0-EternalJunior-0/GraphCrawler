@@ -10,10 +10,10 @@
 
 from graph_crawler.extensions.plugins.node.structured_data.parsers.base import BaseParser
 from graph_crawler.extensions.plugins.node.structured_data.parsers.jsonld import JsonLdParser
-from graph_crawler.extensions.plugins.node.structured_data.parsers.opengraph import OpenGraphParser
-from graph_crawler.extensions.plugins.node.structured_data.parsers.twitter import TwitterCardsParser
 from graph_crawler.extensions.plugins.node.structured_data.parsers.microdata import MicrodataParser
+from graph_crawler.extensions.plugins.node.structured_data.parsers.opengraph import OpenGraphParser
 from graph_crawler.extensions.plugins.node.structured_data.parsers.rdfa import RdfaParser
+from graph_crawler.extensions.plugins.node.structured_data.parsers.twitter import TwitterCardsParser
 
 __all__ = [
     "BaseParser",

@@ -8,11 +8,16 @@ Features:
 - save_checkpoint() → async save_checkpoint()
 - load_checkpoint() → async load_checkpoint()
 - Sync методи залишені для зворотньої сумісності з DEPRECATED міткою
+
+ВИПРАВЛЕНО: Додано executor fallback для неблокуючих операцій.
 """
 
+import asyncio
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +34,9 @@ from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 
 logger = logging.getLogger(__name__)
+
+# Thread pool для неблокуючих file I/O операцій (fallback)
+_checkpoint_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="checkpoint_")
 
 
 class CheckpointManager:
@@ -133,8 +141,12 @@ class CheckpointManager:
                 async with aiofiles.open(checkpoint_file, "w", encoding="utf-8") as f:
                     await f.write(json_content)
             else:
-                with open(checkpoint_file, "w", encoding="utf-8") as f:
-                    f.write(json_content)
+                # Використовуємо executor для неблокуючого запису
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    _checkpoint_executor,
+                    partial(self._sync_write_file, checkpoint_file, json_content)
+                )
 
             logger.info(
                 f"Checkpoint saved: {checkpoint_file.name} "
@@ -187,8 +199,12 @@ class CheckpointManager:
                     content = await f.read()
                 checkpoint_data = json.loads(content)
             else:
-                with open(checkpoint_path, "r", encoding="utf-8") as f:
-                    checkpoint_data = json.load(f)
+                # Використовуємо executor для неблокуючого читання
+                loop = asyncio.get_event_loop()
+                checkpoint_data = await loop.run_in_executor(
+                    _checkpoint_executor,
+                    partial(self._sync_read_json_file, checkpoint_path)
+                )
 
             logger.info(
                 f"Checkpoint loaded: {Path(checkpoint_path).name} "
@@ -383,3 +399,15 @@ class CheckpointManager:
         import asyncio
 
         return asyncio.run(self.load_checkpoint(checkpoint_path))
+
+    @staticmethod
+    def _sync_write_file(file_path: Path, content: str) -> None:
+        """Синхронний запис файлу (для виконання в executor)."""
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @staticmethod
+    def _sync_read_json_file(file_path: str) -> Dict[str, Any]:
+        """Синхронне читання JSON файлу (для виконання в executor)."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)

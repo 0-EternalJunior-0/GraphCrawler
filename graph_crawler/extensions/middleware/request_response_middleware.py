@@ -10,9 +10,8 @@
 - Query parameters manipulation
 """
 
-import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from graph_crawler.extensions.middleware.base import (
@@ -396,7 +395,6 @@ class ResponseMiddleware(BaseMiddleware):
         html_lower = html.lower()
 
         has_html_tag = "<html" in html_lower or "<!doctype" in html_lower
-        has_body = "<body" in html_lower
 
         # Якщо це не HTML документ - може бути JSON або XML
         is_json = html.strip().startswith("{") or html.strip().startswith("[")

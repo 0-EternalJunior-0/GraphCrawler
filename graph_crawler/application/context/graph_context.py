@@ -34,12 +34,12 @@ logger = logging.getLogger(__name__)
 class GraphContext:
     """
     Контекст для роботи з графом.
-    
+
     Об'єднує:
     - Залежності для десеріалізації (plugin_manager, tree_parser, hash_strategy)
     - Класи для створення (node_class, edge_class)
     - Стратегію merge
-    
+
     Attributes:
         plugin_manager: Plugin manager для Node
         tree_parser: Tree parser для HTML
@@ -56,17 +56,17 @@ class GraphContext:
     edge_class: Optional[Type] = None
     default_merge_strategy: str = "last"
     custom_merge_fn: Optional[Callable] = None
-    
+
     # Private - для tracking зміни стратегії
     _strategy_stack: list = field(default_factory=list, repr=False)
-    
+
     def __post_init__(self):
         """Ініціалізація після створення."""
         # Заповнюємо з DependencyRegistry якщо не передано
         from graph_crawler.application.context.dependency_registry import DependencyRegistry
-        
+
         defaults = DependencyRegistry.get_context()
-        
+
         if self.plugin_manager is None:
             self.plugin_manager = defaults.get('plugin_manager')
         if self.tree_parser is None:
@@ -82,14 +82,14 @@ class GraphContext:
             registry_strategy = defaults.get('default_merge_strategy')
             if registry_strategy:
                 self.default_merge_strategy = registry_strategy
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Конвертує контекст в dict для передачі в Mappers.
-        
+
         Returns:
             Dict з усіма залежностями
-            
+
         Example:
             >>> ctx = GraphContext(plugin_manager=pm)
             >>> graph = GraphMapper.to_domain(graph_dto, context=ctx.to_dict())
@@ -102,43 +102,43 @@ class GraphContext:
             'edge_class': self.edge_class,
             'default_merge_strategy': self.get_current_strategy(),
         }
-    
+
     def get_current_strategy(self) -> str:
         """
         Отримує поточну стратегію merge.
-        
+
         Враховує локальний стек стратегій.
-        
+
         Returns:
             Назва поточної стратегії
         """
         if self._strategy_stack:
             return self._strategy_stack[-1]
         return self.default_merge_strategy
-    
+
     def get_current_custom_merge_fn(self) -> Optional[Callable]:
         """
         Отримує поточну кастомну функцію merge.
-        
+
         Returns:
             Callable або None
         """
         if self.get_current_strategy() == 'custom':
             return self.custom_merge_fn
         return None
-    
+
     @contextmanager
     def merge_strategy(self, strategy: str, custom_fn: Optional[Callable] = None):
         """
         Context manager для тимчасової зміни merge strategy.
-        
+
         Args:
             strategy: Нова стратегія
             custom_fn: Кастомна функція для 'custom' стратегії
-            
+
         Yields:
             self для chaining
-            
+
         Example:
             >>> ctx = GraphContext(default_merge_strategy='last')
             >>> with ctx.merge_strategy('merge'):
@@ -151,23 +151,23 @@ class GraphContext:
                 f"Invalid merge strategy: {strategy}. "
                 f"Valid: {valid_strategies}"
             )
-        
+
         if strategy == 'custom' and custom_fn is None and self.custom_merge_fn is None:
             raise ValueError(
                 "custom_fn is required for 'custom' strategy"
             )
-        
+
         # Зберігаємо custom_fn якщо передано
         old_custom_fn = self.custom_merge_fn
         if custom_fn is not None:
             self.custom_merge_fn = custom_fn
-        
+
         self._strategy_stack.append(strategy)
         logger.debug(
             f"GraphContext strategy pushed: {strategy} "
             f"(depth={len(self._strategy_stack)})"
         )
-        
+
         try:
             yield self
         finally:
@@ -177,19 +177,19 @@ class GraphContext:
                 f"GraphContext strategy popped: {strategy} "
                 f"(depth={len(self._strategy_stack)})"
             )
-    
+
     def with_plugin_manager(self, plugin_manager: Any) -> 'GraphContext':
         """
         Створює копію контексту з новим plugin_manager.
-        
+
         Fluent API для зручного налаштування.
-        
+
         Args:
             plugin_manager: Новий plugin_manager
-            
+
         Returns:
             Новий GraphContext
-            
+
         Example:
             >>> ctx2 = ctx.with_plugin_manager(custom_pm)
         """
@@ -202,7 +202,7 @@ class GraphContext:
             default_merge_strategy=self.default_merge_strategy,
             custom_merge_fn=self.custom_merge_fn,
         )
-    
+
     def with_tree_parser(self, tree_parser: Any) -> 'GraphContext':
         """Створює копію контексту з новим tree_parser."""
         return GraphContext(
@@ -214,7 +214,7 @@ class GraphContext:
             default_merge_strategy=self.default_merge_strategy,
             custom_merge_fn=self.custom_merge_fn,
         )
-    
+
     def with_node_class(self, node_class: Type) -> 'GraphContext':
         """Створює копію контексту з новим node_class."""
         return GraphContext(
@@ -226,7 +226,7 @@ class GraphContext:
             default_merge_strategy=self.default_merge_strategy,
             custom_merge_fn=self.custom_merge_fn,
         )
-    
+
     def with_merge_strategy_default(self, strategy: str) -> 'GraphContext':
         """Створює копію контексту з новою дефолтною стратегією."""
         return GraphContext(
@@ -249,18 +249,18 @@ _global_lock = threading.Lock()
 def get_graph_context() -> GraphContext:
     """
     Отримує глобальний контекст графу.
-    
+
     Якщо не встановлено - створює дефолтний.
-    
+
     Returns:
         GraphContext
-        
+
     Example:
         >>> ctx = get_graph_context()
         >>> graph = GraphMapper.to_domain(graph_dto, context=ctx.to_dict())
     """
     global _global_context
-    
+
     with _global_lock:
         if _global_context is None:
             _global_context = GraphContext()
@@ -271,10 +271,10 @@ def get_graph_context() -> GraphContext:
 def set_graph_context(context: GraphContext) -> None:
     """
     Встановлює глобальний контекст графу.
-    
+
     Args:
         context: GraphContext для встановлення
-        
+
     Example:
         >>> ctx = GraphContext(
         ...     plugin_manager=my_pm,
@@ -283,7 +283,7 @@ def set_graph_context(context: GraphContext) -> None:
         >>> set_graph_context(ctx)
     """
     global _global_context
-    
+
     with _global_lock:
         _global_context = context
         logger.info(
@@ -296,11 +296,11 @@ def set_graph_context(context: GraphContext) -> None:
 def reset_graph_context() -> None:
     """
     Скидає глобальний контекст до None.
-    
+
     Корисно для тестування.
     """
     global _global_context
-    
+
     with _global_lock:
         _global_context = None
         logger.debug("Global GraphContext reset")

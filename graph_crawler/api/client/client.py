@@ -19,7 +19,7 @@ from graph_crawler.domain.interfaces.event_bus import IEventBus
 from graph_crawler.domain.interfaces.spider import ISpider
 from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.value_objects.models import GraphMetadata, GraphStats, URLRule
+from graph_crawler.domain.value_objects.models import GraphStats, URLRule
 from graph_crawler.infrastructure.persistence.graph_repository import GraphRepository
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,10 @@ class GraphCrawlerClient:
         seed_urls: Optional[list[str]] = None,
         base_graph: Optional[Graph] = None,
         follow_links: bool = True,
+        # LOW-MEMORY MODE
+        low_memory_mode: bool = False,
+        evict_threshold: int = 500,
+        eviction_storage_path: Optional[str] = None,
     ) -> Graph:
         """
         Async запускає краулінг веб-сайту з підтримкою множинних seed URLs та incremental crawling.
@@ -136,6 +140,9 @@ class GraphCrawlerClient:
             seed_urls: Список URL для початку краулінгу (NEW)
             base_graph: Існуючий граф для продовження (NEW)
             follow_links: Переходити за посиланнями (True) чи сканувати тільки вказані URL (False)
+            low_memory_mode: Активувати eviction scanned нод на диск
+            evict_threshold: Максимум нод в RAM перед eviction
+            eviction_storage_path: Директорія для eviction storage
 
         Returns:
             Побудований граф
@@ -150,6 +157,8 @@ class GraphCrawlerClient:
             self.logger.info(f"Base graph: {len(base_graph.nodes)} nodes")
         if not follow_links:
             self.logger.info("follow_links=False: will scan only specified URLs, no link following")
+        if low_memory_mode:
+            self.logger.info(f"LOW-MEMORY MODE: evict_threshold={evict_threshold}")
 
         domains = (
             allowed_domains
@@ -169,6 +178,10 @@ class GraphCrawlerClient:
             max_in_degree_threshold=max_in_degree_threshold,
             node_plugins=node_plugins,
             follow_links=follow_links,
+            # LOW-MEMORY MODE
+            low_memory_mode=low_memory_mode,
+            evict_threshold=evict_threshold,
+            eviction_storage_path=eviction_storage_path,
         )
 
         # Публікуємо подію початку
@@ -178,11 +191,12 @@ class GraphCrawlerClient:
             CrawlerEvent.create(
                 event_type=EventType.CRAWL_STARTED,
                 data={
-                    "url": url, 
-                    "max_depth": max_depth, 
+                    "url": url,
+                    "max_depth": max_depth,
                     "max_pages": max_pages,
                     "seed_urls_count": len(seed_urls) if seed_urls else 0,
                     "base_graph_nodes": len(base_graph.nodes) if base_graph else 0,
+                    "low_memory_mode": low_memory_mode,
                 },
             )
         )
@@ -201,14 +215,14 @@ class GraphCrawlerClient:
             # Spider тепер сам обробляє timeout через Coordinator
             # Це забезпечує коректну зупинку краулінгу без orphan tasks
             graph_dto = await spider.crawl(
-                base_graph_dto=base_graph_dto, 
+                base_graph_dto=base_graph_dto,
                 seed_urls=seed_urls,
                 timeout=timeout
             )
 
             # Конвертуємо GraphDTO → Domain Graph для backward compatibility публічного API
             from graph_crawler.application.dto.mappers import GraphMapper
-            
+
             context = {
                 'plugin_manager': spider.node_plugin_manager,
                 'node_class': custom_node_class,

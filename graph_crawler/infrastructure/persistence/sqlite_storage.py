@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 import logging
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO, GraphStatsDTO
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.domain.events.events import EventType
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 from graph_crawler.shared.constants import (
@@ -531,7 +531,7 @@ class SQLiteStorage(BaseStorage):
                     await cursor.execute(
                         """
                         INSERT OR REPLACE INTO nodes
-                        (node_id, url, depth, scanned, should_scan, can_create_edges, metadata, 
+                        (node_id, url, depth, scanned, should_scan, can_create_edges, metadata,
                          user_data, response_status, content_hash, priority, created_at, lifecycle_stage)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,

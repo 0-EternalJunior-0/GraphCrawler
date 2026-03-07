@@ -1,14 +1,13 @@
 """Error Recovery Middleware - обробка та відновлення після критичних помилок.
 
 Team 3: Reliability & DevOps
-Task 3.3: Error Recovery (P0)
 Week 2
 """
 
 import logging
 import traceback
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Dict, Optional
 
 from graph_crawler.extensions.middleware.base import (
     BaseMiddleware,

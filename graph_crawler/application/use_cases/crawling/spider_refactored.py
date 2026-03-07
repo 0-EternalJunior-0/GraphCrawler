@@ -13,7 +13,6 @@ GraphSpider (Refactored) - головний краулер з дотриманн
 """
 
 import logging
-import time
 from typing import Optional
 
 from graph_crawler.application.use_cases.crawling.base_spider import BaseSpider

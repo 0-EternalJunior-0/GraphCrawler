@@ -105,7 +105,7 @@ class PhoneExtractorPlugin(BaseNodePlugin):
             except Exception as e:
                 logger.debug(f"Error parsing tel: links: {e}")
 
-        context.user_data["phones"] = sorted(list(phones))
+        context.user_data["phones"] = sorted(phones)
         context.user_data["phone_count"] = len(phones)
 
         if phones:

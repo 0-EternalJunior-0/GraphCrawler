@@ -8,7 +8,6 @@
 Принцип: "Користувач сам вирішує де зберігати"
 """
 
-from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable

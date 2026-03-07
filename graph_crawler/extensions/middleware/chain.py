@@ -1,7 +1,6 @@
 """Middleware Chain - ланцюжок обробки ."""
 
 import asyncio
-import inspect
 from typing import Dict, List
 
 from graph_crawler.extensions.middleware.base import (

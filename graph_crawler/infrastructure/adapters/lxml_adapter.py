@@ -52,10 +52,26 @@ class LxmlAdapter(BaseTreeAdapter):
 
     @property
     def text(self) -> str:
-        """Повертає весь текст з документа."""
+        """
+        Повертає весь текст з документа БЕЗ script/style/noscript.
+        
+        ВАЖЛИВО: Видаляємо script, style, noscript, svg перед витяганням тексту,
+        інакше CSS/JS код потрапляє в text_content і псує SimHash.
+        """
         if self._tree is None:
             return ""
-        return self._tree.text_content().strip()
+        
+        # Клонуємо дерево щоб не модифікувати оригінал
+        import copy
+        tree_copy = copy.deepcopy(self._tree)
+        
+        # Видаляємо теги що містять код/стилі, а не контент
+        from lxml import etree
+        for tag in ['script', 'style', 'noscript', 'svg', 'head']:
+            for element in tree_copy.iter(tag):
+                element.getparent().remove(element)
+        
+        return tree_copy.text_content().strip()
 
     def parse(self, html: str) -> lxml_html.HtmlElement:
         """Парсить HTML в lxml дерево."""

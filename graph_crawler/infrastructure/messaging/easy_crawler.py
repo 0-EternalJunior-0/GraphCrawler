@@ -171,7 +171,7 @@ class EasyDistributedCrawler:
         # 5. Створюємо CeleryBatchSpider
         self._spider = CeleryBatchSpider(crawler_config, driver, storage)
 
-        logger.info(f"EasyDistributedCrawler initialized")
+        logger.info("EasyDistributedCrawler initialized")
         logger.info(f"Broker: {self.config.broker.url}")
         logger.info(
             f"Database: {self.config.database.type}"

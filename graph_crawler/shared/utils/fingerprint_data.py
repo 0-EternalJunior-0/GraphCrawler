@@ -6,7 +6,7 @@ for better readability and testability.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List
 
 # Реалістичні розміри viewport (топ 10 найпопулярніших)
 COMMON_VIEWPORTS: List[Dict[str, int]] = [

@@ -3,17 +3,17 @@
 Забезпечує ізоляцію Domain Layer від зовнішніх шарів через DTO.
 """
 
-from datetime import datetime
 from functools import lru_cache
 from typing import Any, Dict, FrozenSet, Optional, Type
 
-from graph_crawler.application.dto import (
+from graph_crawler.application.dto.node_dto import (
     CreateNodeDTO,
     NodeDTO,
     NodeMetadataDTO,
 )
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.lifecycle import NodeLifecycle
+from graph_crawler.domain.value_objects.models import ContentType
 
 
 class NodeMapper:
@@ -52,8 +52,8 @@ class NodeMapper:
     _BASE_NODE_FIELDS: FrozenSet[str] = frozenset({
         'url', 'node_id', 'depth', 'should_scan', 'can_create_edges',
         'created_at', 'metadata', 'user_data', 'scanned', 'response_status',
-        'content_hash', 'simhash', 'priority', 'lifecycle_stage', 'plugin_manager',
-        'tree_parser', 'hash_strategy', 'simhash_strategy'
+        'content_hash', 'simhash', 'priority', 'lifecycle_stage', 'content_type',
+        'plugin_manager', 'tree_parser', 'hash_strategy', 'simhash_strategy'
     })
 
     @staticmethod
@@ -61,9 +61,6 @@ class NodeMapper:
     def _get_custom_fields(node_class: Type[Node]) -> FrozenSet[str]:
         """
         Кешує список кастомних полів для класу Node.
-
-        Оптимізація: обчислюється один раз на клас, а не на кожну ноду.
-        При 20k нод економить ~400k ітерацій.
         """
         return frozenset(
             field_name
@@ -104,11 +101,17 @@ class NodeMapper:
             else node.lifecycle_stage
         )
 
+        # Конвертуємо content_type enum в string
+        content_type_str = (
+            node.content_type.value
+            if isinstance(node.content_type, ContentType)
+            else node.content_type
+        )
+
         # Копіюємо user_data
         user_data = node.user_data.copy()
 
         # Автоматично зберігаємо кастомні Pydantic поля підкласів Node
-        # Оптимізація: список полів кешується per-class через lru_cache
         custom_field_names = NodeMapper._get_custom_fields(type(node))
         if custom_field_names:
             custom_fields = {}
@@ -136,6 +139,7 @@ class NodeMapper:
             priority=node.priority,
             created_at=node.created_at,
             lifecycle_stage=lifecycle_stage_str,
+            content_type=content_type_str,
         )
 
     @staticmethod
@@ -188,6 +192,13 @@ class NodeMapper:
             else node_dto.lifecycle_stage
         )
 
+        # Конвертуємо string content_type в enum
+        content_type = (
+            ContentType(node_dto.content_type)
+            if isinstance(node_dto.content_type, str)
+            else node_dto.content_type
+        )
+
         # Копіюємо user_data та витягуємо _custom_fields
         user_data = node_dto.user_data.copy()
         custom_fields = user_data.pop('_custom_fields', {})
@@ -208,6 +219,7 @@ class NodeMapper:
             'priority': node_dto.priority,
             'created_at': node_dto.created_at,
             'lifecycle_stage': lifecycle_stage,
+            'content_type': content_type,
             # Залежності з context (можуть бути None)
             'plugin_manager': context.get("plugin_manager"),
             'tree_parser': context.get("tree_parser"),
@@ -332,17 +344,17 @@ class NodeMapper:
     ) -> list[Node]:
         """
         Конвертує список NodeDTO в список Node.
-        
+
         Корисно для batch операцій при завантаженні з storage.
-        
+
         Args:
             node_dtos: Список NodeDTO
             context: Контекст з залежностями (спільний для всіх нод)
             node_class: Клас Node для створення
-            
+
         Returns:
             Список Domain Node entities
-            
+
         Example:
             >>> node_dtos = [dto1, dto2, dto3]
             >>> context = {'plugin_manager': pm}

@@ -347,8 +347,9 @@ async def _run_crawl_background(crawl_id: str, config: CrawlRequest):
     try:
         logger.info(f"Background crawl {crawl_id} started with URL: {config.url}")
 
-        from graph_crawler.api.dashboard import monitor
         from graph_crawler.api.simple import async_crawl
+
+        from graph_crawler.api.dashboard import monitor
 
         monitor.update_stats("crawl_started", {"crawl_id": crawl_id})
 

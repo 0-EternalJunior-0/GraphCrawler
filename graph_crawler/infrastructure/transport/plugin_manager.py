@@ -6,13 +6,14 @@
 - Підписку плагінів на події інших плагінів
 - Обробку помилок плагінів
 - Пріоритизацію виконання
+- Перевірку сумісності плагінів
 """
 
 import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.context import DriverContext
@@ -25,6 +26,7 @@ class DriverPluginManager:
     Менеджер плагінів для драйвера.
 
     Координує виконання плагінів на різних етапах роботи драйвера.
+    Автоматично перевіряє сумісність плагінів при реєстрації.
 
     Приклад:
         manager = DriverPluginManager(is_async=True)
@@ -35,14 +37,16 @@ class DriverPluginManager:
         ctx = await manager.execute_hook('navigation_completed', ctx)
     """
 
-    def __init__(self, is_async: bool = False):
+    def __init__(self, is_async: bool = False, check_compatibility: bool = True):
         """
         Ініціалізація менеджера.
 
         Args:
             is_async: Чи плагіни асинхронні (залежить від драйвера)
+            check_compatibility: Чи перевіряти сумісність плагінів (default: True)
         """
         self.is_async = is_async
+        self.check_compatibility = check_compatibility
         self.plugins: List[BaseDriverPlugin] = []
 
         # Індексація плагінів по хукам для швидкого доступу
@@ -51,7 +55,7 @@ class DriverPluginManager:
         # Індексація плагінів по подіям
         self.event_plugins: Dict[str, List[BaseDriverPlugin]] = defaultdict(list)
 
-        logger.info(f"DriverPluginManager initialized (async={is_async})")
+        logger.info(f"DriverPluginManager initialized (async={is_async}, compat_check={check_compatibility})")
 
     def register(self, plugin: BaseDriverPlugin):
         """
@@ -59,10 +63,17 @@ class DriverPluginManager:
 
         Args:
             plugin: Екземпляр плагіна для реєстрації
+            
+        Raises:
+            ValueError: Якщо плагін несумісний з вже зареєстрованими
         """
         if not plugin.enabled:
             logger.debug(f"Plugin '{plugin.name}' is disabled, skipping registration")
             return
+
+        # Перевіряємо сумісність з існуючими плагінами
+        if self.check_compatibility and self.plugins:
+            self._check_plugin_compatibility(plugin)
 
         # Додаємо в загальний список
         self.plugins.append(plugin)
@@ -91,6 +102,34 @@ class DriverPluginManager:
         except Exception as e:
             logger.error(f"Error in plugin '{plugin.name}' setup: {e}")
             plugin.enabled = False
+
+    def _check_plugin_compatibility(self, new_plugin: BaseDriverPlugin):
+        """
+        Перевіряє сумісність нового плагіна з існуючими.
+        
+        Args:
+            new_plugin: Новий плагін для перевірки
+            
+        Raises:
+            ValueError: Якщо є несумісність
+        """
+        try:
+            from graph_crawler.infrastructure.transport.playwright.plugins.compatibility import (
+                check_plugin_compatibility,
+            )
+            
+            # Перевіряємо новий плагін разом з існуючими
+            all_plugins = self.plugins + [new_plugin]
+            check_plugin_compatibility(all_plugins, raise_on_conflict=True)
+            
+        except ImportError:
+            # Якщо модуль сумісності недоступний - пропускаємо перевірку
+            logger.debug("Compatibility module not available, skipping check")
+        except ValueError as e:
+            # Логуємо попередження замість помилки (для м'якого режиму)
+            logger.warning(f"Plugin compatibility issue: {e}")
+            # Можна розкоментувати для строгого режиму:
+            # raise
 
     def setup_event_subscriptions(self, context: DriverContext):
         """

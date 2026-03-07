@@ -3,6 +3,7 @@
 Contains Celery tasks for distributed crawling:
 - celery_unified: Main Celery app with crawl_page and crawl_batch tasks
 - celery_job_task: Kubernetes-optimized crawl_job task for RemoteControl
+- easy_crawler: EasyDistributedCrawler for simplified distributed crawling
 """
 
 from graph_crawler.infrastructure.messaging.celery_unified import (
@@ -20,6 +21,12 @@ except ImportError:
     # Dependencies not available
     crawl_job_task = None
 
+# Import EasyDistributedCrawler
+try:
+    from graph_crawler.infrastructure.messaging.easy_crawler import EasyDistributedCrawler
+except ImportError:
+    EasyDistributedCrawler = None
+
 __all__ = [
     "celery",
     "crawl_page_task",
@@ -27,4 +34,5 @@ __all__ = [
     "health_check_task",
     "get_driver_batch_size_task",
     "crawl_job_task",
+    "EasyDistributedCrawler",
 ]

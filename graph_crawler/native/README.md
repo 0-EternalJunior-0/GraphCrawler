@@ -5,7 +5,8 @@
 **НЕ комітьте `.so` файли!** Вони platform-specific.
 
 Кожна платформа потребує власної збірки:
-- Linux x86_64: `_*.cpython-3XX-x86_64-linux-gnu.so`
+
+- Linux x86*64: `*\*.cpython-3XX-x86_64-linux-gnu.so`
 - Linux ARM64: `_*.cpython-3XX-aarch64-linux-gnu.so`
 - macOS: `_*.cpython-3XX-darwin.so`
 - Windows: `_*.cpython-3XX-win_amd64.pyd`
@@ -38,27 +39,28 @@ from graph_crawler.native import is_valid_url_fast
 
 ## Скомпільовані модулі
 
-| Модуль | Файл | Опис |
-|--------|------|------|
-| URL Utils | `_url_utils.so` | Швидкі URL операції |
-| HTML Parser | `_html_parser.so` | Витягування посилань |
+| Модуль       | Файл               | Опис                     |
+| ------------ | ------------------ | ------------------------ |
+| URL Utils    | `_url_utils.so`    | Швидкі URL операції      |
+| HTML Parser  | `_html_parser.so`  | Витягування посилань     |
 | Bloom Filter | `_bloom_filter.so` | Швидкий фільтр seen URLs |
 
 ## Benchmark результати
 
-| Оптимізація | Швидше ніж fallback |
-|-------------|---------------------|
-| HTML Parser (Native) | **24x** швидше ніж BeautifulSoup |
-| HTML Parser (selectolax) | **19x** швидше ніж BeautifulSoup |
-| JSON (orjson) | **10x** швидше ніж stdlib json |
-| Bloom Filter (Native) | **2.7x** швидше ніж pybloom-live |
-| URL Utils (Native) | **1.1x** швидше (Python вже кешований) |
+| Оптимізація              | Швидше ніж fallback                    |
+| ------------------------ | -------------------------------------- |
+| HTML Parser (Native)     | **24x** швидше ніж BeautifulSoup       |
+| HTML Parser (selectolax) | **19x** швидше ніж BeautifulSoup       |
+| JSON (orjson)            | **10x** швидше ніж stdlib json         |
+| Bloom Filter (Native)    | **2.7x** швидше ніж pybloom-live       |
+| URL Utils (Native)       | **1.1x** швидше (Python вже кешований) |
 
 **Загальне прискорення: ~8x!**
 
 ## Доступні функції
 
 ### URL Utils (`_url_utils.so`)
+
 ```python
 from _url_utils import (
     is_valid_url_fast,      # Перевірка валідності URL
@@ -71,6 +73,7 @@ from _url_utils import (
 ```
 
 ### HTML Parser (`_html_parser.so`)
+
 ```python
 from _html_parser import (
     parse_links_fast,       # Витягування посилань з HTML
@@ -80,6 +83,7 @@ from _html_parser import (
 ```
 
 ### Bloom Filter (`_bloom_filter.so`)
+
 ```python
 from _bloom_filter import BloomFilterFast
 
@@ -104,4 +108,3 @@ from graph_crawler.native import is_valid_url_fast
 cd /app/web_graf
 python benchmark_optimizations.py
 ```
-

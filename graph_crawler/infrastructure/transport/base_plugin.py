@@ -9,10 +9,9 @@
 
 import logging
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from graph_crawler.infrastructure.transport.context import DriverContext, EventPriority
+from graph_crawler.infrastructure.transport.context import EventPriority
 
 logger = logging.getLogger(__name__)
 

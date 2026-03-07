@@ -72,36 +72,35 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
-    - Installation: getting-started/installation.md
-    - Quick Start: getting-started/quickstart.md
-    - Examples: getting-started/examples.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - Examples: getting-started/examples.md
   - Core Concepts:
-    - Simple Crawling: core/simple-crawling.md
-    - Deep Crawling: core/deep-crawling.md
-    - URL Rules: core/url-rules.md
-    - Graph Operations: core/graph-operations.md
-    - Cache Modes: core/cache-modes.md
+      - Simple Crawling: core/simple-crawling.md
+      - Deep Crawling: core/deep-crawling.md
+      - URL Rules: core/url-rules.md
+      - Graph Operations: core/graph-operations.md
+      - Cache Modes: core/cache-modes.md
   - Data Extraction:
-    - Plugin System: extraction/plugins.md
-    - Structured Data: extraction/structured-data.md
-    - Custom Extractors: extraction/custom-extractors.md
+      - Plugin System: extraction/plugins.md
+      - Structured Data: extraction/structured-data.md
+      - Custom Extractors: extraction/custom-extractors.md
   - Advanced:
-    - Distributed Crawling: advanced/distributed-crawling.md
-    - Proxy & Security: advanced/proxy-security.md
-    - Hooks & Auth: advanced/hooks-auth.md
-    - Session Management: advanced/session-management.md
+      - Distributed Crawling: advanced/distributed-crawling.md
+      - Proxy & Security: advanced/proxy-security.md
+      - Hooks & Auth: advanced/hooks-auth.md
+      - Session Management: advanced/session-management.md
   - API Reference: api/API.md
   - Architecture:
-    - Overview: architecture/ARCHITECTURE_OVERVIEW.md
-    - Layer Specification: architecture/LAYER_SPECIFICATION.md
-    - Component Catalog: architecture/COMPONENT_CATALOG.md
-    - Communication Channels: architecture/COMMUNICATION_CHANNELS.md
-    - Factory & Lifecycle: architecture/FACTORY_LIFECYCLE.md
-    - Extension Points: architecture/EXTENSION_POINTS.md
-    - Plugin System: architecture/PLUGIN_SYSTEM.md
-    - Structured Data Plugin: architecture/STRUCTURED_DATA_PLUGIN.md
+      - Overview: architecture/ARCHITECTURE_OVERVIEW.md
+      - Layer Specification: architecture/LAYER_SPECIFICATION.md
+      - Component Catalog: architecture/COMPONENT_CATALOG.md
+      - Communication Channels: architecture/COMMUNICATION_CHANNELS.md
+      - Factory & Lifecycle: architecture/FACTORY_LIFECYCLE.md
+      - Extension Points: architecture/EXTENSION_POINTS.md
+      - Plugin System: architecture/PLUGIN_SYSTEM.md
   - Changelog: changelog.md
-  - Index: index.md
+  - Index: INDEX.md
 
 extra:
   social:

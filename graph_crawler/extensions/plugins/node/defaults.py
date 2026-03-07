@@ -5,6 +5,7 @@
 
 from graph_crawler.extensions.plugins.node.links import LinkExtractorPlugin
 from graph_crawler.extensions.plugins.node.metadata import MetadataExtractorPlugin
+from graph_crawler.extensions.plugins.node.text import TextExtractorPlugin
 
 
 def get_default_node_plugins():
@@ -14,9 +15,7 @@ def get_default_node_plugins():
     Дефолтно увімкнені:
     - MetadataExtractorPlugin (title, h1, description, keywords)
     - LinkExtractorPlugin (витягування <a href>)
-
-    Дефолтно вимкнені:
-    - TextExtractorPlugin (потрібен тільки для векторизації)
+    - TextExtractorPlugin (витягування тексту для SimHash)
 
     Користувач може:
     - Відключити дефолтні плагіни
@@ -29,5 +28,5 @@ def get_default_node_plugins():
     return [
         MetadataExtractorPlugin(config={"enabled": True}),
         LinkExtractorPlugin(config={"enabled": True}),
-        # TextExtractorPlugin залишається вимкненим за замовчуванням
+        TextExtractorPlugin(config={"enabled": True}),  # Потрібен для SimHash!
     ]

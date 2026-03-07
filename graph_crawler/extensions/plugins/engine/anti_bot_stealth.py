@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from graph_crawler.extensions.plugins.base import BasePlugin, PluginContext, PluginType
 from graph_crawler.extensions.plugins.engine.anti_bot_detection import (

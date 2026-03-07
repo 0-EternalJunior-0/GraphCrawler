@@ -15,7 +15,7 @@ Features:
 import asyncio
 import logging
 import random
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
@@ -95,25 +95,25 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
     def _get_stealth_scripts(self) -> List[str]:
         """Повертає додаткові stealth scripts."""
         scripts = []
-        
+
         stealth_level = self.config.get("stealth_level", "maximum")
-        
+
         # CRITICAL: Webdriver hiding - must run before page load
         # This script runs in the page context before any other script
         scripts.append("""
             // === WEBDRIVER EVASION (HIGHEST PRIORITY) ===
             // Must delete before any detection script runs
-            
+
             // Method 1: Delete property completely
             delete Object.getPrototypeOf(navigator).webdriver;
-            
+
             // Method 2: Redefine with getter returning undefined
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
                 configurable: true,
                 enumerable: false
             });
-            
+
             // Method 3: Override prototype
             const originalProto = Object.getPrototypeOf(navigator);
             Object.defineProperty(originalProto, 'webdriver', {
@@ -121,11 +121,11 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                 configurable: true,
                 enumerable: false
             });
-            
+
             // Remove Chromium automation markers
             const automationIndicators = [
                 'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-                'cdc_adoQpoasnfa76pfcZLmcfl_Promise', 
+                'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
                 'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
                 '__webdriver_script_fn',
                 '__driver_evaluate',
@@ -149,7 +149,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                 'domAutomation',
                 'domAutomationController'
             ];
-            
+
             for (const prop of automationIndicators) {
                 try {
                     if (prop in window) {
@@ -157,7 +157,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     }
                 } catch(e) {}
             }
-            
+
             // Override navigator.permissions.query for 'notifications'
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = async function(parameters) {
@@ -167,7 +167,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                 return originalQuery.call(this, parameters);
             };
         """)
-        
+
         if stealth_level in ["standard", "maximum"]:
             # Chrome runtime mock
             scripts.append("""
@@ -208,7 +208,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     }
                 };
             """)
-            
+
             # Plugins mock
             scripts.append("""
                 // Plugins array mock
@@ -234,8 +234,8 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                                 item: function(index) { return this[index]; }
                             }
                         ];
-                        plugins.namedItem = function(name) { 
-                            return plugins.find(p => p.name === name); 
+                        plugins.namedItem = function(name) {
+                            return plugins.find(p => p.name === name);
                         };
                         plugins.item = function(index) { return plugins[index]; };
                         plugins.refresh = function() {};
@@ -244,20 +244,20 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     configurable: true
                 });
             """)
-            
+
             # Languages
             scripts.append("""
                 Object.defineProperty(navigator, 'languages', {
                     get: () => ['en-US', 'en', 'uk'],
                     configurable: true
                 });
-                
+
                 Object.defineProperty(navigator, 'language', {
                     get: () => 'en-US',
                     configurable: true
                 });
             """)
-        
+
         if stealth_level == "maximum":
             # WebGL vendor/renderer spoofing
             if self.config.get("randomize_fingerprint", True):
@@ -271,7 +271,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                         if (parameter === 7938) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)';
                         return getParameterProto.call(this, parameter);
                     };
-                    
+
                     const getParameter2Proto = WebGL2RenderingContext.prototype.getParameter;
                     WebGL2RenderingContext.prototype.getParameter = function(parameter) {
                         if (parameter === 37445) return 'Intel Inc.';
@@ -281,7 +281,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                         return getParameter2Proto.call(this, parameter);
                     };
                 """)
-            
+
             # Canvas fingerprint noise
             scripts.append("""
                 // Canvas fingerprint noise
@@ -301,7 +301,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     return originalToDataURL.apply(this, arguments);
                 };
             """)
-            
+
             # Permissions API mock
             scripts.append("""
                 // Permissions API mock
@@ -313,7 +313,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     return originalQuery(parameters);
                 };
             """)
-            
+
             # WebRTC protection
             if self.config.get("webrtc_protection", True):
                 scripts.append("""
@@ -332,7 +332,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     };
                     window.RTCPeerConnection.prototype = originalRTCPeerConnection.prototype;
                 """)
-            
+
             # Hardware concurrency randomization
             scripts.append("""
                 // Hardware concurrency - realistic value
@@ -340,14 +340,14 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     get: () => [4, 6, 8, 12, 16][Math.floor(Math.random() * 5)],
                     configurable: true
                 });
-                
+
                 // Device memory - realistic value
                 Object.defineProperty(navigator, 'deviceMemory', {
                     get: () => [4, 8, 16][Math.floor(Math.random() * 3)],
                     configurable: true
                 });
             """)
-            
+
             # Screen properties
             scripts.append("""
                 // Screen properties
@@ -355,13 +355,13 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                     get: () => 24,
                     configurable: true
                 });
-                
+
                 Object.defineProperty(screen, 'pixelDepth', {
                     get: () => 24,
                     configurable: true
                 });
             """)
-        
+
         return scripts
 
     async def on_context_created(self, ctx: BrowserContext) -> BrowserContext:
@@ -400,17 +400,17 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             # 3. Перехоплюємо запити для модифікації Sec-Ch-Ua заголовків
             # Це приховує HeadlessChrome в заголовках
             chrome_version = random.choice(["131", "130", "129", "128"])
-            
+
             async def handle_route(route):
                 headers = route.request.headers.copy()
-                
+
                 # Замінюємо Sec-Ch-Ua заголовки
                 headers["sec-ch-ua"] = f'"Google Chrome";v="{chrome_version}", "Chromium";v="{chrome_version}", "Not?A_Brand";v="99"'
                 headers["sec-ch-ua-mobile"] = "?0"
                 headers["sec-ch-ua-platform"] = '"Windows"'
-                
+
                 await route.continue_(headers=headers)
-            
+
             await ctx.context.route("**/*", handle_route)
             logger.debug("Request interception enabled for header modification")
 
@@ -439,7 +439,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             # Зберігаємо оригінальні методи для human-like interaction
             ctx.data["original_click"] = ctx.page.click
             ctx.data["original_type"] = ctx.page.type
-            
+
             logger.debug("Human behavior hooks installed")
 
         except Exception as e:
@@ -471,7 +471,7 @@ async def human_type(page, selector: str, text: str, delay_range: tuple = (50, 1
     """Друкує текст з випадковими затримками між символами."""
     element = await page.wait_for_selector(selector)
     await element.click()
-    
+
     for char in text:
         await page.keyboard.type(char)
         await asyncio.sleep(random.uniform(delay_range[0], delay_range[1]) / 1000)
@@ -481,12 +481,12 @@ async def human_click(page, selector: str, move_delay: float = 0.3):
     """Клікає з плавним рухом миші."""
     element = await page.wait_for_selector(selector)
     box = await element.bounding_box()
-    
+
     if box:
         # Випадкова точка всередині елемента
         x = box["x"] + random.uniform(0.2, 0.8) * box["width"]
         y = box["y"] + random.uniform(0.2, 0.8) * box["height"]
-        
+
         await page.mouse.move(x, y, steps=random.randint(5, 15))
         await asyncio.sleep(move_delay)
         await page.mouse.click(x, y)

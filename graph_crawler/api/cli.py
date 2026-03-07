@@ -17,8 +17,6 @@
 
 import argparse
 import sys
-from pathlib import Path
-from typing import Optional
 
 from graph_crawler import GraphCrawlerClient
 from graph_crawler.infrastructure.persistence.base import StorageType
@@ -43,7 +41,7 @@ def main():
 
     # Команда: init (НОВА!)
     init_parser = subparsers.add_parser(
-        "init", 
+        "init",
         help="Створити новий проект (як scrapy startproject)"
     )
     init_parser.add_argument("name", help="Назва проекту")
@@ -123,7 +121,7 @@ def main():
     )
 
     # Команда: list
-    list_parser = subparsers.add_parser("list", help="Список збережених графів")
+    subparsers.add_parser("list", help="Список збережених графів")
 
     # Команда: info
     info_parser = subparsers.add_parser("info", help="Інформація про граф")
@@ -161,7 +159,7 @@ def main():
 def init_command(args):
     """Створює новий проект."""
     from graph_crawler.api.project_init import init_project, print_success_message
-    
+
     try:
         project_dir = init_project(args.name, args.dir)
         print_success_message(project_dir, args.name)
@@ -175,9 +173,10 @@ def init_command(args):
 
 def scan_urls_command(args):
     """Сканує список URL з файлу."""
-    import graph_crawler as gc
     import json
-    
+
+    import graph_crawler as gc
+
     # Читаємо URL з файлу
     urls = []
     try:
@@ -189,13 +188,13 @@ def scan_urls_command(args):
     except FileNotFoundError:
         print(f"❌ Файл не знайдено: {args.file}")
         sys.exit(1)
-    
+
     if not urls:
         print("❌ Файл порожній або не містить URL")
         sys.exit(1)
-    
+
     print(f"🎯 URL для сканування: {len(urls)}")
-    
+
     # Завантажуємо налаштування якщо є
     settings_kwargs = {}
     if args.settings:
@@ -206,12 +205,12 @@ def scan_urls_command(args):
             print(f"📋 Налаштування: {args.settings}")
         except Exception as e:
             print(f"⚠️  Помилка налаштувань: {e}, використовую defaults")
-    
+
     # Сканування
     follow_links = not args.no_follow
     print(f"🔗 Переходити за посиланнями: {follow_links}")
     print()
-    
+
     try:
         graph = gc.crawl(
             seed_urls=urls,
@@ -220,14 +219,14 @@ def scan_urls_command(args):
             max_depth=1 if not follow_links else 3,
             **settings_kwargs,
         )
-        
+
         stats = graph.get_stats()
         print()
         print("✅ Сканування завершено!")
         print(f"   📊 Вузлів: {stats['total_nodes']}")
         print(f"   📊 Просканованих: {stats['scanned_nodes']}")
         print(f"   📊 Посилань: {stats['total_edges']}")
-        
+
         # Експорт
         if args.output:
             results = []
@@ -239,12 +238,12 @@ def scan_urls_command(args):
                         'h1': node.get_h1(),
                         'status': node.response_status,
                     })
-            
+
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
-            
+
             print(f"   💾 Результати: {args.output}")
-            
+
     except Exception as e:
         print(f"❌ Помилка: {e}")
         sys.exit(1)

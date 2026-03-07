@@ -18,7 +18,11 @@ from .visualization_core import (
     graph_to_dict,
     graph_to_json,
     graph_to_networkx,
+)
+from .visualization_core import (
     print_summary as _print_summary,
+)
+from .visualization_core import (
     visualize_2d_web as _visualize_2d_web,
 )
 
@@ -99,7 +103,7 @@ class GraphVisualizer:
         priority_attributes: Optional[List[str]] = None,
     ) -> None:
         """Створює інтерактивну 2D HTML візуалізацію за допомогою PyVis.
-        
+
         Args:
             priority_attributes: Список атрибутів для пріоритизації при фільтрації нод
                                (наприклад, ["is_jobs", "is_important"])

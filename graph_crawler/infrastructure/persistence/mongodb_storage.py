@@ -7,7 +7,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO, GraphStatsDTO
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 from graph_crawler.shared.constants import DEFAULT_MONGODB_TIMEOUT_MS
 from graph_crawler.shared.exceptions import LoadError, SaveError
@@ -34,19 +34,19 @@ class MongoDBStorage(BaseStorage):
 
     Приклад використання:
         >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>> 
+        >>>
         >>> storage = MongoDBStorage(config)
         >>> await storage.init()  # Async ініціалізація
-        >>> 
+        >>>
         >>> # Серіалізація Domain → DTO → MongoDB
         >>> graph_dto = GraphMapper.to_dto(graph)
         >>> await storage.save_graph(graph_dto)
-        >>> 
+        >>>
         >>> # Десеріалізація MongoDB → DTO → Domain
         >>> graph_dto = await storage.load_graph()
         >>> context = {'plugin_manager': pm, 'tree_parser': parser}
         >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>> 
+        >>>
         >>> await storage.close()
     """
 
@@ -119,7 +119,7 @@ class MongoDBStorage(BaseStorage):
         # Створюємо індекси для швидкості
         await self._create_indexes()
         self._initialized = True
-        logger.info(f"MongoDBStorage initialized successfully (async)")
+        logger.info("MongoDBStorage initialized successfully (async)")
 
     async def _create_indexes(self) -> None:
         """Async створює індекси для оптимізації запитів."""

@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-crawler"
-version = "4.0.7"
+version = "4.0.24"
 description = "Sync-First бібліотека для побудови графу веб-сайтів - просто як requests!"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "0-EternalJunior-0"}
 ]
@@ -21,7 +22,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -52,6 +52,7 @@ dependencies = [
     "pybloom-live",
     # REST API
     "fastapi",
+    "lmdb",
 ]
 
 [project.optional-dependencies]
@@ -144,6 +145,7 @@ all = [
     # Performance
     "aiodns>=3.1.0",
     "uvloop>=0.19.0; platform_system != 'Windows'",
+    "lmdb",
 ]
 
 [project.urls]
@@ -180,6 +182,8 @@ exclude = '''
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -190,11 +194,27 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by black)
+    "E402",  # module level import not at top of file (necessary for conditional imports)
     "B008",  # do not perform function calls in argument defaults
+    "B904",  # raise from (not critical)
+    "B007",  # unused loop variable
+    "B025",  # duplicate exception
+    "B027",  # empty method in abstract class
+    "B039",  # mutable ContextVar default
+    "E722",  # bare except (legacy code)
+    "F403",  # star import
 ]
 
-[tool.ruff.per-file-ignores]
-"__init__.py" = ["F401"]
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"tests/*" = ["F401", "E402"]
+"graph_crawler/config/*" = ["F401"]
+"graph_crawler/infrastructure/*" = ["F401"]
+"graph_crawler/application/services/exporters/*" = ["F401"]
+"graph_crawler/application/use_cases/crawling/parsers/*" = ["F401"]
+"graph_crawler/extensions/plugins/*" = ["F401"]
+"graph_crawler/observability/metrics/*" = ["F401"]
+"graph_crawler/shared/utils/*" = ["F401"]
 
 # MyPy configuration
 [tool.mypy]

@@ -152,7 +152,7 @@ class AdaptiveThrottler:
     def wait(self) -> None:
         """
         DEPRECATED: Sync версія wait().
-        
+
         WARNING: Блокує event loop! Використовуйте wait_async() в async контексті.
         Залишено тільки для зворотної сумісності.
         """
@@ -165,7 +165,7 @@ class AdaptiveThrottler:
         if self.current_delay > 0:
             # Fallback: створюємо event loop якщо немає активного
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # Якщо є event loop - використовуємо async (не блокуємо)
                 asyncio.ensure_future(self.wait_async())
             except RuntimeError:
@@ -176,7 +176,7 @@ class AdaptiveThrottler:
     async def wait_async(self) -> None:
         """
         Почекати перед наступним запитом (NON-BLOCKING).
-        
+
         Використовує asyncio.sleep() для неблокуючого очікування.
         Це РЕКОМЕНДОВАНИЙ метод для async контексту.
         """

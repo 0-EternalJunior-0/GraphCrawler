@@ -30,7 +30,6 @@ from graph_crawler.domain.interfaces.unified_storage import (
     IJobStorage,
     IQueueStorage,
     StorageBackend,
-    StorageConfig,
 )
 from graph_crawler.infrastructure.persistence.unified.file_job_storage import (
     FileJobStorage,

@@ -37,8 +37,6 @@ from graph_crawler.shared.constants import (
     JSON_INDENT,
     MAX_DEPTH_DEFAULT,
     MAX_PAGES_DEFAULT,
-    MAX_PAGES_LIMIT,
-    PROGRESS_UPDATE_INTERVAL,
     SQLITE_CACHE_SIZE,
     SQLITE_JOURNAL_MODE,
     SQLITE_SYNCHRONOUS,
@@ -199,7 +197,7 @@ class DriverConfig(BaseModel):
 
     # Async/Concurrency settings
     max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
-    
+
     # TCP Connector settings (для AsyncDriver)
     connector_limit: int = Field(
         default=200,
@@ -217,7 +215,7 @@ class DriverConfig(BaseModel):
         default=30,
         description="Час утримання з'єднання alive (секунди)"
     )
-    
+
     # Python 3.14 Free-threading auto-optimization
     auto_optimize_for_free_threading: bool = Field(
         default=True,
@@ -382,7 +380,7 @@ class CrawlerConfig(BaseSettings):
     included_paths: List[str] = Field(
         default_factory=list, description="URL патерни для включення"
     )
-    
+
     # Follow links control
     # Коли False - сканує ТІЛЬКИ seed_urls/base_graph вузли, не переходить за посиланнями
     follow_links: bool = Field(
@@ -410,6 +408,75 @@ class CrawlerConfig(BaseSettings):
     merge_strategy: str = Field(
         default="last",
         description="Стратегія merge: 'first', 'last', 'merge', 'newest', 'oldest', 'custom'",
+    )
+    
+    # ============ LOW-MEMORY MODE ============
+    # Для великих краулінгів (10k+ сторінок) на серверах з обмеженою RAM
+    low_memory_mode: bool = Field(
+        default=False,
+        description="Активувати eviction scanned нод на диск для економії RAM"
+    )
+    evict_threshold: int = Field(
+        default=500,
+        ge=100,
+        description="Максимальна кількість нод в RAM перед eviction (default: 500)"
+    )
+    evict_batch_size: int = Field(
+        default=100,
+        ge=10,
+        description="Кількість нод для eviction за один раз (default: 100)"
+    )
+    eviction_storage_path: Optional[str] = Field(
+        default=None,
+        description="Директорія для eviction storage (обов'язково для low_memory_mode)"
+    )
+    
+    # ============ EVICTION STRATEGY (Professional Configuration) ============
+    # Стратегії eviction для різних сценаріїв використання
+    eviction_strategy: str = Field(
+        default="balanced",
+        description=(
+            "Стратегія eviction визначає коли та як агресивно вивантажувати ноди з RAM. "
+            "Доступні стратегії:\n"
+            "  - 'aggressive': Trigger при 1.2x threshold, target 80% threshold. "
+            "    Для серверів з обмеженою RAM (<4GB) або дуже великих краулінгів (100k+).\n"
+            "  - 'balanced': Trigger при 1.5x threshold, target 100% threshold. "
+            "    Оптимальний баланс RAM/Performance для більшості випадків (DEFAULT).\n"
+            "  - 'lazy': Trigger при 2.0x threshold, target 120% threshold. "
+            "    Для серверів з великим RAM (16GB+), мінімізує I/O операції.\n"
+            "  - 'memory_adaptive': Динамічно адаптується до реального RAM usage. "
+            "    Використовує psutil для моніторингу. Рекомендовано для production.\n"
+            "  - 'custom': Використовує eviction_trigger_multiplier та eviction_target_multiplier."
+        )
+    )
+    eviction_trigger_multiplier: float = Field(
+        default=1.5,
+        ge=1.1,
+        le=5.0,
+        description=(
+            "Множник для trigger eviction (тільки для strategy='custom'). "
+            "Eviction спрацьовує коли nodes > threshold * multiplier. "
+            "Приклад: threshold=500, multiplier=1.5 → eviction при 750+ нод."
+        )
+    )
+    eviction_target_multiplier: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description=(
+            "Множник для target size після eviction (тільки для strategy='custom'). "
+            "Target = threshold * multiplier. "
+            "Приклад: threshold=500, multiplier=0.8 → evict до 400 нод."
+        )
+    )
+    eviction_memory_threshold_percent: float = Field(
+        default=75.0,
+        ge=50.0,
+        le=95.0,
+        description=(
+            "Поріг RAM usage у відсотках для 'memory_adaptive' стратегії. "
+            "Eviction спрацьовує коли RAM usage > цього порогу."
+        )
     )
 
     # Logging
@@ -526,6 +593,29 @@ class CrawlerConfig(BaseSettings):
             raise ValueError(f"Invalid merge_strategy: {v}. Allowed: {allowed}")
         return v.lower()
 
+    @field_validator("eviction_strategy")
+    @classmethod
+    def validate_eviction_strategy(cls, v: str) -> str:
+        """
+        Валідація стратегії eviction для low-memory mode.
+        
+        Доступні стратегії:
+        - aggressive: 1.2x trigger, 0.8x target (максимальна економія RAM)
+        - balanced: 1.5x trigger, 1.0x target (оптимальний баланс)
+        - lazy: 2.0x trigger, 1.2x target (мінімізація I/O)
+        - memory_adaptive: динамічна адаптація до RAM usage
+        - custom: користувацькі множники
+        """
+        allowed = ["aggressive", "balanced", "lazy", "memory_adaptive", "custom"]
+        if v.lower() not in allowed:
+            raise ValueError(
+                f"Invalid eviction_strategy: {v}. "
+                f"Allowed: {allowed}. "
+                f"Use 'custom' with eviction_trigger_multiplier/eviction_target_multiplier "
+                f"for fine-grained control."
+            )
+        return v.lower()
+
     @field_validator("edge_strategy")
     @classmethod
     def validate_edge_strategy(cls, v: str) -> str:
@@ -636,7 +726,7 @@ class CrawlerConfig(BaseSettings):
             >>> config.has_special_patterns()
             True
         """
-        from graph_crawler.application.use_cases.crawling.filters.domain_patterns import (
+        from graph_crawler.domain.value_objects.domain_patterns import (
             AllowedDomains,
         )
 

@@ -29,7 +29,7 @@ Example:
     ...     search_prompt="Автомобілі BMW X5 2024 року"
     ... )
     >>> graph = gc.crawl(url, plugins=[finder])
-    >>> 
+    >>>
     >>> # Знайдені сторінки
     >>> targets = [n for n in graph if n.user_data.get('is_target_page')]
 """
@@ -48,24 +48,24 @@ from graph_crawler.extensions.plugins.node.links import LinkExtractorPlugin
 
 # Built-in CustomPlugins
 from graph_crawler.extensions.plugins.node.metadata import MetadataExtractorPlugin
-from graph_crawler.extensions.plugins.node.text import TextExtractorPlugin
 
 # ML Smart Page Finder Plugin
 from graph_crawler.extensions.plugins.node.smart_page_finder import (
-    SmartPageFinderPlugin,
-    SmartFinderNode,
     RelevanceLevel,
+    SmartFinderNode,
+    SmartPageFinderPlugin,
     create_smart_finder_node_class,
 )
 
 # Structured Data Plugin (Microdata)
 from graph_crawler.extensions.plugins.node.structured_data import (
-    StructuredDataPlugin,
-    StructuredDataOptions,
-    StructuredDataResult,
-    StructuredDataExtractor,
     SchemaType,
+    StructuredDataExtractor,
+    StructuredDataOptions,
+    StructuredDataPlugin,
+    StructuredDataResult,
 )
+from graph_crawler.extensions.plugins.node.text import TextExtractorPlugin
 
 __all__ = [
     # Base classes

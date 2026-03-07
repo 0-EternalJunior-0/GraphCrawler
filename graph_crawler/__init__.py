@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 # Пакет повинен встановлюватись через pip install або setup.py
-
 from graph_crawler.api import AsyncCrawler, Crawler, async_crawl, crawl, crawl_sitemap
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
@@ -126,7 +125,95 @@ try:
 except ImportError:
     CeleryBatchSpider = None
 
+
+# ==================== Shortcut Functions ====================
+
+def save_graph(graph: Graph, filepath: str, format: str = "json") -> None:
+    """
+    Зберігає граф у файл (синхронно).
+
+    Args:
+        graph: Граф для збереження
+        filepath: Шлях до файлу
+        format: Формат файлу ("json" або "sqlite")
+
+    Example:
+        >>> graph = gc.crawl("https://example.com")
+        >>> gc.save_graph(graph, "my_graph.json")
+    """
+    import asyncio
+
+    from graph_crawler.application.dto.mappers import GraphMapper
+
+    if format == "json":
+        storage = JSONStorage(filepath)
+    elif format == "sqlite":
+        storage = SQLiteStorage(filepath)
+    else:
+        raise ValueError(f"Unknown format: {format}. Use 'json' or 'sqlite'")
+
+    graph_dto = GraphMapper.to_dto(graph)
+    asyncio.get_event_loop().run_until_complete(storage.save_graph(graph_dto))
+
+
+def load_graph(filepath: str, format: str = "json") -> Graph:
+    """
+    Завантажує граф з файлу (синхронно).
+
+    Args:
+        filepath: Шлях до файлу
+        format: Формат файлу ("json" або "sqlite")
+
+    Returns:
+        Завантажений граф
+
+    Example:
+        >>> graph = gc.load_graph("my_graph.json")
+        >>> print(f"Loaded {len(graph)} nodes")
+    """
+    import asyncio
+
+    from graph_crawler.application.dto.mappers import GraphMapper
+
+    if format == "json":
+        storage = JSONStorage(filepath)
+    elif format == "sqlite":
+        storage = SQLiteStorage(filepath)
+    else:
+        raise ValueError(f"Unknown format: {format}. Use 'json' or 'sqlite'")
+
+    graph_dto = asyncio.get_event_loop().run_until_complete(storage.load_graph())
+    return GraphMapper.to_domain(graph_dto)
+
+
+def quick_stats(graph: Graph) -> str:
+    """
+    Повертає швидку статистику графу одним рядком.
+
+    Args:
+        graph: Граф для аналізу
+
+    Returns:
+        Форматований рядок зі статистикою
+
+    Example:
+        >>> graph = gc.crawl("https://example.com")
+        >>> print(gc.quick_stats(graph))
+        📊 47 nodes (45 scanned) | 156 edges
+    """
+    stats = graph.get_stats()
+    return (
+        f"📊 {stats['total_nodes']} nodes ({stats['scanned_nodes']} scanned) | "
+        f"{stats['total_edges']} edges"
+    )
+
+
 __all__ = [
+    # Shortcut functions
+    "save_graph",
+    "load_graph",
+    "quick_stats",
+    # Main API
     "crawl",
     "crawl_sitemap",
     "Crawler",
@@ -180,3 +267,7 @@ __all__ = [
     "CeleryBatchSpider",
     "EasyDistributedCrawler",
 ]
+
+# Auto-bootstrap при імпорті пакету (після всіх імпортів)
+from graph_crawler.application.bootstrap import bootstrap
+bootstrap()

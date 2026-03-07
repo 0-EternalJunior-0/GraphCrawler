@@ -1,7 +1,7 @@
 """Processor для обробки sitemap даних та побудови графу."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from urllib.parse import urljoin
 
 from graph_crawler.domain.entities.edge import Edge
@@ -223,7 +223,7 @@ class SitemapProcessor:
             Список створених SitemapNode
         """
         if not self.include_urls:
-            logger.debug(f"Skipping URL nodes creation (include_urls=False)")
+            logger.debug("Skipping URL nodes creation (include_urls=False)")
             return []
 
         # Обмежуємо кількість URL якщо потрібно
@@ -276,27 +276,27 @@ class SitemapProcessor:
     def _normalize_url(self, url: str, parent_url: Optional[str] = None) -> Optional[str]:
         """
         Нормалізує URL - перетворює відносний в абсолютний.
-        
+
         Args:
             url: URL для нормалізації
             parent_url: Батьківський URL для конструювання абсолютного шляху
-            
+
         Returns:
             Абсолютний URL або None якщо не вдалося нормалізувати
         """
         if not url:
             return None
-            
+
         url = url.strip()
-        
+
         # Вже абсолютний
         if url.startswith(('http://', 'https://')):
             return url
-            
+
         # Відносний - потрібен parent_url
         if parent_url:
             return urljoin(parent_url, url)
-            
+
         return None
 
     def create_error_node(
@@ -316,14 +316,14 @@ class SitemapProcessor:
         """
         # КРИТИЧНО: Нормалізуємо URL перед створенням Node
         normalized_url = self._normalize_url(url, parent_url)
-        
+
         if not normalized_url or not normalized_url.startswith(('http://', 'https://')):
             logger.warning(
                 f"Cannot create error node for invalid URL: {url} "
                 f"(normalized: {normalized_url}, parent: {parent_url})"
             )
             return None
-            
+
         # Визначаємо тип на основі URL
         if normalized_url.endswith("robots.txt"):
             node_type = "robots_txt"
@@ -364,7 +364,7 @@ class SitemapProcessor:
                     self.graph.add_edge(edge)
 
             return node
-            
+
         except Exception as e:
             logger.error(f"Failed to create error node for {normalized_url}: {e}")
             return None

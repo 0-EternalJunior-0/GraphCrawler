@@ -1,8 +1,6 @@
 """
 GraphSpider - головний краулер з дотриманням Clean Architecture.
 
-
-
 Responsibilities:
 - Координація краулінгу через компоненти (DI)
 - Управління життєвим циклом краулінгу
@@ -52,18 +50,15 @@ from graph_crawler.domain.value_objects.models import (
     DomainFilterConfig,
     PathFilterConfig,
 )
-from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
 
-
 class GraphSpider(BaseSpider):
     """
     GraphSpider з Clean Architecture - всі операції через DTO.
-
-    
 
     Архітектурні принципи:
     1. Domain entities (Graph, Node, Edge) - ТІЛЬКИ внутрішня реалізація (приватні поля)
@@ -88,8 +83,8 @@ class GraphSpider(BaseSpider):
     def __init__(
             self,
             config: CrawlerConfig,
-            driver: BaseDriver,
-            storage: BaseStorage,
+            driver: IDriver,
+            storage: IStorage,
             event_bus: Optional[EventBus] = None,
             graph: Optional[Graph] = None,
             scheduler: Optional[CrawlScheduler] = None,
@@ -125,7 +120,30 @@ class GraphSpider(BaseSpider):
 
         # DI: Graph (ПРИВАТНЕ поле - внутрішнє використання)
         # Domain entity НЕ виходить за межі Spider
-        self._graph = graph if graph is not None else Graph()
+        if graph is not None:
+            self._graph = graph
+        else:
+            low_memory_mode = getattr(config, 'low_memory_mode', False)
+            eviction_storage = None
+            
+            if low_memory_mode:
+                # Create eviction storage from path (Clean Architecture: DI)
+                storage_path = getattr(config, 'eviction_storage_path', None)
+                if storage_path:
+                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                    eviction_storage = SQLiteEvictionStorage(storage_path)
+                else:
+                    import tempfile
+                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                    temp_path = tempfile.mkdtemp(prefix='graph_eviction_')
+                    eviction_storage = SQLiteEvictionStorage(temp_path)
+            
+            self._graph = Graph(
+                low_memory_mode=low_memory_mode,
+                evict_threshold=getattr(config, 'evict_threshold', 500),
+                evict_batch_size=getattr(config, 'evict_batch_size', 100),
+                eviction_storage=eviction_storage,
+            )
 
         # DI: Scheduler
         self._scheduler = (
@@ -185,6 +203,9 @@ class GraphSpider(BaseSpider):
         if node_plugins:
             for plugin in node_plugins:
                 self.node_plugin_manager.register(plugin)
+
+        # Scheduler створюється раніше за plugin_manager, тому встановлюємо пізніше
+        self._scheduler.set_plugin_manager(self.node_plugin_manager)
 
         # DI: Scanner
         self.scanner = (
@@ -251,6 +272,8 @@ class GraphSpider(BaseSpider):
             scheduler=self._scheduler,
             event_bus=self.event_bus,
         )
+        
+        self._scheduler.set_graph(self._graph)
 
         # Coordinator з підтримкою timeout
         self._coordinator = CrawlCoordinator(
@@ -363,14 +386,14 @@ class GraphSpider(BaseSpider):
                     else:
                         # Просканованй вузли додаємо в seen_urls
                         self._scheduler.seen_urls.add(node.url)
-                
+
                 # Копіюємо edges
                 for edge in base_graph.edges:
                     self._graph.add_edge(edge)
-                
+
                 unscanned_count = sum(1 for n in base_graph.nodes.values() if not n.scanned)
                 logger.info(f"Added {unscanned_count} unscanned nodes to queue from base_graph")
-            
+
             # РЕЖИМ 2: Seed URLs - створюємо нові ноди
             elif seed_urls:
                 logger.info(f"Creating {len(seed_urls)} seed nodes from seed_urls")
@@ -380,7 +403,7 @@ class GraphSpider(BaseSpider):
                     )
                     self._graph.add_node(seed_node)
                     self._scheduler.add_node(seed_node)
-            
+
             # РЕЖИМ 3: Стандартний - один root node
             else:
                 root_node = node_class(
@@ -388,7 +411,6 @@ class GraphSpider(BaseSpider):
                 )
                 self._graph.add_node(root_node)
                 self._scheduler.add_node(root_node)
-
 
             # ASYNC ДЕЛЕГУВАННЯ: Coordinator координує весь процес краулінгу
             # Повертає Domain Graph (внутрішня логіка)
@@ -447,8 +469,6 @@ class GraphSpider(BaseSpider):
     def get_stats_dto(self) -> GraphSummaryDTO:
         """
         Повертає статистику краулінгу через DTO.
-
-        
 
         Returns:
             GraphSummaryDTO з статистикою краулінгу

@@ -1,14 +1,7 @@
-"""CaptchaBypassManager - менеджер стратегій обходу CAPTCHA.
-
-ОПТИМІЗОВАНО:
-- Додано async версії методів для неблокуючого виконання
-- Використовується asyncio.sleep() замість time.sleep() в async контексті
-"""
-
 import asyncio
 import hashlib
+import json
 import logging
-import pickle
 import time
 from datetime import datetime
 from pathlib import Path
@@ -99,7 +92,7 @@ class CaptchaBypassManager:
             BypassStrategy.ALTERNATIVE_ENDPOINTS,
         ]
 
-        logger.info(f"CaptchaBypassManager ініціалізовано")
+        logger.info("CaptchaBypassManager ініціалізовано")
 
     def _get_domain_hash(self, url: str) -> str:
         """Створити хеш домену для імені файлу."""
@@ -111,59 +104,61 @@ class CaptchaBypassManager:
     def _get_cookie_file_path(self, url: str) -> Path:
         """Отримати шлях до файлу з cookies для домену."""
         domain_hash = self._get_domain_hash(url)
-        return self.cookie_storage_path / f"{domain_hash}.cookies"
+        return self.cookie_storage_path / f"{domain_hash}.cookies.json"
 
     def _get_session_file_path(self, url: str) -> Path:
         """Отримати шлях до файлу з session для домену."""
         domain_hash = self._get_domain_hash(url)
-        return self.session_storage_path / f"{domain_hash}.session"
+        return self.session_storage_path / f"{domain_hash}.session.json"
 
     def save_cookies(self, url: str, cookies: Dict[str, str]) -> None:
-        """Зберегти cookies в файл."""
+        """Зберегти cookies в файл (JSON - безпечна серіалізація)."""
         cookie_file = self._get_cookie_file_path(url)
         try:
-            with open(cookie_file, "wb") as f:
-                pickle.dump(cookies, f)
+            with open(cookie_file, "w", encoding="utf-8") as f:
+                json.dump(cookies, f, ensure_ascii=False, indent=2)
             logger.info(f"Cookies збережено: {cookie_file}")
         except Exception as e:
             logger.error(f"Помилка збереження cookies: {e}")
 
     def load_cookies(self, url: str) -> Optional[Dict[str, str]]:
-        """Завантажити cookies з файлу."""
+        """Завантажити cookies з файлу (JSON - безпечна серіалізація)."""
         cookie_file = self._get_cookie_file_path(url)
         if not cookie_file.exists():
             return None
         try:
-            with open(cookie_file, "rb") as f:
-                return pickle.load(f)
+            with open(cookie_file, "r", encoding="utf-8") as f:
+                return json.load(f)
         except Exception as e:
             logger.error(f"Помилка завантаження cookies: {e}")
             return None
 
     def save_session(self, url: str, session_info: SessionInfo) -> None:
-        """Зберегти сесію в файл."""
+        """Зберегти сесію в файл (JSON - безпечна серіалізація)."""
         session_file = self._get_session_file_path(url)
         try:
-            with open(session_file, "wb") as f:
-                pickle.dump(session_info, f)
+            with open(session_file, "w", encoding="utf-8") as f:
+                json.dump(session_info.to_dict(), f, ensure_ascii=False, indent=2)
             logger.info(f"Session збережено: {session_file}")
         except Exception as e:
             logger.error(f"Помилка збереження session: {e}")
 
     def load_session(self, url: str) -> Optional[SessionInfo]:
-        """Завантажити сесію з файлу."""
+        """Завантажити сесію з файлу (JSON - безпечна серіалізація)."""
         session_file = self._get_session_file_path(url)
         if not session_file.exists():
             return None
         try:
-            with open(session_file, "rb") as f:
-                session_info = pickle.load(f)
+            with open(session_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            session_info = SessionInfo.from_dict(data)
             if session_info.is_expired(self.session_max_age_hours):
                 session_file.unlink()
                 return None
             return session_info
         except Exception as e:
             logger.error(f"Помилка завантаження session: {e}")
+            return None
             return None
 
     def _detect_captcha_in_response(self, response: requests.Response) -> bool:

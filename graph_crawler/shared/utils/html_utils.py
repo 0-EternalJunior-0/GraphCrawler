@@ -1,7 +1,6 @@
 """Утиліти для роботи з HTML."""
 
 import html
-import re
 from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup
@@ -169,14 +168,14 @@ class HTMLUtils:
         if h1 := soup.select_one(HTMLUtils._H1_MAIN_SELECTOR):
             if text := h1.get_text(strip=True):
                 return text
-        
+
         # 2. H1 не в modal/nav (CSS :not)
         if h1 := soup.select_one(HTMLUtils._H1_EXCLUDE_SELECTOR):
             if text := h1.get_text(strip=True):
                 return text
-        
+
         # 3. Fallback
         if h1 := soup.find("h1"):
             return h1.get_text(strip=True)
-        
+
         return None

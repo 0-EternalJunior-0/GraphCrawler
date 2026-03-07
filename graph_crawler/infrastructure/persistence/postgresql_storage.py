@@ -1,6 +1,6 @@
 """Збереження графу у PostgreSQL базі даних через GraphDTO.
 - Переписано на asyncpg для async операцій
-- Всі методи тепер async  
+- Всі методи тепер async
 - Використовує asyncpg connection pool
 """
 
@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO, GraphStatsDTO
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
@@ -58,7 +58,7 @@ class PostgreSQLStorage(BaseStorage):
         >>> graph_dto = await storage.load_graph()
         >>> context = {'plugin_manager': pm, 'tree_parser': parser}
         >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>> 
+        >>>
         >>> await storage.close()
     """
 
@@ -121,7 +121,7 @@ class PostgreSQLStorage(BaseStorage):
         # Ініціалізуємо схему
         await self._init_schema()
         self._initialized = True
-        logger.info(f"PostgreSQLStorage initialized successfully (async)")
+        logger.info("PostgreSQLStorage initialized successfully (async)")
 
     async def _init_schema(self) -> None:
         """Async створює таблиці для збереження графу (nodes, edges)."""
@@ -237,7 +237,7 @@ class PostgreSQLStorage(BaseStorage):
 
                         await conn.executemany(
                             """
-                            INSERT INTO graph_nodes 
+                            INSERT INTO graph_nodes
                             (node_id, url, depth, scanned, should_scan, can_create_edges,
                              response_status, metadata, user_data, content_hash, priority,
                              created_at, lifecycle_stage)
@@ -260,7 +260,7 @@ class PostgreSQLStorage(BaseStorage):
 
                         await conn.executemany(
                             """
-                            INSERT INTO graph_edges 
+                            INSERT INTO graph_edges
                             (edge_id, source_node_id, target_node_id, metadata, created_at)
                             VALUES ($1, $2, $3, $4, $5)
                             """,
@@ -385,7 +385,7 @@ class PostgreSQLStorage(BaseStorage):
                 for node_data in nodes:
                     await conn.execute(
                         """
-                        INSERT INTO graph_nodes 
+                        INSERT INTO graph_nodes
                         (node_id, url, depth, scanned, should_scan, can_create_edges,
                          response_status, metadata, user_data, content_hash, priority,
                          created_at, lifecycle_stage)
@@ -414,7 +414,7 @@ class PostgreSQLStorage(BaseStorage):
                 for edge_data in edges:
                     await conn.execute(
                         """
-                        INSERT INTO graph_edges 
+                        INSERT INTO graph_edges
                         (edge_id, source_node_id, target_node_id, metadata, created_at)
                         VALUES ($1, $2, $3, $4, $5)
                         ON CONFLICT (edge_id) DO NOTHING

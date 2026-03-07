@@ -19,7 +19,7 @@ import tracemalloc
 import weakref
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ class MemoryMonitor:
             return
 
         print(f"\n{'='*80}")
-        print(f" MEMORY MONITORING REPORT")
+        print(" MEMORY MONITORING REPORT")
         print(f"{'='*80}\n")
         print(f"Baseline Memory: {self.baseline_mb:.2f} MB\n")
 

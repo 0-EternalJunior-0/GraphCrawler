@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.application.dto import GraphDTO
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.shared.utils.event_publisher_mixin import EventPublisherMixin

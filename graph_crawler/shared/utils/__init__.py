@@ -122,6 +122,18 @@ from graph_crawler.shared.utils.captcha import (
     CaptchaBypassManager,
     SessionInfo,
 )
+from graph_crawler.shared.utils.fast_json import (
+    dumps as fast_json_dumps,
+)
+from graph_crawler.shared.utils.fast_json import (
+    dumps_bytes as fast_json_dumps_bytes,
+)
+from graph_crawler.shared.utils.fast_json import (
+    is_orjson_available,
+)
+from graph_crawler.shared.utils.fast_json import (
+    loads as fast_json_loads,
+)
 from graph_crawler.shared.utils.fingerprint import (
     FingerprintProfile,
     generate_fingerprint_profile,
@@ -150,12 +162,6 @@ from graph_crawler.shared.utils.user_agent_rotator import (
     UserAgentRotator,
     create_rotator,
 )
-from graph_crawler.shared.utils.fast_json import (
-    dumps as fast_json_dumps,
-    loads as fast_json_loads,
-    dumps_bytes as fast_json_dumps_bytes,
-    is_orjson_available,
-)
 
 
 # Backward compatibility - create_captcha_bypass_manager
@@ -181,6 +187,13 @@ from graph_crawler.shared.utils.celery_helpers import (
     import_class,
     import_plugin,
 )
+
+# Markdown Generation
+from graph_crawler.shared.utils.markdown import (
+    MarkdownGenerator,
+    MarkdownOptions,
+    MarkdownResult,
+)
 from graph_crawler.shared.utils.memory_optimizer import (
     MemoryEfficientNodeCache,
     MemoryMonitor,
@@ -191,13 +204,6 @@ from graph_crawler.shared.utils.memory_optimizer import (
     get_object_size,
     memory_efficient_node_iterator,
     optimize_graph_memory,
-)
-
-# Markdown Generation
-from graph_crawler.shared.utils.markdown import (
-    MarkdownGenerator,
-    MarkdownOptions,
-    MarkdownResult,
 )
 
 __all__ = [

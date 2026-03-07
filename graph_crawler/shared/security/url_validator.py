@@ -20,7 +20,6 @@
 import ipaddress
 import logging
 import re
-from typing import Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -88,12 +87,12 @@ class SSRFError(Exception):
 def _normalize_ipv6(hostname: str) -> str:
     """
     Нормалізує IPv6 адресу для порівняння.
-    
+
     Видаляє brackets та zone identifiers (%eth0).
-    
+
     Args:
         hostname: Hostname який може бути IPv6
-        
+
     Returns:
         Нормалізована IPv6 строка або оригінальний hostname
     """
@@ -101,18 +100,18 @@ def _normalize_ipv6(hostname: str) -> str:
     match = IPV6_BRACKET_PATTERN.match(hostname)
     if match:
         hostname = match.group(1)
-    
+
     # Видаляємо zone identifier (%eth0, %1, etc.)
     if '%' in hostname:
         hostname = hostname.split('%')[0]
-    
+
     return hostname
 
 
 def _is_private_ip(ip_str: str) -> bool:
     """
     Перевіряє чи IP є приватним/зарезервованим.
-    
+
     Підтримує:
     - IPv4: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
     - IPv6: ::1, fe80::, fc00::, fd00::
@@ -127,15 +126,15 @@ def _is_private_ip(ip_str: str) -> bool:
     """
     # Нормалізуємо IPv6
     ip_str = _normalize_ipv6(ip_str)
-    
+
     try:
         ip = ipaddress.ip_address(ip_str)
-        
+
         # Базові перевірки
-        if (ip.is_private or ip.is_loopback or ip.is_reserved 
+        if (ip.is_private or ip.is_loopback or ip.is_reserved
             or ip.is_link_local or ip.is_multicast):
             return True
-        
+
         # Додаткові перевірки для IPv6
         if isinstance(ip, ipaddress.IPv6Address):
             # Перевірка IPv4-mapped IPv6 (::ffff:x.x.x.x)
@@ -144,23 +143,23 @@ def _is_private_ip(ip_str: str) -> bool:
                 if (ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved
                     or ipv4.is_link_local):
                     return True
-            
+
             # Перевірка 6to4 адрес (2002::/16)
             if ip.sixtofour:
                 ipv4 = ip.sixtofour
                 if (ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved
                     or ipv4.is_link_local):
                     return True
-            
+
             # Перевірка Teredo адрес
             if ip.teredo:
                 client_ipv4 = ip.teredo[1]
-                if (client_ipv4.is_private or client_ipv4.is_loopback 
+                if (client_ipv4.is_private or client_ipv4.is_loopback
                     or client_ipv4.is_reserved or client_ipv4.is_link_local):
                     return True
-        
+
         return False
-        
+
     except ValueError:
         # Це не IP адреса (hostname)
         return False
@@ -169,25 +168,25 @@ def _is_private_ip(ip_str: str) -> bool:
 def _is_suspicious_hostname(hostname: str) -> bool:
     """
     Перевіряє чи hostname виглядає підозріло (DNS rebinding, тощо).
-    
+
     Args:
         hostname: Hostname для перевірки
-        
+
     Returns:
         True якщо hostname підозрілий
     """
     hostname_lower = hostname.lower()
-    
+
     # DNS rebinding services
     suspicious_suffixes = (
         '.xip.io', '.nip.io', '.sslip.io',
         '.localtest.me', '.lvh.me', '.vcap.me',
     )
-    
+
     for suffix in suspicious_suffixes:
         if hostname_lower.endswith(suffix):
             return True
-    
+
     # Numeric-looking hostnames that could be IP obfuscation
     # e.g., "0x7f000001" = 127.0.0.1 in hex
     if hostname_lower.startswith('0x') and len(hostname_lower) <= 10:
@@ -200,7 +199,7 @@ def _is_suspicious_hostname(hostname: str) -> bool:
                     return True
         except (ValueError, TypeError):
             pass
-    
+
     return False
 
 
@@ -256,7 +255,7 @@ def validate_url_security(url: str, allow_internal: bool = False) -> bool:
     # Перевірка на заблоковані хости
     if hostname_lower in BLOCKED_HOSTS:
         raise SSRFError(f"Blocked hostname: {hostname}")
-    
+
     # Перевірка нормалізованого hostname (для IPv6 у brackets)
     normalized = _normalize_ipv6(hostname_lower)
     if normalized in BLOCKED_HOSTS or normalized.lower() in BLOCKED_HOSTS:

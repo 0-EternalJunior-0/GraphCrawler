@@ -19,10 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from graph_crawler.shared.constants import MAX_TEXT_LENGTH
-
 # Використовуємо існуючі утиліти замість дублювання коду
-from graph_crawler.shared.utils.html_utils import HTMLUtils
 
 
 class SimilarityMetric(Enum):
@@ -49,7 +46,7 @@ _model_cache = {}
 # E5 моделі потребують prefix
 E5_MODELS = {
     "intfloat/e5-base-v2",
-    "intfloat/e5-large-v2", 
+    "intfloat/e5-large-v2",
     "intfloat/e5-small-v2",
     "intfloat/multilingual-e5-base",
     "intfloat/multilingual-e5-large",
@@ -177,7 +174,7 @@ def vectorize_text(
         # E5 моделі потребують prefix
         if prefix is None and _is_e5_model(model_name):
             prefix = "passage: "
-        
+
         if prefix:
             text = prefix + text
 
@@ -250,7 +247,7 @@ def vectorize_batch(
         # E5 моделі потребують prefix
         if prefix is None and _is_e5_model(model_name):
             prefix = "passage: "
-        
+
         # Додаємо prefix якщо потрібно
         if prefix:
             cleaned_texts = [prefix + t if t and t.strip() else t for t in cleaned_texts]
@@ -260,22 +257,22 @@ def vectorize_batch(
 
         # Векторизація батчами - ПАРАЛЕЛЬНА обробка
         all_embeddings = []
-        
+
         # Індекси порожніх текстів для заповнення нулями після
         empty_indices = set()
         non_empty_texts = []
-        
+
         for idx, text in enumerate(cleaned_texts):
             if not text or not text.strip() or text == prefix:
                 empty_indices.add(idx)
             else:
                 non_empty_texts.append(text)
-        
+
         # Batch encode всіх непорожніх текстів ОДНИМ викликом (паралельно!)
         if non_empty_texts:
             total_batches = (len(non_empty_texts) + batch_size - 1) // batch_size
             logger.info(f"Batch vectorization: {len(non_empty_texts)} texts in {total_batches} batches (batch_size={batch_size})")
-            
+
             # ОДИН виклик model.encode для ВСІХ текстів - модель сама розбиває на батчі
             raw_embeddings = model.encode(
                 non_empty_texts,
@@ -284,7 +281,7 @@ def vectorize_batch(
                 show_progress_bar=len(non_empty_texts) > 50,
                 normalize_embeddings=False
             )
-            
+
             # Підгонка до цільового розміру
             processed_embeddings = []
             for embedding in raw_embeddings:
@@ -299,7 +296,7 @@ def vectorize_batch(
                     processed_embeddings.append(embedding[:target_size].astype(np.float32))
         else:
             processed_embeddings = []
-        
+
         # Збираємо результати в правильному порядку
         emb_iter = iter(processed_embeddings)
         for idx in range(len(texts)):  # Використовуємо оригінальний texts для правильного індексу
@@ -748,7 +745,7 @@ def cluster(
     labels_dict = {}
     noise_count = 0
 
-    for node_id, label in zip(node_ids, labels):
+    for node_id, label in zip(node_ids, labels, strict=False):
         label = int(label)
         labels_dict[node_id] = label
 

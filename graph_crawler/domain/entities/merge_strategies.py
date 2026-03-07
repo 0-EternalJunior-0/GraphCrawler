@@ -17,7 +17,7 @@ merge strategy визначає як комбінувати ці дані.
 
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
 if TYPE_CHECKING:
     from graph_crawler.domain.entities.node import Node
@@ -161,12 +161,24 @@ class NodeMerger:
         logger.debug(f"LAST strategy: using node2 for {node2.url}")
         return node2
 
+    # Критичні поля metadata, які НЕ повинні перезаписуватись іншими вузлами
+    # Ці поля специфічні для кожного URL і не повинні "перемішуватись"
+    PROTECTED_METADATA_FIELDS = frozenset({
+        'canonical_url',  # Канонічний URL сторінки
+        'title',          # Заголовок сторінки
+        'h1',             # H1 заголовок
+        'description',    # Мета-опис
+        'og:url',         # OpenGraph URL
+        'og:title',       # OpenGraph заголовок
+        'twitter:url',    # Twitter URL
+    })
+
     def _merge_intelligent(self, node1: "Node", node2: "Node") -> "Node":
         """
         Стратегія MERGE: інтелектуальне об'єднання даних.
 
         Розумно комбінує дані з обох вузлів:
-        - metadata: об'єднання словників (node2 перезаписує node1)
+        - metadata: об'єднання словників з ЗАХИСТОМ критичних полів
         - user_data: об'єднання словників (node2 перезаписує node1)
         - scanned: True якщо хоча б один scanned
         - response_status: з node2 якщо є, інакше з node1
@@ -174,6 +186,9 @@ class NodeMerger:
         - created_at: найраніший (старший вузол)
         - depth: мінімальний (ближче до root)
         - Кастомні атрибути: об'єднуються (node2 перезаписує node1)
+
+        ВИПРАВЛЕННЯ v4.0.11: Захист критичних metadata полів від перезапису
+        при конкурентному краулінгу (canonical_url, title, h1, description тощо).
 
         Це найрозумніша стратегія - рекомендується для більшості випадків.
         """
@@ -185,18 +200,39 @@ class NodeMerger:
         if type(node2).__mro__[:-1].__len__() > type(node1).__mro__[:-1].__len__():
             # node2 має глибшу ієрархію наслідування - він більш специфічний
             node_class = type(node2)
-        
+
         # Створюємо копію через правильний клас
         merged = node_class.model_validate(node1.model_dump())
 
-        # Об'єднуємо metadata (node2 перезаписує конфлікти)
-        merged_metadata = node1.metadata.copy()
-        merged_metadata.update(node2.metadata)
+        # ВИПРАВЛЕННЯ v4.0.11: Захист критичних metadata полів
+        # Об'єднуємо metadata БЕЗ перезапису критичних полів якщо вони вже заповнені
+        import copy as copy_module
+        merged_metadata = copy_module.deepcopy(node1.metadata) if node1.metadata else {}
+
+        for key, value in node2.metadata.items():
+            # Для критичних полів - НЕ перезаписуємо якщо node1 вже має непорожнє значення
+            if key in self.PROTECTED_METADATA_FIELDS:
+                existing_value = merged_metadata.get(key)
+                if existing_value:
+                    # node1 вже має значення - перевіряємо консистентність
+                    if value and existing_value != value:
+                        logger.warning(
+                            f"Metadata conflict for '{key}' during merge of {node1.url}: "
+                            f"keeping '{existing_value}', ignoring '{value}'"
+                        )
+                    continue  # Зберігаємо оригінальне значення
+            # Для некритичних полів - стандартна поведінка (node2 перезаписує)
+            merged_metadata[key] = value
+
         merged.metadata = merged_metadata
 
         # Об'єднуємо user_data (node2 перезаписує конфлікти)
-        merged_user_data = node1.user_data.copy()
-        merged_user_data.update(node2.user_data)
+        merged_user_data = copy_module.deepcopy(node1.user_data) if node1.user_data else {}
+        for key, value in node2.user_data.items():
+            if isinstance(value, (dict, list)):
+                merged_user_data[key] = copy_module.deepcopy(value)
+            else:
+                merged_user_data[key] = value
         merged.user_data = merged_user_data
 
         # scanned: True якщо хоча б один scanned
@@ -221,8 +257,8 @@ class NodeMerger:
         # Отримуємо всі атрибути які є в node2 але не в базовому Node
         from graph_crawler.domain.entities.node import Node
         base_fields = set(Node.model_fields.keys())
-        
-        for field_name in node2.model_fields.keys():
+
+        for field_name in type(node2).model_fields.keys():
             if field_name not in base_fields:
                 # Це кастомний атрибут - копіюємо з node2
                 if hasattr(merged, field_name):

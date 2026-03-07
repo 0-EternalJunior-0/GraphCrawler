@@ -43,13 +43,13 @@ from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
 from graph_crawler.shared.constants import (
     DEFAULT_CELERY_RESULTS_TIMEOUT,
     DEFAULT_MAX_CONCURRENT_REQUESTS,
 )
-from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 PROGRESS_LOG_INTERVAL = 5  # секунд
 
 
-class CeleryBatchSpider(ConfigSerializationMixin):
+class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
     """
     Ефективний distributed краулер з batch tasks.
 
@@ -93,8 +93,8 @@ class CeleryBatchSpider(ConfigSerializationMixin):
     def __init__(
         self,
         config: CrawlerConfig,
-        driver: BaseDriver,
-        storage: BaseStorage,
+        driver: IDriver,
+        storage: IStorage,
         batch_size: Optional[int] = None,
         timeout: Optional[int] = None,
     ):

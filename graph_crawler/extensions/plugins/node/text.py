@@ -27,8 +27,9 @@ class TextExtractorPlugin(BaseNodePlugin):
     - Векторизації
     - Пошуку по ключових словах
     - Аналізу контенту
+    - Обчислення SimHash для пошуку дублікатів
 
-    За замовчуванням ВІДКЛЮЧЕНИЙ (не потрібен для базового краулінгу).
+    За замовчуванням УВІМКНЕНИЙ (потрібен для SimHash).
 
     Приклад використання:
         config = CrawlerConfig(
@@ -42,8 +43,7 @@ class TextExtractorPlugin(BaseNodePlugin):
     def __init__(self, config: Dict[str, Any] = None):
         """Ініціалізує TextExtractorPlugin."""
         super().__init__(config)
-        # За замовчуванням ВІДКЛЮЧЕНИЙ
-        self.enabled = config.get("enabled", False) if config else False
+        # За замовчуванням УВІМКНЕНИЙ (потрібен для SimHash)
 
     @property
     def plugin_type(self) -> NodePluginType:

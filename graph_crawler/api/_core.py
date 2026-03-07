@@ -8,6 +8,10 @@ import asyncio
 import logging
 from typing import Any, Optional
 
+# Auto-bootstrap при імпорті модуля
+from graph_crawler.application.bootstrap import bootstrap
+bootstrap()
+
 # Використовуємо uvloop якщо доступний для швидшого event loop
 _uvloop_enabled = False
 try:
@@ -23,7 +27,7 @@ try:
         _uvloop_enabled = True
 except ImportError:
     pass  # uvloop не встановлено, використовуємо стандартний event loop
-except Exception as e:
+except Exception:
     # Інші помилки (RuntimeError, тощо) - ігноруємо і використовуємо стандартний
     pass
 
@@ -63,6 +67,10 @@ async def async_crawl_impl(
         on_completed: Optional[EventCallback] = None,
         edge_strategy: str = "all",
         follow_links: bool = True,
+        # LOW-MEMORY MODE
+        low_memory_mode: bool = False,
+        evict_threshold: int = 500,
+        eviction_storage_path: Optional[str] = None,
 ) -> Graph:
     """Внутрішня async реалізація crawl з підтримкою множинних seed URLs та incremental crawling.
 
@@ -92,6 +100,9 @@ async def async_crawl_impl(
         on_completed: Callback після завершення
         edge_strategy: Стратегія створення edges
         follow_links: Переходити за посиланнями (True) чи сканувати тільки вказані URL (False)
+        low_memory_mode: Активувати eviction scanned нод на диск
+        evict_threshold: Максимум нод в RAM перед eviction
+        eviction_storage_path: Директорія для eviction storage
 
     Returns:
         Graph об'єкт з результатами краулінгу
@@ -101,7 +112,6 @@ async def async_crawl_impl(
     from graph_crawler.application.services.storage_factory import create_storage
     from graph_crawler.domain.events.event_bus import EventBus
     from graph_crawler.domain.events.events import EventType
-    from graph_crawler.domain.value_objects.configs import CrawlerConfig
     from graph_crawler.infrastructure.persistence.graph_repository import (
         GraphRepository,
     )
@@ -204,6 +214,10 @@ async def async_crawl_impl(
             node_plugins=plugins,
             timeout=timeout,
             follow_links=follow_links,
+            # LOW-MEMORY MODE
+            low_memory_mode=low_memory_mode,
+            evict_threshold=evict_threshold,
+            eviction_storage_path=eviction_storage_path,
         )
 
         logger.info(

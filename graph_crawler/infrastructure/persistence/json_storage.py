@@ -1,10 +1,13 @@
 """Збереження графу у JSON файлах .
 
 Використовує aiofiles для неблокуючого файлового I/O.
+При відсутності aiofiles використовує asyncio executor для неблокуючих операцій.
 """
 
+import asyncio
 import json
-import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -22,9 +25,12 @@ if TYPE_CHECKING:
 import logging
 import time
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO
+# Thread pool для неблокуючих file I/O операцій (fallback)
+_file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="json_storage_")
+
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.shared.exceptions import LoadError, SaveError, StorageError
+from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +120,12 @@ class JSONStorage(BaseStorage):
                 async with aiofiles.open(self.graph_file, "w", encoding="utf-8") as f:
                     await f.write(json_content)
             else:
-                with open(self.graph_file, "w", encoding="utf-8") as f:
-                    f.write(json_content)
+                # Використовуємо executor для неблокуючого запису
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    _file_executor,
+                    partial(self._sync_write_file, self.graph_file, json_content)
+                )
 
             duration = time.time() - start_time
 
@@ -207,8 +217,12 @@ class JSONStorage(BaseStorage):
                     content = await f.read()
                 data = json.loads(content)
             else:
-                with open(self.graph_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                # Використовуємо executor для неблокуючого читання
+                loop = asyncio.get_event_loop()
+                data = await loop.run_in_executor(
+                    _file_executor,
+                    partial(self._sync_read_json_file, self.graph_file)
+                )
 
             # Десеріалізуємо GraphDTO через Pydantic model_validate()
             graph_dto = GraphDTO.model_validate(data)
@@ -298,8 +312,12 @@ class JSONStorage(BaseStorage):
                         content = await f.read()
                     data = json.loads(content)
                 else:
-                    with open(self.graph_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                    # Використовуємо executor для неблокуючого читання
+                    loop = asyncio.get_event_loop()
+                    data = await loop.run_in_executor(
+                        _file_executor,
+                        partial(self._sync_read_json_file, self.graph_file)
+                    )
             else:
                 data = {"nodes": [], "edges": []}
 
@@ -313,8 +331,12 @@ class JSONStorage(BaseStorage):
                 async with aiofiles.open(self.graph_file, "w", encoding="utf-8") as f:
                     await f.write(json_content)
             else:
-                with open(self.graph_file, "w", encoding="utf-8") as f:
-                    f.write(json_content)
+                # Використовуємо executor для неблокуючого запису
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    _file_executor,
+                    partial(self._sync_write_file, self.graph_file, json_content)
+                )
 
             return True
         except (IOError, OSError, json.JSONDecodeError) as e:
@@ -341,3 +363,15 @@ class JSONStorage(BaseStorage):
         # Path.exists() is synchronous, but very fast
         # For true async, we could use aiofiles.os.path.exists in future
         return self.graph_file.exists()
+
+    @staticmethod
+    def _sync_write_file(file_path: Path, content: str) -> None:
+        """Синхронний запис файлу (для виконання в executor)."""
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @staticmethod
+    def _sync_read_json_file(file_path: Path) -> Dict[str, Any]:
+        """Синхронне читання JSON файлу (для виконання в executor)."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)

@@ -282,18 +282,33 @@ if old_graph < new_graph:
 
 ## 📞 Callbacks для моніторингу
 
+Callbacks отримують словник `data` з відповідними полями:
+
 ```python
-def on_progress(current, total, node):
-    print(f"Progress: {current}/{total} - {node.url}")
+def on_progress(data):
+    """Викликається при оновленні прогресу."""
+    current = data.get('current', 0)
+    total = data.get('total', 0)
+    url = data.get('url', '')
+    print(f"Progress: {current}/{total} - {url}")
 
-def on_node_scanned(node):
-    print(f"Scanned: {node.url} - {node.get_title()}")
+def on_node_scanned(data):
+    """Викликається після сканування кожної ноди."""
+    node = data.get('node')
+    if node:
+        print(f"Scanned: {node.url} - {node.get_title()}")
 
-def on_error(url, error):
+def on_error(data):
+    """Викликається при помилці."""
+    url = data.get('url', '')
+    error = data.get('error', '')
     print(f"Error on {url}: {error}")
 
-def on_completed(graph):
-    print(f"Done! Total pages: {len(graph.nodes)}")
+def on_completed(data):
+    """Викликається після завершення краулінгу."""
+    graph = data.get('graph')
+    stats = data.get('stats', {})
+    print(f"Done! Total pages: {stats.get('total_nodes', 0)}")
 
 graph = gc.crawl(
     "https://example.com",

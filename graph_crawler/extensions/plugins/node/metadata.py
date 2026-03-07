@@ -15,7 +15,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -65,13 +65,13 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 MetadataExtractorPlugin(config={'enabled': False})
             ]
         )
-    
+
     Приклад отримання канонічного URL:
         node = graph.get_node(url)
         canonical = node.get_canonical_url()  # Law of Demeter wrapper
         # або
         canonical = node.metadata.get('canonical_url')
-    
+
     Приклад перевірки індексації:
         robots = node.metadata.get('robots', {})
         is_indexable = not robots.get('noindex', False)
@@ -134,22 +134,22 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 )
 
             # ==================== SEO МЕТАДАНІ ДЛЯ КРАУЛЕРІВ ====================
-            
+
             # Canonical URL
             canonical_url = self._extract_canonical(parser, context.url)
             if canonical_url:
                 context.set_metadata("canonical_url", canonical_url)
-            
+
             # Robots директиви (meta robots, googlebot, bingbot тощо)
             robots_data = self._extract_robots_directives(meta_tags)
             if robots_data:
                 context.set_metadata("robots", robots_data)
-            
+
             # Hreflang - альтернативні мовні версії
             hreflang_data = self._extract_hreflang(parser, context.url)
             if hreflang_data:
                 context.set_metadata("hreflang", hreflang_data)
-            
+
             # Language - мова сторінки з <html lang="...">
             language = self._extract_language(parser)
             if language:
@@ -171,7 +171,7 @@ class MetadataExtractorPlugin(BaseNodePlugin):
         '#main-content h1, #main h1, .main-content h1, '
         '.content h1, .page-content h1'
     )
-    
+
     # H1 що НЕ знаходяться в проблемних контейнерах
     _H1_EXCLUDE_SELECTOR = (
         'h1:not(dialog h1):not(nav h1):not(aside h1):not(header h1):not(footer h1)'
@@ -182,17 +182,17 @@ class MetadataExtractorPlugin(BaseNodePlugin):
     def _extract_main_h1(self, parser: Any) -> Optional[str]:
         """
         Витягує H1 з основного контенту сторінки.
-        
+
         Використовує CSS селектори для швидкого пошуку (один запит до DOM).
-        
+
         Стратегія:
         1. Шукаємо H1 в main/article/[role=main] (пріоритет)
         2. Шукаємо H1 що не в modal/nav/aside (CSS :not())
         3. Fallback - перший H1
-        
+
         Args:
             parser: Tree adapter
-            
+
         Returns:
             Текст H1 або None
         """
@@ -201,30 +201,30 @@ class MetadataExtractorPlugin(BaseNodePlugin):
             if h1_elem := parser.find(self._H1_MAIN_CONTENT_SELECTOR):
                 if h1_text := h1_elem.text():
                     return h1_text.strip()
-            
+
             # 2. H1 що не в modal/nav/aside (CSS :not selector)
             if h1_elem := parser.find(self._H1_EXCLUDE_SELECTOR):
                 if h1_text := h1_elem.text():
                     return h1_text.strip()
-            
+
             # 3. Fallback - перший H1
             if h1_elem := parser.find("h1"):
                 if h1_text := h1_elem.text():
                     return h1_text.strip()
-                    
+
         except Exception as e:
             logger.debug(f"Error extracting main H1: {e}")
-        
+
         return None
 
     def _extract_canonical(self, parser: Any, base_url: str) -> Optional[str]:
         """
         Витягує canonical URL з <link rel="canonical">.
-        
+
         Args:
             parser: Tree adapter
             base_url: Базовий URL для резолвінгу відносних посилань
-            
+
         Returns:
             Абсолютний canonical URL або None
         """
@@ -248,16 +248,16 @@ class MetadataExtractorPlugin(BaseNodePlugin):
     def _extract_robots_directives(self, meta_tags: Dict[str, str]) -> Dict[str, Any]:
         """
         Витягує robots директиви з meta тегів.
-        
+
         Підтримує:
         - meta name="robots" - загальні директиви
         - meta name="googlebot" - специфічні для Google
         - meta name="bingbot" - специфічні для Bing
         - meta name="googlebot-news" - для Google News
-        
+
         Args:
             meta_tags: Словник meta тегів {name: content}
-            
+
         Returns:
             Словник з директивами:
             {
@@ -272,7 +272,7 @@ class MetadataExtractorPlugin(BaseNodePlugin):
             }
         """
         robots_data = {}
-        
+
         # Основні robots директиви
         robots_content = meta_tags.get("robots", "")
         if robots_content:
@@ -280,7 +280,7 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 robots_content, MAX_ROBOTS_CONTENT_LENGTH
             )
             robots_data.update(self._parse_robots_content(robots_content))
-        
+
         # Googlebot специфічні директиви
         googlebot_content = meta_tags.get("googlebot", "")
         if googlebot_content:
@@ -290,7 +290,7 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 ),
                 **self._parse_robots_content(googlebot_content)
             }
-        
+
         # Googlebot-news
         googlebot_news = meta_tags.get("googlebot-news", "")
         if googlebot_news:
@@ -300,7 +300,7 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 ),
                 **self._parse_robots_content(googlebot_news)
             }
-        
+
         # Bingbot специфічні директиви
         bingbot_content = meta_tags.get("bingbot", "")
         if bingbot_content:
@@ -310,21 +310,21 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                 ),
                 **self._parse_robots_content(bingbot_content)
             }
-        
+
         return robots_data
 
     def _parse_robots_content(self, content: str) -> Dict[str, bool]:
         """
         Парсить robots content на окремі директиви.
-        
+
         Args:
             content: Вміст meta robots, напр. "noindex, nofollow, noarchive"
-            
+
         Returns:
             Словник директив {directive: True}
         """
         directives = {}
-        
+
         # Стандартні robots директиви (як позитивні так і негативні)
         known_directives = {
             "index", "noindex", "follow", "nofollow", "none", "all",
@@ -334,43 +334,43 @@ class MetadataExtractorPlugin(BaseNodePlugin):
             "unavailable_after", "max-snippet", "max-image-preview",
             "max-video-preview", "indexifembedded"
         }
-        
+
         # Парсимо директиви розділені комою або пробілом
         parts = content.lower().replace(",", " ").split()
-        
+
         for part in parts:
             part = part.strip()
             if not part:
                 continue
-            
+
             # Обробка директив з параметрами (напр. max-snippet:50)
             directive_name = part.split(":")[0]
-            
+
             if directive_name in known_directives:
                 directives[directive_name.replace("-", "_")] = True
-            
+
             # Спеціальний випадок: "none" = noindex + nofollow
             if part == "none":
                 directives["noindex"] = True
                 directives["nofollow"] = True
-            
+
             # Спеціальний випадок: "all" = index + follow (дефолт)
             elif part == "all":
                 directives["index"] = True
                 directives["follow"] = True
-        
+
         return directives
 
     def _extract_hreflang(self, parser: Any, base_url: str) -> List[Dict[str, str]]:
         """
         Витягує hreflang альтернативи з <link rel="alternate" hreflang="...">.
-        
+
         Важливо для багатомовних сайтів та локалізацій.
-        
+
         Args:
             parser: Tree adapter
             base_url: Базовий URL для резолвінгу відносних посилань
-            
+
         Returns:
             Список альтернатив:
             [
@@ -380,24 +380,24 @@ class MetadataExtractorPlugin(BaseNodePlugin):
             ]
         """
         hreflang_list = []
-        
+
         try:
             # Шукаємо всі link[hreflang] (альтернативні версії)
             alternate_links = parser.find_all('link[hreflang]')
-            
+
             for link in alternate_links:
                 hreflang = link.get_attribute("hreflang")
                 href = link.get_attribute("href")
-                
+
                 if hreflang and href:
                     # Резолвимо відносний URL
                     absolute_href = urljoin(base_url, href.strip())
-                    
+
                     hreflang_list.append({
                         "hreflang": hreflang.strip().lower(),
                         "href": absolute_href
                     })
-                    
+
                     # Ліміт на кількість записів
                     if len(hreflang_list) >= MAX_HREFLANG_ENTRIES:
                         logger.warning(
@@ -405,19 +405,19 @@ class MetadataExtractorPlugin(BaseNodePlugin):
                             f"truncating to {MAX_HREFLANG_ENTRIES}"
                         )
                         break
-                        
+
         except Exception as e:
             logger.debug(f"Error extracting hreflang: {e}")
-        
+
         return hreflang_list
 
     def _extract_language(self, parser: Any) -> Optional[str]:
         """
         Витягує мову сторінки з <html lang="...">.
-        
+
         Args:
             parser: Tree adapter
-            
+
         Returns:
             Мовний код (напр. "en", "uk", "en-US") або None
         """

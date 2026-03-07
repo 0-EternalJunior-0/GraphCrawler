@@ -16,7 +16,6 @@ Dependency Inversion Principle (DIP):
 4. Легше тестувати (можна підміняти реалізації)
 """
 
-from enum import Enum
 from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 

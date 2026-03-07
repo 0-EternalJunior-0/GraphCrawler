@@ -5,7 +5,7 @@
 
 import asyncio
 import logging
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List
 
 from graph_crawler.domain.events.events import CrawlerEvent, EventType
 from graph_crawler.shared.constants import DEFAULT_EVENT_HISTORY_SIZE
@@ -156,14 +156,14 @@ class EventBus:
                 )
 
     async def publish_async(
-        self, 
-        event: CrawlerEvent, 
+        self,
+        event: CrawlerEvent,
         timeout: float = DEFAULT_CALLBACK_TIMEOUT,
         fail_fast: bool = False
     ):
         """
         Async публікує подію всім підписникам.
-        
+
         Підтримує timeout для async callbacks та fail_fast опцію.
         Підтримує як sync, так і async callbacks.
 
@@ -173,7 +173,6 @@ class EventBus:
             fail_fast: Якщо True - пробрасывает виняток при помилці/timeout.
                       Якщо False (default) - логує помилку і продовжує.
         """
-        import inspect
 
         # Історія
         if self._history_enabled:

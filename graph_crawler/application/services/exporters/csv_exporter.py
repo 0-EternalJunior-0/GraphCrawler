@@ -1,29 +1,35 @@
 """CSV Exporter - Clean Architecture з DTO.
 
-
+ВИПРАВЛЕНО: Додано async методи з executor для неблокуючих операцій.
 
 Exports graph to CSV format (nodes and edges as separate files).
 """
 
+import asyncio
 import csv
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from graph_crawler.application.dto import GraphDTO, NodeDTO, EdgeDTO
+from graph_crawler.application.dto import GraphDTO
 from graph_crawler.application.services.exporters.base_exporter import BaseExporter
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
 
 logger = logging.getLogger(__name__)
 
+# Thread pool для неблокуючих file I/O операцій
+_csv_exporter_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="csv_export_")
+
 
 class CSVExporter(BaseExporter):
     """
     Export graph to CSV format через DTO.
 
-    
+
 
     Creates two CSV files:
     - {output_path}_nodes.csv - містить інформацію про nodes
@@ -70,7 +76,7 @@ class CSVExporter(BaseExporter):
         """
         Export graph to CSV files through DTO.
 
-        
+
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -267,3 +273,46 @@ class CSVExporter(BaseExporter):
 
         logger.info(f"Exported {format} to {output_path}")
         return True
+
+    # ============= ASYNC МЕТОДИ =============
+
+    async def export_async(
+        self, graph_dto: GraphDTO, output_path: str, include_metadata: bool = True, **options
+    ) -> bool:
+        """
+        Async версія експорту в CSV (неблокуюча).
+
+        Args:
+            graph_dto: GraphDTO для експорту
+            output_path: Base path для output files
+            include_metadata: Включити metadata в CSV
+            **options: Additional options
+
+        Returns:
+            bool: True якщо успішно
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _csv_exporter_executor,
+            partial(self.export, graph_dto, output_path, include_metadata, **options)
+        )
+
+    async def export_to_single_file_async(
+        self, graph_dto: GraphDTO, output_path: str, format: str = "nodes_only"
+    ) -> bool:
+        """
+        Async версія експорту в один файл (неблокуюча).
+
+        Args:
+            graph_dto: GraphDTO instance
+            output_path: Output file path
+            format: 'nodes_only' або 'edges_only'
+
+        Returns:
+            bool: True якщо успішно
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            _csv_exporter_executor,
+            partial(self.export_to_single_file, graph_dto, output_path, format)
+        )

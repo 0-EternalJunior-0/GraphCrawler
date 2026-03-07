@@ -2,8 +2,6 @@
 
 from typing import Any, Callable, List, Optional, Union
 
-from pydantic import field_validator
-
 
 def create_enum_validator(
     field_name: str,

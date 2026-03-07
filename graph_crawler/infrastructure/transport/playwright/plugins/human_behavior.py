@@ -11,10 +11,9 @@ Human Behavior Emulation плагін для Playwright драйвера.
 import asyncio
 import logging
 import random
-from typing import Any, Dict, List
+from typing import List
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
-from graph_crawler.infrastructure.transport.context import EventPriority
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
 from graph_crawler.infrastructure.transport.playwright.stages import BrowserStage
 
@@ -124,13 +123,13 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
         try:
             # Тільки 1 рух миші замість 3, без затримок між ними
             await self._random_mouse_movement(ctx.page)
-            
+
             # Мінімальна затримка
             await self._random_delay()
 
             ctx.data["human_behavior_applied"] = True
 
-        except Exception as e:
+        except Exception:
             pass  # Ігноруємо помилки
 
         return ctx

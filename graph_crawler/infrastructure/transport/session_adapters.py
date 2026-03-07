@@ -14,7 +14,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from graph_crawler.shared.constants import (
-    DEFAULT_CONNECTION_POOL_SIZE,
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_BACKOFF_FACTOR,
     DEFAULT_USER_AGENT,

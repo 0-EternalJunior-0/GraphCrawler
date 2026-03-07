@@ -21,7 +21,6 @@ from typing import Any, Dict, List, Optional
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
 from graph_crawler.domain.value_objects.models import FetchResponse
-from graph_crawler.infrastructure.transport.protocols import IAsyncDriver
 from graph_crawler.shared.utils.event_publisher_mixin import EventPublisherMixin
 
 logger = logging.getLogger(__name__)

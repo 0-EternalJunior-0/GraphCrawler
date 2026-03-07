@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 def _detect_free_threading() -> bool:
     """
     Визначає чи Python 3.14 free-threading enabled.
-    
+
     Returns:
         True якщо GIL disabled (free-threading mode)
         False якщо GIL enabled або Python < 3.14
@@ -56,16 +56,26 @@ _NATIVE_BLOOM_AVAILABLE = False
 # URL Utils (Cython)
 try:
     from graph_crawler.native._url_utils import (
-        is_valid_url_fast as _cython_is_valid_url,
-        normalize_url_fast as _cython_normalize_url,
-        get_domain_fast as _cython_get_domain,
-        make_absolute_fast as _cython_make_absolute,
         filter_valid_urls as _cython_filter_valid_urls,
+    )
+    from graph_crawler.native._url_utils import (
+        get_domain_fast as _cython_get_domain,
+    )
+    from graph_crawler.native._url_utils import (
+        is_valid_url_fast as _cython_is_valid_url,
+    )
+    from graph_crawler.native._url_utils import (
+        make_absolute_fast as _cython_make_absolute,
+    )
+    from graph_crawler.native._url_utils import (
+        normalize_url_fast as _cython_normalize_url,
+    )
+    from graph_crawler.native._url_utils import (
         normalize_urls as _cython_normalize_urls,
     )
     _NATIVE_URL_AVAILABLE = True
     logger.debug("🚀 Native URL utils loaded (Cython)")
-    
+
     # Використовуємо Cython версії
     is_valid_url_fast = _cython_is_valid_url
     normalize_url_fast = _cython_normalize_url
@@ -73,24 +83,24 @@ try:
     make_absolute_fast = _cython_make_absolute
     filter_valid_urls = _cython_filter_valid_urls
     normalize_urls = _cython_normalize_urls
-    
+
 except ImportError as e:
     # Fallback to pure Python with lru_cache
     # Log the reason for fallback (helps debugging platform issues)
     logger.info(f"Native URL utils not available ({type(e).__name__}: {e}), using pure Python fallback")
-    
+
     from graph_crawler.shared.utils.url_utils import URLUtils, _parse_url_cached
-    
+
     is_valid_url_fast = URLUtils.is_valid_url
     normalize_url_fast = URLUtils.normalize_url
     get_domain_fast = URLUtils.get_domain
     make_absolute_fast = URLUtils.make_absolute
-    
+
     # Pure Python batch operations (optimized)
     def filter_valid_urls(urls: list) -> list:
         """Filter valid URLs (pure Python fallback)."""
         return [url for url in urls if URLUtils.is_valid_url(url)]
-    
+
     def normalize_urls(urls: list) -> list:
         """Normalize URLs (pure Python fallback)."""
         return [URLUtils.normalize_url(url) for url in urls]
@@ -98,17 +108,21 @@ except ImportError as e:
 # HTML Parser (Cython)
 try:
     from graph_crawler.native._html_parser import (
-        parse_links_fast as _cython_parse_links,
-        parse_all_urls_fast as _cython_parse_all_urls,
         count_links as _cython_count_links,
+    )
+    from graph_crawler.native._html_parser import (
+        parse_all_urls_fast as _cython_parse_all_urls,
+    )
+    from graph_crawler.native._html_parser import (
+        parse_links_fast as _cython_parse_links,
     )
     _NATIVE_HTML_AVAILABLE = True
     logger.debug("🚀 Native HTML parser loaded (Cython)")
-    
+
     parse_links_fast = _cython_parse_links
     parse_all_urls_fast = _cython_parse_all_urls
     count_links = _cython_count_links
-    
+
 except ImportError as e:
     # Fallback - буде None, використовується BeautifulSoup
     logger.info(f"Native HTML parser not available ({type(e).__name__}: {e}), using BeautifulSoup fallback")
@@ -151,7 +165,7 @@ def is_free_threaded() -> bool:
 def get_native_status() -> dict:
     """
     Отримати статус native extensions.
-    
+
     Returns:
         Dict з інформацією про native extensions
     """

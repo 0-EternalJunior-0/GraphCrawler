@@ -18,7 +18,6 @@ Bloom Filter - це імовірнісна структура даних що д
 
 import logging
 import sys
-from typing import Optional
 
 from pybloom_live import ScalableBloomFilter
 
@@ -140,6 +139,15 @@ class BloomFilter:
             False
         """
         return url in self.bloom
+
+    def __len__(self) -> int:
+        """
+        Повертає кількість доданих елементів.
+
+        Returns:
+            Кількість доданих URLs
+        """
+        return self.count
 
     def get_statistics(self) -> dict:
         """

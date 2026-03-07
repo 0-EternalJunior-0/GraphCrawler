@@ -1,9 +1,165 @@
-"""Базовий клас для ребра графу (посилання між сторінками) - Pydantic модель."""
+"""Базовий клас для ребра графу (посилання між сторінками) - Pydantic модель.
+
+Економія: ~500-700 bytes на edge при використанні LightEdge замість Edge.
+При 100k edges: ~50-70 MB економії RAM.
+"""
 
 import uuid
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+
+@dataclass(slots=True)
+class LightEdge:
+    """
+    
+    Використовує __slots__ для економії ~100 bytes per object.
+    Зберігає мінімум даних для відновлення Edge при потребі.
+    
+    Особливості:
+    - source_id та target_id як strings (не UUID об'єкти)
+    - anchor_hash замість full anchor_text string (~50-200 bytes економія)
+    - link_type_bits як бітова маска замість List[str] (~50 bytes економія)
+    
+    Бітові флаги для link_type:
+    - INTERNAL = 1   (internal link)
+    - EXTERNAL = 2   (external link) 
+    - DEEPER = 4     (deeper depth)
+    - SHALLOWER = 8  (shallower depth)
+    - SAME_DEPTH = 16 (same depth)
+    - NOFOLLOW = 32  (rel=nofollow)
+    - SPONSORED = 64 (rel=sponsored)
+    - UGC = 128      (rel=ugc)
+    
+    Розмір в RAM: ~80-120 bytes (замість ~500-1000 bytes для Edge)
+    
+    Example:
+        >>> light_edge = LightEdge(
+        ...     source_id="abc123",
+        ...     target_id="def456", 
+        ...     anchor_hash=hash("Click here"),
+        ...     link_type_bits=LightEdge.INTERNAL | LightEdge.DEEPER
+        ... )
+        >>> # Перевірка типу посилання
+        >>> if light_edge.is_internal():
+        ...     print("Internal link")
+    """
+    source_id: str
+    target_id: str
+    anchor_hash: int = 0  # hash(anchor_text) замість full string
+    link_type_bits: int = 0  # Бітова маска замість List[str]
+    
+    # Бітові флаги для link_type
+    INTERNAL = 1
+    EXTERNAL = 2
+    DEEPER = 4
+    SHALLOWER = 8
+    SAME_DEPTH = 16
+    NOFOLLOW = 32
+    SPONSORED = 64
+    UGC = 128
+    
+    # Redirect flag
+    WAS_REDIRECT = 256
+    
+    def is_internal(self) -> bool:
+        """Чи є посилання internal."""
+        return bool(self.link_type_bits & self.INTERNAL)
+    
+    def is_external(self) -> bool:
+        """Чи є посилання external."""
+        return bool(self.link_type_bits & self.EXTERNAL)
+    
+    def is_deeper(self) -> bool:
+        """Чи є посилання на глибший рівень."""
+        return bool(self.link_type_bits & self.DEEPER)
+    
+    def is_nofollow(self) -> bool:
+        """Чи має посилання rel=nofollow."""
+        return bool(self.link_type_bits & self.NOFOLLOW)
+    
+    def is_redirect(self) -> bool:
+        """Чи представляє edge HTTP редірект."""
+        return bool(self.link_type_bits & self.WAS_REDIRECT)
+    
+    @classmethod
+    def from_edge(cls, edge: 'Edge') -> 'LightEdge':
+        """
+        Конвертує Edge в LightEdge.
+        
+        Args:
+            edge: Edge об'єкт для конвертації
+            
+        Returns:
+            LightEdge з мінімальними даними
+        """
+        # Обчислюємо anchor_hash
+        anchor_text = edge.get_meta_value("anchor_text", "")
+        anchor_hash = hash(anchor_text) if anchor_text else 0
+        
+        # Конвертуємо link_type list в бітову маску
+        link_type_bits = 0
+        link_types = edge.get_meta_value("link_type", [])
+        
+        type_map = {
+            "internal": cls.INTERNAL,
+            "external": cls.EXTERNAL,
+            "deeper": cls.DEEPER,
+            "shallower": cls.SHALLOWER,
+            "same_depth": cls.SAME_DEPTH,
+            "nofollow": cls.NOFOLLOW,
+            "sponsored": cls.SPONSORED,
+            "ugc": cls.UGC,
+        }
+        
+        for lt in link_types:
+            lt_lower = lt.lower() if isinstance(lt, str) else str(lt).lower()
+            if lt_lower in type_map:
+                link_type_bits |= type_map[lt_lower]
+        
+        # Redirect flag
+        if edge.is_redirect():
+            link_type_bits |= cls.WAS_REDIRECT
+        
+        return cls(
+            source_id=edge.source_node_id,
+            target_id=edge.target_node_id,
+            anchor_hash=anchor_hash,
+            link_type_bits=link_type_bits,
+        )
+    
+    def to_tuple(self) -> tuple:
+        """
+        Конвертує в tuple для efficient storage.
+        
+        Returns:
+            Tuple (source_id, target_id, anchor_hash, link_type_bits)
+        """
+        return (self.source_id, self.target_id, self.anchor_hash, self.link_type_bits)
+    
+    @classmethod
+    def from_tuple(cls, data: tuple) -> 'LightEdge':
+        """
+        Створює LightEdge з tuple.
+        
+        Args:
+            data: Tuple (source_id, target_id, anchor_hash, link_type_bits)
+            
+        Returns:
+            LightEdge об'єкт
+        """
+        return cls(
+            source_id=data[0],
+            target_id=data[1],
+            anchor_hash=data[2] if len(data) > 2 else 0,
+            link_type_bits=data[3] if len(data) > 3 else 0,
+        )
+
+
+# ============ ORIGINAL EDGE CLASS ============
 
 
 class Edge(BaseModel):
@@ -144,7 +300,18 @@ class Edge(BaseModel):
             ['http://old.com', 'http://temp.com']
         """
         return self.get_meta_value("redirect_chain", [])
+    
+    def to_light_edge(self) -> 'LightEdge':
+        """
+        
+        Returns:
+            LightEdge з мінімальними даними
+        """
+        return LightEdge.from_edge(self)
 
     def __repr__(self):
         redirect_marker = " [REDIRECT]" if self.is_redirect() else ""
         return f"Edge(from={self.source_node_id[:8]}... to={self.target_node_id[:8]}...{redirect_marker})"
+
+
+__all__ = ['Edge', 'LightEdge']

@@ -12,17 +12,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
-
-from .fingerprint_data import (
-    COMMON_VIEWPORTS,
-    LANGUAGES,
-    PLATFORMS,
-    TIMEZONES,
-    USER_AGENTS,
-    WEBGL_RENDERERS,
-    WEBGL_VENDORS,
-)
 from .fingerprint_generators import (
     generate_random_geolocation,
     generate_random_timezone,

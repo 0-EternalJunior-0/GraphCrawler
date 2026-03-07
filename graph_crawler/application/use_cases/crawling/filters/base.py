@@ -3,8 +3,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
-from graph_crawler.domain.interfaces.filter import IDomainFilter, IPathFilter
-
 
 class BaseURLFilter(ABC):
     """

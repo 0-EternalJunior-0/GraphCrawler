@@ -139,12 +139,12 @@ def filter_nodes_for_visualization(
 
     This logic was previously implemented as a private static method
     on ``GraphVisualizer`` and is now extracted for reuse and testing.
-    
+
     Priority order:
     1. Structural nodes (non-url types)
     2. Nodes with priority attributes (if specified)
     3. Other url nodes
-    
+
     Args:
         graph: Graph to filter
         max_nodes: Maximum number of nodes to visualize
@@ -166,7 +166,7 @@ def filter_nodes_for_visualization(
         structural: List[Any] = []
         priority_nodes: List[Any] = []
         other_url_nodes: List[Any] = []
-        
+
         for node in nodes_list:
             if hasattr(node, "node_type") and node.node_type != "url":
                 structural.append(node)
@@ -183,19 +183,19 @@ def filter_nodes_for_visualization(
                     other_url_nodes.append(node)
             else:
                 other_url_nodes.append(node)
-        
+
         # Пріоритет: structural -> priority -> інші
         result: List[Any] = []
         result.extend(structural)
-        
+
         remaining_slots = max_nodes - len(result)
         if remaining_slots > 0:
             result.extend(priority_nodes[:remaining_slots])
-        
+
         remaining_slots = max_nodes - len(result)
         if remaining_slots > 0:
             result.extend(other_url_nodes[:remaining_slots])
-        
+
         if priority_attributes:
             logger.info(" Фільтрація: %s структурних, %s пріоритетних, %s інших -> %s всього",
                        len(structural), len(priority_nodes), len(other_url_nodes), len(result))
@@ -254,12 +254,12 @@ def _visualize_via_subprocess(
     Returns:
         True якщо успішно, False якщо не вдалося
     """
-    import subprocess
-    import tempfile
     import os
 
     # Шукаємо Python 3.12 або 3.13
     import platform
+    import subprocess
+    import tempfile
 
     python_paths = []
 
@@ -393,11 +393,11 @@ node_ids = set()
 for node in prioritized_nodes:
     node_id = node.get("id") or node.get("node_id")
     node_ids.add(node_id)
-    
+
     scanned = node.get("scanned", False)
     should_scan = node.get("should_scan", True)
     base_color = get_base_color(scanned, should_scan)
-    
+
     # Визначаємо колір обводки для highlight
     border_color = None
     active_colors = []
@@ -406,20 +406,20 @@ for node in prioritized_nodes:
             active_colors.append(col)
     if active_colors:
         border_color = blend_colors(active_colors)
-    
+
     url = node.get("url", "")
     label_text = ''
     if url:
         if len(url) > 80:
             label_text = url[:50] + "..."
         else:
-            label_text = url  
+            label_text = url
     else:
-        label_text = str(node_id)[:30]      
+        label_text = str(node_id)[:30]
     label = label_text
     depth = node.get("depth", 1)
     size = 30 if depth == 0 else 20
-    
+
     # Hover text
     hover = f"<b>URL:</b> {{url}}<br>"
     for param in highlight.keys():
@@ -427,7 +427,7 @@ for node in prioritized_nodes:
             val = node[param]
             icon = "✅" if val else "❌"
             hover += f"<b>{{param}}:</b> {{icon}}<br>"
-    
+
     net.add_node(
         node_id,
         label=label,
@@ -522,7 +522,7 @@ def visualize_2d_web(
 
     This is the core implementation used by
     :meth:`graph_crawler.shared.utils.visualization.GraphVisualizer.visualize_2d_web`.
-    
+
     Args:
         priority_attributes: List of node attributes to prioritize when filtering
                            (e.g., ["is_jobs", "is_important"])
@@ -554,7 +554,7 @@ def visualize_2d_web(
             # Якщо subprocess не вдався - виводимо повідомлення
             print(f"\n⚠️ Візуалізація пропущена через несумісність Python {py_ver}")
             print(f"📊 Граф успішно створено: {len(graph.nodes)} вузлів")
-            print(f"💡 Встановіть Python 3.12/3.13 для візуалізації")
+            print("💡 Встановіть Python 3.12/3.13 для візуалізації")
             return
         raise
 

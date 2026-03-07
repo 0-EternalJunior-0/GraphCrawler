@@ -21,7 +21,7 @@ import logging
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
-from celery import Celery, chord, group
+from celery import Celery, group
 
 from graph_crawler.application.use_cases.crawling.serialization_mixin import (
     ConfigSerializationMixin,
@@ -31,20 +31,18 @@ from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
 from graph_crawler.shared.constants import (
     DEFAULT_CELERY_RESULTS_TIMEOUT,
-    DEFAULT_REDIS_DB,
-    DEFAULT_REDIS_HOST,
-    DEFAULT_REDIS_PORT,
 )
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
 
 
-class CelerySpider(ConfigSerializationMixin):
+class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
     """
      DEPRECATED: Використовуйте CeleryBatchSpider для 24x кращої продуктивності!
 
@@ -87,7 +85,7 @@ class CelerySpider(ConfigSerializationMixin):
     -  DEPRECATED: 1 task = 1 URL (неефективно!)
     """
 
-    def __init__(self, config: CrawlerConfig, driver: BaseDriver, storage: BaseStorage):
+    def __init__(self, config: CrawlerConfig, driver: IDriver, storage: IStorage):
         """
         Ініціалізує CelerySpider.
 
@@ -472,3 +470,12 @@ class CelerySpider(ConfigSerializationMixin):
         stats["celery_workers"] = self._get_celery_workers()
         stats["mode"] = "celery"
         return stats
+
+    def get_partial_graph(self) -> Graph:
+        """
+        Повертає частковий граф (для випадку timeout/shutdown).
+        
+        Returns:
+            Поточний стан графу
+        """
+        return self.graph

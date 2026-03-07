@@ -61,7 +61,7 @@ celery -A graph_crawler worker --loglevel=info --concurrency=4
 ### 5. Запустити Coordinator (Local)
 
 ```python
-from graph_crawler.distributed import EasyDistributedCrawler
+from graph_crawler import EasyDistributedCrawler
 
 crawler = EasyDistributedCrawler.from_yaml("config.yaml")
 results = crawler.crawl()
@@ -253,7 +253,7 @@ prices = node.user_data.get('prices', [])
 
 ```python
 # myapp/CustomPlugins.py
-from graph_crawler.plugins.node.base import BaseNodePlugin, NodePluginType, NodePluginContext
+from graph_crawler.extensions.plugins.node import BaseNodePlugin, NodePluginType, NodePluginContext
 
 class CustomExtractorPlugin(BaseNodePlugin):
     @property
@@ -281,7 +281,7 @@ crawl_task:
 ### Programmatic Configuration
 
 ```python
-from graph_crawler.distributed import EasyDistributedCrawler
+from graph_crawler import EasyDistributedCrawler
 
 config = {
     "broker": {

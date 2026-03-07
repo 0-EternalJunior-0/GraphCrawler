@@ -11,10 +11,7 @@ Mixins дозволяють комбінувати функціональніс�
 import asyncio
 import logging
 import time
-from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, TypeVar
-
-from graph_crawler.domain.value_objects.models import FetchResponse
 
 logger = logging.getLogger(__name__)
 

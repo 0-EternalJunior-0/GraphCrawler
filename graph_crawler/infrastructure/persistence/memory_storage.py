@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from graph_crawler.application.dto import GraphDTO
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 
 if TYPE_CHECKING:

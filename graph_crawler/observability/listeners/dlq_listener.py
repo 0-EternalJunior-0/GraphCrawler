@@ -6,10 +6,11 @@ DLQ Listener - підписується на події помилок та ін
 import logging
 from typing import Optional
 
+from graph_crawler.domain.entities.error_handler import ErrorHandler
+
 from graph_crawler.application.use_cases.crawling.dead_letter_queue import (
     DeadLetterQueue,
 )
-from graph_crawler.domain.entities.error_handler import ErrorHandler
 from graph_crawler.domain.events import CrawlerEvent, EventBus, EventType
 
 logger = logging.getLogger(__name__)

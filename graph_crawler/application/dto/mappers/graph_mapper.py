@@ -3,14 +3,12 @@
 Забезпечує ізоляцію Domain Layer від зовнішніх шарів через DTO.
 """
 
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Optional
 
-from graph_crawler.application.dto import (
-    EdgeDTO,
+from graph_crawler.application.dto.graph_dto import (
     GraphDTO,
     GraphStatsDTO,
     GraphSummaryDTO,
-    NodeDTO,
 )
 from graph_crawler.application.dto.mappers.edge_mapper import EdgeMapper
 from graph_crawler.application.dto.mappers.node_mapper import NodeMapper
@@ -22,24 +20,24 @@ from graph_crawler.domain.entities.node import Node
 class GraphMapper:
     """
     Mapper для конвертації Graph ↔ GraphDTO.
-    
+
     Відповідальність:
     - Domain → DTO: Серіалізація Graph в GraphDTO (з NodeDTO та EdgeDTO)
     - DTO → Domain: Десеріалізація GraphDTO в Graph (з відновленням залежностей)
     - Статистика: Обчислення GraphStatsDTO та GraphSummaryDTO
-    
+
     ВАЖЛИВО:
     - При to_domain() context передається для відновлення залежностей Node
     - Підтримує кастомні Node та Edge класи через context
     - default_merge_strategy можна встановити при створенні Graph
-    
+
     Examples:
         >>> # Domain → DTO (серіалізація для збереження)
         >>> graph = Graph()
         >>> graph.add_node(node1)
         >>> graph.add_edge(edge1)
         >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> 
+        >>>
         >>> # DTO → Domain (завантаження з відновленням залежностей)
         >>> context = {
         ...     'plugin_manager': pm,
@@ -55,18 +53,18 @@ class GraphMapper:
     def to_dto(graph: Graph) -> GraphDTO:
         """
         Конвертує Domain Graph в GraphDTO для передачі між шарами.
-        
+
         Серіалізує весь граф включаючи:
         - Всі ноди (через NodeMapper)
         - Всі edges (через EdgeMapper)
         - Статистику графу
-        
+
         Args:
             graph: Domain Graph entity
-            
+
         Returns:
             GraphDTO з усіма даними Graph
-            
+
         Example:
             >>> graph = Graph()
             >>> # ... додаємо ноди та edges
@@ -92,16 +90,16 @@ class GraphMapper:
     ) -> Graph:
         """
         Конвертує GraphDTO в Domain Graph з відновленням залежностей.
-        
+
         ВАЖЛИВО: Context використовується для:
         - Відновлення залежностей Node (plugin_manager, tree_parser, hash_strategy)
         - Вказівки кастомних класів Node та Edge
         - Встановлення default_merge_strategy для Graph
-        
+
         CONTEXT RESOLUTION:
         Якщо context=None, автоматично використовується DependencyRegistry.get_context()
         для отримання дефолтних залежностей.
-        
+
         Args:
             graph_dto: GraphDTO для конвертації
             context: Контекст з налаштуваннями (опціонально):
@@ -111,14 +109,14 @@ class GraphMapper:
                 - 'node_class': Клас Node (default: Node)
                 - 'edge_class': Клас Edge (default: Edge)
                 - 'default_merge_strategy': Стратегія для union операцій (default: 'last')
-            
+
         Returns:
             Domain Graph entity з відновленими залежностями
-            
+
         Example:
             >>> # Автоматичне використання DependencyRegistry
             >>> graph = GraphMapper.to_domain(graph_dto)
-            >>> 
+            >>>
             >>> # Явний контекст з override
             >>> context = {
             ...     'plugin_manager': my_plugin_manager,
@@ -140,7 +138,7 @@ class GraphMapper:
                 context = DependencyRegistry.get_context()
             except ImportError:
                 context = {}
-        
+
         context = context or {}
 
         # Отримуємо класи Node та Edge з context
@@ -182,13 +180,13 @@ class GraphMapper:
     def compute_stats(graph: Graph) -> GraphStatsDTO:
         """
         Обчислює статистику графу для GraphStatsDTO.
-        
+
         Args:
             graph: Domain Graph entity
-            
+
         Returns:
             GraphStatsDTO зі статистикою
-            
+
         Example:
             >>> stats = GraphMapper.compute_stats(graph)
             >>> stats.total_nodes
@@ -197,7 +195,7 @@ class GraphMapper:
             2.5
         """
         stats = graph.get_stats()
-        
+
         # Обчислюємо avg_depth та max_depth якщо їх немає
         depths = [node.depth for node in graph.nodes.values()]
         avg_depth = stats.get("avg_depth", sum(depths) / len(depths) if depths else 0.0)
@@ -216,17 +214,17 @@ class GraphMapper:
     def to_summary_dto(graph: Graph, root_url: str, crawl_completed: bool = False) -> GraphSummaryDTO:
         """
         Створює спрощений GraphSummaryDTO (для API responses).
-        
+
         Використовується коли потрібна легка версія без повних даних графу.
-        
+
         Args:
             graph: Domain Graph entity
             root_url: Кореневий URL початку краулінгу
             crawl_completed: Чи завершено краулінг
-            
+
         Returns:
             GraphSummaryDTO з основними показниками
-            
+
         Example:
             >>> summary = GraphMapper.to_summary_dto(
             ...     graph,
@@ -254,34 +252,34 @@ class GraphMapper:
     ) -> GraphDTO:
         """
         Об'єднує два GraphDTO з вказаною стратегією.
-        
+
         Це utility метод для merge операцій на рівні DTO.
-        
+
         СТРАТЕГІЇ:
         - 'last': При конфлікті залишається node з другого графу
         - 'first': При конфлікті залишається node з першого графу
         - 'merge': При конфлікті об'єднується metadata з обох нод
         - 'newest': При конфлікті залишається node з новішим created_at
         - 'oldest': При конфлікті залишається node з старішим created_at
-        
+
         Args:
             graph_dto1: Перший GraphDTO
             graph_dto2: Другий GraphDTO
             merge_strategy: Стратегія об'єднання (default: 'last')
             context: Контекст для відновлення залежностей
-            
+
         Returns:
             Об'єднаний GraphDTO
-            
+
         Example:
             >>> # Базове об'єднання (стратегія 'last')
             >>> merged_dto = GraphMapper.merge_graphs(dto1, dto2)
-            >>> 
+            >>>
             >>> # Об'єднання з 'merge' стратегією (об'єднує metadata)
             >>> merged_dto = GraphMapper.merge_graphs(
             ...     dto1, dto2, merge_strategy='merge'
             ... )
-            >>> 
+            >>>
             >>> # Об'єднання з 'newest' (залишає новіші ноди)
             >>> merged_dto = GraphMapper.merge_graphs(
             ...     dto1, dto2, merge_strategy='newest'
@@ -308,24 +306,24 @@ class GraphMapper:
     ) -> GraphDTO:
         """
         Фільтрує ноди в GraphDTO за предикатом.
-        
+
         Utility метод для фільтрації на рівні DTO без повної конвертації в Domain.
-        
+
         Args:
             graph_dto: GraphDTO для фільтрації
             predicate: Функція (NodeDTO) -> bool
             context: Контекст (не використовується, але залишений для сумісності)
-            
+
         Returns:
             Новий GraphDTO з відфільтрованими нодами та edges
-            
+
         Example:
             >>> # Фільтруємо тільки просканованих нод
             >>> scanned_dto = GraphMapper.filter_nodes_dto(
             ...     graph_dto,
             ...     lambda node: node.scanned
             ... )
-            >>> 
+            >>>
             >>> # Фільтруємо ноди по глибині
             >>> shallow_dto = GraphMapper.filter_nodes_dto(
             ...     graph_dto,

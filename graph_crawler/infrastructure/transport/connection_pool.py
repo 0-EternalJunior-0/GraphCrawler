@@ -21,12 +21,12 @@ from typing import Any, Dict, Optional
 import aiohttp
 
 from graph_crawler.shared.constants import (
-    DEFAULT_REQUEST_TIMEOUT,
-    DEFAULT_USER_AGENT,
-    HTTP_RETRYABLE_STATUS_CODES,
     DEFAULT_DNS_CACHE_TTL,
     DEFAULT_OPTIMIZED_POOL_SIZE,
     DEFAULT_POOL_CLEANUP_INTERVAL,
+    DEFAULT_REQUEST_TIMEOUT,
+    DEFAULT_USER_AGENT,
+    HTTP_RETRYABLE_STATUS_CODES,
 )
 
 logger = logging.getLogger(__name__)

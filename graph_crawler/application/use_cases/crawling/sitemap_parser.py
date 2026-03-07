@@ -19,18 +19,16 @@ import logging
 import os
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urljoin, urlparse
 
 logger = logging.getLogger(__name__)
 
-# P0 FIX: Ліміт розміру sitemap для захисту від Memory Overflow
 MAX_SITEMAP_SIZE = 50 * 1024 * 1024  # 50 MB
 
-# P1 FIX: Дозволені Content-Type для sitemap
 ALLOWED_CONTENT_TYPES = [
-    'text/xml', 
-    'application/xml', 
+    'text/xml',
+    'application/xml',
     'application/x-gzip',
     'application/gzip',
     'text/plain',  # Деякі сервери віддають sitemap як text/plain
@@ -90,8 +88,7 @@ class SitemapParser:
         self.user_agent = user_agent
         self.timeout = timeout
         self._session = None  # Lazy initialization для aiohttp
-        
-        # P1 FIX: Instance-level ThreadPoolExecutor
+
         # Замість глобального executor, кожен SitemapParser має свій
         # Це запобігає race conditions при паралельному використанні
         self._xml_executor = ThreadPoolExecutor(
@@ -226,7 +223,7 @@ class SitemapParser:
         ОПТИМІЗОВАНО:
         - Async HTTP через aiohttp
         - XML парсинг в ThreadPoolExecutor (CPU-bound)
-        
+
         ВИПРАВЛЕННЯ P0/P1:
         - Підтримка gzip sitemap (автоматична декомпресія)
         - Ліміт розміру (MAX_SITEMAP_SIZE)
@@ -251,24 +248,20 @@ class SitemapParser:
             session = await self._get_session()
 
             async with session.get(sitemap_url, allow_redirects=True) as response:
-                # P1 FIX: Підтримка редіректів (301, 302)
                 if response.status not in (200, 301, 302):
                     logger.warning(f"Sitemap not found: {sitemap_url} (status={response.status})")
                     return result
-                
-                # P1 FIX: Валідація Content-Type
+
                 content_type = response.headers.get('content-type', '').lower()
                 if content_type and not any(t in content_type for t in ALLOWED_CONTENT_TYPES):
                     logger.warning(f"Invalid content-type for sitemap: {content_type} ({sitemap_url})")
                     # Продовжуємо - деякі сервери не встановлюють правильний Content-Type
-                
-                # P0 FIX: Перевірка розміру ПЕРЕД завантаженням
+
                 content_length = response.headers.get('content-length')
                 if content_length and int(content_length) > MAX_SITEMAP_SIZE:
                     logger.error(f"Sitemap too large: {content_length} bytes (max: {MAX_SITEMAP_SIZE}) - {sitemap_url}")
                     return result
-                
-                # P0 FIX: Читаємо з лімітом розміру
+
                 content = await response.content.read(MAX_SITEMAP_SIZE)
                 if not response.content.at_eof():
                     logger.error(f"Sitemap truncated (exceeded {MAX_SITEMAP_SIZE} bytes): {sitemap_url}")
@@ -277,7 +270,7 @@ class SitemapParser:
             # XML парсинг в ThreadPoolExecutor (CPU-bound операція)
             loop = asyncio.get_event_loop()
             parsed_result = await loop.run_in_executor(
-                self._xml_executor,  # P1 FIX: Використовуємо instance-level executor
+                self._xml_executor,
                 self._parse_sitemap_content_sync,
                 content,
                 sitemap_url
@@ -292,9 +285,9 @@ class SitemapParser:
     def _parse_sitemap_content_sync(self, content: bytes, sitemap_url: str) -> Dict[str, List[str]]:
         """
         Синхронний парсинг XML контенту sitemap.
-        
+
         Виконується в ThreadPoolExecutor для не блокування event loop.
-        
+
         ВИПРАВЛЕННЯ P0: Автоматична декомпресія gzip sitemap
 
         Args:
@@ -307,7 +300,6 @@ class SitemapParser:
         result = {"urls": [], "sitemap_indexes": []}
 
         try:
-            # P0 FIX: Автоматична декомпресія gzip
             # Перевіряємо magic bytes для gzip (0x1f 0x8b)
             if sitemap_url.endswith('.gz') or (len(content) >= 2 and content[:2] == b'\x1f\x8b'):
                 try:
@@ -319,7 +311,7 @@ class SitemapParser:
                 except Exception as e:
                     logger.error(f"Gzip decompression error for {sitemap_url}: {e}")
                     return result
-            
+
             root = ET.fromstring(content)
 
             # Отримуємо base URL для нормалізації
@@ -386,14 +378,14 @@ class SitemapParser:
             Dict з sitemap URLs та URL списком
         """
         import requests as sync_requests
-        
+
         result = {"sitemap_urls": [], "urls": [], "sitemap_indexes": []}
 
         try:
             # Завантажуємо robots.txt
             robots_url = urljoin(base_url, "/robots.txt")
             response = sync_requests.get(
-                robots_url, 
+                robots_url,
                 headers={"User-Agent": self.user_agent},
                 timeout=self.timeout
             )
@@ -461,7 +453,7 @@ class SitemapParser:
         Sync версія використовує requests для HTTP запитів.
         """
         import requests as sync_requests
-        
+
         result = {"urls": [], "sitemap_indexes": []}
 
         # Перевіряємо чи URL абсолютний
@@ -544,8 +536,7 @@ class SitemapParser:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-        
-        # P1 FIX: Закриваємо instance-level executor
+
         if hasattr(self, '_xml_executor') and self._xml_executor:
             self._xml_executor.shutdown(wait=False)
             self._xml_executor = None
@@ -562,8 +553,7 @@ class SitemapParser:
                     loop.run_until_complete(self.close())
             except Exception:
                 pass
-        
-        # P1 FIX: Закриваємо executor
+
         if hasattr(self, '_xml_executor') and self._xml_executor:
             try:
                 self._xml_executor.shutdown(wait=False)

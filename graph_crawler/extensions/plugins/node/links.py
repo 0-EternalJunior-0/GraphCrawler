@@ -6,7 +6,7 @@
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,

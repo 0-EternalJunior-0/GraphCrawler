@@ -18,7 +18,7 @@ from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
 from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.domain.value_objects.models import FetchResponse
-from graph_crawler.shared.security.url_validator import SSRFError, validate_url_security
+from graph_crawler.shared.security.url_validator import validate_url_security
 from graph_crawler.shared.utils.event_publisher_mixin import EventPublisherMixin
 
 logger = logging.getLogger(__name__)
@@ -67,10 +67,10 @@ class BaseDriver(EventPublisherMixin, ABC, IDriver):
     def _validate_url_security(self, url: str) -> None:
         """
         Валідує URL на SSRF вразливості.
-        
+
         Args:
             url: URL для валідації
-            
+
         Raises:
             SSRFError: Якщо URL небезпечний
         """

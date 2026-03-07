@@ -130,9 +130,16 @@ class PooledPlaywrightDriver(BaseDriver):
 
         self.javascript_enabled = self.config.get("javascript_enabled", True)
         
+        # Fetch timeout для Cloudflare challenge (за замовчуванням 90 секунд)
+        self.fetch_timeout = self.config.get("fetch_timeout", 90)
+        
+        # Затримки після операцій (параметризовані замість hardcoded)
+        self.post_selector_delay = self.config.get("post_selector_delay", 0.5)
+        self.post_scroll_delay = self.config.get("post_scroll_delay", 0.3)
+
         # Resource blocking (за замовчуванням блокуємо для економії RAM)
         self.block_resources = self.config.get("block_resources", list(DEFAULT_BLOCK_RESOURCES))
-        
+
         # Memory optimization
         self.memory_optimization = self.config.get("memory_optimization", True)
 
@@ -173,16 +180,28 @@ class PooledPlaywrightDriver(BaseDriver):
         )
 
         try:
-            # Додаємо timeout для всього fetch процесу (45 секунд)
+            # Використовуємо конфігурований fetch_timeout замість жорстко закодованих 45 секунд
             return await asyncio.wait_for(
                 self._fetch_with_page_internal(url, page, ctx, browser_id, tab_id, start_time),
-                timeout=45.0
+                timeout=float(self.fetch_timeout)
             )
         except asyncio.TimeoutError:
-            error_msg = f"Fetch timeout (45s) for {url}"
-            logger.warning(error_msg)
+            # Спробувати отримати частковий HTML що вже завантажився
+            partial_html = None
+            try:
+                partial_html = await page.content()
+            except Exception:
+                pass
+            
+            error_msg = f"Fetch timeout ({self.fetch_timeout}s) for {url}"
+            logger.warning(f"{error_msg} (partial_html: {bool(partial_html)})")
             return FetchResponse(
-                url=url, html=None, status_code=None, headers={}, error=error_msg
+                url=url, 
+                html=partial_html,  # Partial content замість None
+                status_code=None, 
+                headers={}, 
+                error=error_msg,
+                is_partial=bool(partial_html)  # Позначаємо як partial
             )
         except Exception as e:
             error_msg = f"Error fetching {url}: {type(e).__name__}: {e}"
@@ -192,7 +211,7 @@ class PooledPlaywrightDriver(BaseDriver):
             )
 
     async def _fetch_with_page_internal(
-            self, url: str, page: Any, ctx: BrowserContext, 
+            self, url: str, page: Any, ctx: BrowserContext,
             browser_id: int, tab_id: int, start_time: float
     ) -> FetchResponse:
         try:
@@ -216,13 +235,13 @@ class PooledPlaywrightDriver(BaseDriver):
             ctx = await self.plugin_manager.execute_hook_async(
                 BrowserStage.NAVIGATION_COMPLETED, ctx
             )
-            
+
             # Перевіряємо чи не заблоковано Cloudflare
             if ctx.data.get("cloudflare_failed") or ctx.data.get("cloudflare_blocked"):
                 error_msg = f"Cloudflare challenge failed for {url}"
                 logger.warning(error_msg)
                 return FetchResponse(
-                    url=url, html=None, status_code=ctx.status_code, 
+                    url=url, html=None, status_code=ctx.status_code,
                     headers={}, error=error_msg
                 )
 
@@ -232,11 +251,17 @@ class PooledPlaywrightDriver(BaseDriver):
                     await page.wait_for_selector(self.wait_selector, timeout=self.wait_timeout)
                 except Exception:
                     pass
-            await asyncio.sleep(2)
+            
+            # Параметризована затримка після селектора (замість hardcoded 2 сек)
+            if self.post_selector_delay > 0:
+                await asyncio.sleep(self.post_selector_delay)
+            
             # Скрол сторінки (швидкий, виконується в браузері)
             if self.scroll_page:
                 await self._scroll_page(page)
-            await asyncio.sleep(1)
+                # Параметризована затримка після скролу (замість hardcoded 1 сек)
+                if self.post_scroll_delay > 0:
+                    await asyncio.sleep(self.post_scroll_delay)
             # Отримуємо HTML після скролу
             html = await page.content()
             ctx.html = html
@@ -245,13 +270,13 @@ class PooledPlaywrightDriver(BaseDriver):
             ctx = await self.plugin_manager.execute_hook_async(
                 BrowserStage.CONTENT_READY, ctx
             )
-            
+
             # Фінальна перевірка на Cloudflare
             if ctx.data.get("cloudflare_failed") or ctx.data.get("cloudflare_blocked"):
                 error_msg = f"Cloudflare challenge failed after content ready for {url}"
                 logger.warning(error_msg)
                 return FetchResponse(
-                    url=url, html=ctx.html, status_code=ctx.status_code, 
+                    url=url, html=ctx.html, status_code=ctx.status_code,
                     headers={}, error=error_msg
                 )
 
@@ -273,10 +298,23 @@ class PooledPlaywrightDriver(BaseDriver):
             )
 
         except asyncio.TimeoutError:
+            # Спробувати отримати частковий HTML при navigation timeout
+            partial_html = None
+            partial_status = ctx.status_code if ctx else None
+            try:
+                partial_html = await page.content()
+            except Exception:
+                pass
+            
             error_msg = f"Navigation timeout for {url}"
-            logger.warning(error_msg)
+            logger.warning(f"{error_msg} (partial_html: {bool(partial_html)})")
             return FetchResponse(
-                url=url, html=None, status_code=None, headers={}, error=error_msg
+                url=url, 
+                html=partial_html,
+                status_code=partial_status, 
+                headers={}, 
+                error=error_msg,
+                is_partial=bool(partial_html)
             )
 
         except Exception as e:
@@ -299,7 +337,7 @@ class PooledPlaywrightDriver(BaseDriver):
                     const delay = ms => new Promise(r => setTimeout(r, ms));
                     const height = document.body.scrollHeight;
                     const step = Math.max(height / 5, 500);
-                    
+
                     // Скрол вниз
                     for (let y = 0; y < height; y += step) {
                         window.scrollTo(0, y);
@@ -307,7 +345,7 @@ class PooledPlaywrightDriver(BaseDriver):
                     }
                     window.scrollTo(0, height);
                     await delay(200);
-                    
+
                     // Скрол назад
                     window.scrollTo(0, 0);
                 }
@@ -324,7 +362,7 @@ class PooledPlaywrightDriver(BaseDriver):
     async def _fetch_many_async(self, urls: List[str]) -> List[FetchResponse]:
         """
         Завантажує URLs батчами по total_slots (browsers × tabs).
-        
+
         Якщо URLs > total_slots, обробляємо в кілька раундів:
         - Раунд 1: URLs[0:10]
         - Раунд 2: URLs[10:20]
@@ -345,14 +383,14 @@ class PooledPlaywrightDriver(BaseDriver):
                 batch_num = i // self.total_slots + 1
                 total_batches = (len(urls) + self.total_slots - 1) // self.total_slots
                 logger.info(f"Processing batch {batch_num}/{total_batches}: {len(batch)} URLs")
-                
+
                 batch_responses = await self._fetch_batch(batch)
                 all_responses.extend(batch_responses)
-                
+
                 # Невелика пауза між батчами для стабільності
                 if i + self.total_slots < len(urls):
                     await asyncio.sleep(1.0)
-                    
+
             return all_responses
         else:
             return await self._fetch_batch(urls)
@@ -384,60 +422,108 @@ class PooledPlaywrightDriver(BaseDriver):
         pages = []
         tasks = []
         url_index = 0
-        
+
         # Формуємо аргументи запуску
-        launch_args = list(PLAYWRIGHT_STEALTH_ARGS)
-        if self.memory_optimization:
-            launch_args.extend(PLAYWRIGHT_MEMORY_ARGS)
+        # Можна перевизначити через config['args']
+        if self.config.get("args"):
+            launch_args = list(self.config.get("args"))
+        else:
+            launch_args = list(PLAYWRIGHT_STEALTH_ARGS)
+            if self.memory_optimization:
+                launch_args.extend(PLAYWRIGHT_MEMORY_ARGS)
+
+        # Канал браузера (chrome, msedge, chrome-beta, etc.)
+        browser_channel = self.config.get("channel")
 
         try:
-            for browser_id, num_tabs in enumerate(distribution):
-                browser = await browser_launcher.launch(
-                    headless=self.headless,
-                    args=launch_args,
-                )
-                browsers.append(browser)
+            
+            launch_kwargs = {
+                "headless": self.headless,
+                "args": launch_args,
+            }
+            if browser_channel:
+                launch_kwargs["channel"] = browser_channel
 
+            async def _launch_browser_with_tabs(browser_id: int, num_tabs: int):
+                """Запускає один браузер з вкладками (виконується паралельно)."""
+                browser = await browser_launcher.launch(**launch_kwargs)
+                
                 context = await browser.new_context(
                     user_agent=self.user_agent,
                     viewport=self.viewport,
                     java_script_enabled=self.javascript_enabled,
                 )
-                contexts.append(context)
-
+                
+                # Plugin hook для context
                 ctx = BrowserContext(url="", context=context)
                 await self.plugin_manager.execute_hook_async(
                     BrowserStage.CONTEXT_CREATED, ctx
                 )
-
-                for tab_id in range(num_tabs):
-                    page = await context.new_page()
+                
+                # Паралельне створення вкладок в межах одного браузера
+                browser_pages = await asyncio.gather(*[
+                    context.new_page() for _ in range(num_tabs)
+                ])
+                
+                # Паралельне налаштування всіх вкладок
+                async def _setup_page(page):
+                    """Налаштовує одну вкладку (виконується паралельно)."""
                     page.set_default_timeout(self.timeout)
-                    pages.append(page)
-
-                    ctx = BrowserContext(
+                    
+                    # Plugin hook для page
+                    page_ctx = BrowserContext(
                         url="", browser=browser, context=context, page=page
                     )
                     await self.plugin_manager.execute_hook_async(
-                        BrowserStage.PAGE_CREATED, ctx
+                        BrowserStage.PAGE_CREATED, page_ctx
                     )
-
+                    
+                    # Resource blocking з closure для block_resources
                     if self.block_resources:
-
-                        async def route_handler(route):
-                            if route.request.resource_type in self.block_resources:
+                        block_types = self.block_resources  # Capture в closure
+                        
+                        async def route_handler(route, block_types=block_types):
+                            if route.request.resource_type in block_types:
                                 await route.abort()
                             else:
                                 await route.continue_()
-
+                        
                         await page.route("**/*", route_handler)
-
-                    url = urls[url_index]
-                    task = self._fetch_with_page(url, page, browser_id, tab_id)
-                    tasks.append((url_index, task))
-                    url_index += 1
-
+                    
+                    return page
+                
+                # Налаштовуємо всі вкладки паралельно
+                await asyncio.gather(*[_setup_page(page) for page in browser_pages])
+                
                 logger.debug(f"Browser {browser_id} launched with {num_tabs} tabs")
+                return browser, context, browser_pages
+
+            # Паралельний запуск всіх браузерів
+            browser_results = await asyncio.gather(*[
+                _launch_browser_with_tabs(browser_id, num_tabs)
+                for browser_id, num_tabs in enumerate(distribution)
+            ])
+            
+            # Розпаковуємо результати
+            for browser, context, browser_pages in browser_results:
+                browsers.append(browser)
+                contexts.append(context)
+                pages.extend(browser_pages)
+            
+            # Створюємо tasks для fetch
+            for i, page in enumerate(pages):
+                browser_id = 0
+                accumulated = 0
+                for bid, num_tabs in enumerate(distribution):
+                    if i < accumulated + num_tabs:
+                        browser_id = bid
+                        break
+                    accumulated += num_tabs
+                
+                url = urls[url_index]
+                task = self._fetch_with_page(url, page, browser_id, i % self.max_tabs_per_browser)
+                tasks.append((url_index, task))
+                url_index += 1
 
             logger.info(f"Starting parallel fetch on {len(tasks)} tabs...")
 
@@ -462,14 +548,14 @@ class PooledPlaywrightDriver(BaseDriver):
             success_count = sum(1 for r in responses if r and r.status_code == 200)
             failed_count = sum(1 for r in responses if r and r.error)
             cloudflare_failed = sum(
-                1 for r in responses 
+                1 for r in responses
                 if r and r.error and "Cloudflare" in r.error
             )
             timeout_count = sum(
-                1 for r in responses 
+                1 for r in responses
                 if r and r.error and "timeout" in r.error.lower()
             )
-            
+
             logger.info(
                 f"Fetch completed: {success_count}/{len(urls)} successful, "
                 f"{failed_count} failed (Cloudflare: {cloudflare_failed}, Timeout: {timeout_count})"
@@ -479,35 +565,38 @@ class PooledPlaywrightDriver(BaseDriver):
 
         finally:
             logger.debug("Closing all browsers...")
-            
-            # Якщо щось зависне - форсуємо завершення через 10 секунд
-            
-            # Закриваємо сторінки з таймаутом
-            for i, page in enumerate(pages):
-                try:
-                    await asyncio.wait_for(page.close(), timeout=2.0)
-                except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ Page {i} close timeout - forcing")
-                except Exception as e:
-                    logger.debug(f"Page {i} close error: {e}")
 
-            # Закриваємо контексти з таймаутом
-            for i, context in enumerate(contexts):
+            # === ПАРАЛЕЛЬНЕ ЗАКРИТТЯ РЕСУРСІВ ===
+            
+            async def _safe_close(coro, name: str, timeout: float = 2.0):
+                """Безпечно закриває ресурс з таймаутом."""
                 try:
-                    await asyncio.wait_for(context.close(), timeout=2.0)
+                    await asyncio.wait_for(coro, timeout=timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ Context {i} close timeout - forcing")
+                    logger.warning(f"⚠️ {name} close timeout - forcing")
                 except Exception as e:
-                    logger.debug(f"Context {i} close error: {e}")
+                    logger.debug(f"{name} close error: {e}")
 
-            # Закриваємо браузери з таймаутом
-            for i, browser in enumerate(browsers):
-                try:
-                    await asyncio.wait_for(browser.close(), timeout=3.0)
-                except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ Browser {i} close timeout - forcing")
-                except Exception as e:
-                    logger.debug(f"Browser {i} close error: {e}")
+            # Закриваємо всі сторінки паралельно
+            if pages:
+                await asyncio.gather(*[
+                    _safe_close(page.close(), f"Page {i}", 2.0)
+                    for i, page in enumerate(pages)
+                ])
+
+            # Закриваємо всі контексти паралельно
+            if contexts:
+                await asyncio.gather(*[
+                    _safe_close(context.close(), f"Context {i}", 2.0)
+                    for i, context in enumerate(contexts)
+                ])
+
+            # Закриваємо всі браузери паралельно
+            if browsers:
+                await asyncio.gather(*[
+                    _safe_close(browser.close(), f"Browser {i}", 3.0)
+                    for i, browser in enumerate(browsers)
+                ])
 
             # Зупиняємо Playwright з таймаутом
             if self.playwright:
@@ -552,7 +641,7 @@ class PooledPlaywrightDriver(BaseDriver):
 
     async def close(self) -> None:
         """Async закриває браузери, контексти, сторінки та плагіни."""
-        
+
         # 1️⃣ Форсоване закриття плагінів з таймаутом
         try:
             await asyncio.wait_for(self.plugin_manager.teardown_all_async(), timeout=5.0)
@@ -561,9 +650,10 @@ class PooledPlaywrightDriver(BaseDriver):
         except Exception as e:
             logger.debug(f"Plugin teardown error: {e}")
 
-        # 2️⃣ Форсоване закриття всіх браузерів / контекстів / сторінок
+        # 2️⃣ Паралельне закриття всіх браузерів
         if hasattr(self, 'browsers') and self.browsers:
-            for i, browser in enumerate(self.browsers):
+            async def _close_browser(i: int, browser):
+                """Закриває браузер з таймаутом та force kill."""
                 try:
                     await asyncio.wait_for(browser.close(), timeout=3.0)
                 except asyncio.TimeoutError:
@@ -574,6 +664,11 @@ class PooledPlaywrightDriver(BaseDriver):
                         logger.error(f"Cannot kill browser {i}: {e}")
                 except Exception as e:
                     logger.debug(f"Browser {i} close error: {e}")
+            
+            await asyncio.gather(*[
+                _close_browser(i, browser)
+                for i, browser in enumerate(self.browsers)
+            ])
 
         # 3️⃣ Форсоване завершення Playwright
         if getattr(self, 'playwright', None):

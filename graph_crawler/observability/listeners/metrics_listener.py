@@ -1,13 +1,15 @@
 """Listener для збору метрик краулінгу."""
 
-from typing import Dict, List
+import logging
+from collections import deque
+from typing import Dict
 
 from graph_crawler.domain.events import CrawlerEvent
-import logging
 
 logger = logging.getLogger(__name__)
 
-
+# Ліміт для запобігання memory leak при тривалому краулінгу
+DEFAULT_MAX_FETCH_TIMES = 10000
 
 
 class MetricsListener:
@@ -29,13 +31,20 @@ class MetricsListener:
         logger.info(f"Average fetch time: {stats['avg_fetch_time']:.2f}s")
     """
 
-    def __init__(self):
-        """Ініціалізує metrics listener."""
+    def __init__(self, max_fetch_times: int = DEFAULT_MAX_FETCH_TIMES):
+        """
+        Ініціалізує metrics listener.
+
+        Args:
+            max_fetch_times: Максимальна кількість fetch_times для зберігання
+                           (запобігає memory leak при тривалому краулінгу)
+        """
+        self._max_fetch_times = max_fetch_times
         self.metrics = {
             "total_pages": 0,
             "failed_pages": 0,
             "total_links": 0,
-            "fetch_times": [],
+            "fetch_times": deque(maxlen=max_fetch_times),
         }
 
     def on_node_scanned(self, event: CrawlerEvent):
@@ -71,15 +80,19 @@ class MetricsListener:
                 - min_fetch_time: Мінімальний час
                 - max_fetch_time: Максимальний час
         """
-        metrics = self.metrics.copy()
+        metrics = {
+            "total_pages": self.metrics["total_pages"],
+            "failed_pages": self.metrics["failed_pages"],
+            "total_links": self.metrics["total_links"],
+            "fetch_times": list(self.metrics["fetch_times"]),  # Convert deque to list
+        }
 
         # Обчислення середніх значень
-        if self.metrics["fetch_times"]:
-            metrics["avg_fetch_time"] = sum(self.metrics["fetch_times"]) / len(
-                self.metrics["fetch_times"]
-            )
-            metrics["min_fetch_time"] = min(self.metrics["fetch_times"])
-            metrics["max_fetch_time"] = max(self.metrics["fetch_times"])
+        fetch_times = self.metrics["fetch_times"]
+        if fetch_times:
+            metrics["avg_fetch_time"] = sum(fetch_times) / len(fetch_times)
+            metrics["min_fetch_time"] = min(fetch_times)
+            metrics["max_fetch_time"] = max(fetch_times)
         else:
             metrics["avg_fetch_time"] = 0.0
             metrics["min_fetch_time"] = 0.0
@@ -93,5 +106,5 @@ class MetricsListener:
             "total_pages": 0,
             "failed_pages": 0,
             "total_links": 0,
-            "fetch_times": [],
+            "fetch_times": deque(maxlen=self._max_fetch_times),
         }

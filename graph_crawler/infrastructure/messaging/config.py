@@ -3,18 +3,18 @@
 Цей модуль надає Pydantic схеми для налаштування розподіленого краулінгу.
 """
 
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 from graph_crawler.shared.constants import (
-    DEFAULT_REDIS_HOST,
-    DEFAULT_REDIS_PORT,
-    DEFAULT_REDIS_DB,
     DEFAULT_CELERY_TASK_TIME_LIMIT,
     DEFAULT_CELERY_WORKERS,
-    MAX_PAGES_DEFAULT,
+    DEFAULT_REDIS_DB,
+    DEFAULT_REDIS_HOST,
+    DEFAULT_REDIS_PORT,
     MAX_API_WORKERS,
+    MAX_PAGES_DEFAULT,
 )
 
 

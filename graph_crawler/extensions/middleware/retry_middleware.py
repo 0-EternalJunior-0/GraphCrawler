@@ -1,7 +1,6 @@
 """Retry Middleware - розумний повтор при помилці з exponential backoff та jitter .
 
 Team 3: Reliability & DevOps
-Task 3.1: Smart Retry with Exponential Backoff (P0)
 Week 1 Використовує asyncio.sleep() замість time.sleep() для неблокуючого очікування.
 """
 

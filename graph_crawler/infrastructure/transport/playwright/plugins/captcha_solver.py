@@ -7,7 +7,7 @@ CAPTCHA Solver плагін для Playwright.
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
@@ -71,7 +71,7 @@ class CaptchaSolverPlugin(BaseDriverPlugin):
             **captcha_data: Дані про CAPTCHA (від detector)
         """
         captcha_type = captcha_data.get("captcha_type")
-        site_key = captcha_data.get("site_key")
+        captcha_data.get("site_key")
         page_url = captcha_data.get("page_url")
 
         logger.info(f"Attempting to solve {captcha_type} on {page_url}")

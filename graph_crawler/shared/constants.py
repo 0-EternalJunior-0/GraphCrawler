@@ -229,8 +229,8 @@ DEFAULT_EVENT_HISTORY_SIZE = 1000
 DEFAULT_URL_PRIORITY = 1
 """Дефолтний пріоритет для URL (шкала 1-15).
 
-Низький дефолтний пріоритет означає що URL без явного пріоритету 
-обробляються останніми. ML плагіни можуть підвищити пріоритет 
+Низький дефолтний пріоритет означає що URL без явного пріоритету
+обробляються останніми. ML плагіни можуть підвищити пріоритет
 релевантних URL.
 """
 
@@ -619,20 +619,20 @@ MAX_API_WORKERS = 1000
 def get_connector_settings() -> dict:
     """
     Повертає оптимальні TCPConnector налаштування для поточної версії Python.
-    
+
     Python 3.14+ має покращене масштабування asyncio, тому використовуються
     більші ліміти з'єднань.
-    
+
     Returns:
         dict: Налаштування для aiohttp.TCPConnector
-        
+
     Example:
         >>> from graph_crawler.shared.constants import get_connector_settings
         >>> settings = get_connector_settings()
         >>> connector = aiohttp.TCPConnector(**settings)
     """
     import sys
-    
+
     if sys.version_info >= (3, 14):
         return {
             "limit": PY314_CONNECTOR_LIMIT,
@@ -642,7 +642,7 @@ def get_connector_settings() -> dict:
             "enable_cleanup_closed": True,
             "force_close": False,
         }
-    
+
     return {
         "limit": LEGACY_CONNECTOR_LIMIT,
         "limit_per_host": LEGACY_CONNECTOR_LIMIT_PER_HOST,

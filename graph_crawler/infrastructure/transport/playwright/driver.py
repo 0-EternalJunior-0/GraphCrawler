@@ -25,7 +25,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from graph_crawler.domain.value_objects.models import FetchResponse
 from graph_crawler.infrastructure.transport.base import BaseDriver
@@ -38,8 +38,6 @@ from graph_crawler.shared.constants import (
     DEFAULT_BROWSER_TYPE,
     DEFAULT_BROWSER_VIEWPORT_HEIGHT,
     DEFAULT_BROWSER_VIEWPORT_WIDTH,
-    DEFAULT_BROWSER_WAIT_TIMEOUT,
-    DEFAULT_BROWSER_WAIT_UNTIL,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_SCREENSHOT_DIRECTORY,
     DEFAULT_USER_AGENT,
@@ -90,7 +88,7 @@ class PlaywrightDriverConfig:
     viewport_height: int = DEFAULT_BROWSER_VIEWPORT_HEIGHT
 
     # Stealth mode - через плагіни!
-    stealth_mode: bool = False 
+    stealth_mode: bool = False
     user_agent: str = DEFAULT_USER_AGENT
 
     # Screenshots
@@ -100,7 +98,7 @@ class PlaywrightDriverConfig:
 
     # Resource blocking (за замовчуванням блокуємо для економії RAM)
     block_resources: list = field(default_factory=lambda: list(DEFAULT_BLOCK_RESOURCES))
-    
+
     # Memory optimization (за замовчуванням увімкнено)
     memory_optimization: bool = True
 
@@ -266,13 +264,17 @@ class PlaywrightDriver(BaseDriver):
         # Resource blocking (за замовчуванням блокуємо для економії RAM)
         self.block_resources = self.config.get("block_resources", list(DEFAULT_BLOCK_RESOURCES))
         self.javascript_enabled = self.config.get("javascript_enabled", True)
-        
+
         # Memory optimization
         self.memory_optimization = self.config.get("memory_optimization", True)
 
         # Retry settings
         self.max_retries = self.config.get("max_retries", 2)
         self.retry_delay = self.config.get("retry_delay", 1.0)
+        
+        # Затримки після операцій (параметризовані замість hardcoded)
+        self.post_selector_delay = self.config.get("post_selector_delay", 0.5)
+        self.post_scroll_delay = self.config.get("post_scroll_delay", 0.3)
 
         # Create screenshot directory if needed
         if self.screenshot_enabled:
@@ -316,10 +318,10 @@ class PlaywrightDriver(BaseDriver):
 
             # Launch browser
             browser_launcher = getattr(self.playwright, self.browser_type)
-            
+
             # Формуємо аргументи запуску
             launch_args = list(PLAYWRIGHT_STEALTH_ARGS)  # Базові stealth аргументи
-            
+
             # Додаємо memory optimization args якщо увімкнено
             if self.memory_optimization:
                 launch_args.extend(PLAYWRIGHT_MEMORY_ARGS)
@@ -363,7 +365,7 @@ class PlaywrightDriver(BaseDriver):
 
         # Використовуємо User-Agent з плагіна якщо він встановлений
         user_agent = ctx.data.get("override_user_agent", self.user_agent)
-        
+
         context_options = {
             "user_agent": user_agent,
             "viewport": self.viewport,
@@ -578,14 +580,20 @@ class PlaywrightDriver(BaseDriver):
                         logger.debug(
                             f"Wait selector '{self.wait_selector}' timeout for {url}: {e}"
                         )
-                await asyncio.sleep(2)
+                
+                # Параметризована затримка після селектора (замість hardcoded 2 сек)
+                if self.post_selector_delay > 0:
+                    await asyncio.sleep(self.post_selector_delay)
+                
                 # Scroll page for lazy-loaded content
                 if self.scroll_page:
                     try:
                         ctx = await self._scroll_page(page, ctx)
                     except Exception as e:
                         logger.warning(f"Scroll failed for {url}: {e}")
-                await asyncio.sleep(2)
+                    # Параметризована затримка після скролу (замість hardcoded 2 сек)
+                    if self.post_scroll_delay > 0:
+                        await asyncio.sleep(self.post_scroll_delay)
                 # Get rendered HTML
                 html = await page.content()
                 ctx.html = html

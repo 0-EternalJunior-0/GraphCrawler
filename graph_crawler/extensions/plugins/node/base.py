@@ -218,7 +218,7 @@ class NodePluginManager:
         """Реєструє плагін."""
         if plugin.enabled:
             self.plugins[plugin.plugin_type].append(plugin)
-            if hasattr(plugin, "setup") and callable(getattr(plugin, "setup")):
+            if hasattr(plugin, "setup") and callable(plugin.setup):
                 plugin.setup()
 
     async def execute(
@@ -237,7 +237,6 @@ class NodePluginManager:
         Returns:
             Оновлений контекст
         """
-        import asyncio
         import inspect
 
         for plugin in self.plugins.get(plugin_type, []):

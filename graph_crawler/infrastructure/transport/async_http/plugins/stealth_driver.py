@@ -14,7 +14,6 @@ Features:
 import asyncio
 import logging
 import random
-import sys
 import time
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +25,6 @@ from graph_crawler.infrastructure.transport.base import BaseDriver
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.plugin_manager import DriverPluginManager
 from graph_crawler.shared.constants import (
-    DEFAULT_MAX_CONCURRENT_REQUESTS,
     DEFAULT_REQUEST_TIMEOUT,
 )
 
@@ -106,17 +104,17 @@ class StealthHTTPDriver(BaseDriver):
         plugins: Optional[List[BaseDriverPlugin]] = None,
     ):
         super().__init__(config, event_bus)
-        
+
         self.session = None
         self._curl_cffi_available = self._check_curl_cffi()
-        
+
         # Configuration
         self.max_concurrent = self.config.get("max_concurrent", 50)
         self.randomize_browser = self.config.get("randomize_browser", True)
         self.browser_impersonate = self.config.get("browser_impersonate", "chrome131")
         self.retry_on_challenge = self.config.get("retry_on_challenge", True)
         self.max_retries = self.config.get("max_retries", 3)
-        
+
         # Plugin Manager
         self.plugin_manager = DriverPluginManager(is_async=True)
         if plugins:
@@ -196,20 +194,20 @@ class StealthHTTPDriver(BaseDriver):
                 )
                 self.session = aiohttp.ClientSession(timeout=timeout)
             return self.session
-        
+
         from curl_cffi.requests import AsyncSession
-        
+
         if not self.session:
             self.session = AsyncSession()
-        
+
         return self.session
 
     async def _fetch_with_curl_cffi(self, url: str, browser: str, headers: Dict[str, str]) -> FetchResponse:
         """Виконує запит через curl_cffi."""
         from curl_cffi.requests import AsyncSession
-        
+
         timeout = self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
-        
+
         async with AsyncSession() as session:
             response = await session.get(
                 url,
@@ -218,15 +216,15 @@ class StealthHTTPDriver(BaseDriver):
                 timeout=timeout,
                 allow_redirects=True,
             )
-            
+
             html = response.text
             status_code = response.status_code
             # Конвертуємо всі header values в string (проблема з Cython в Python 3.14)
             response_headers = {k: str(v) for k, v in response.headers.items()}
-            
+
             # Redirect info
             final_url = str(response.url) if str(response.url) != url else None
-            
+
             return FetchResponse(
                 url=url,
                 html=html,
@@ -237,16 +235,15 @@ class StealthHTTPDriver(BaseDriver):
 
     async def _fetch_with_aiohttp(self, url: str, headers: Dict[str, str]) -> FetchResponse:
         """Fallback до aiohttp."""
-        import aiohttp
-        
+
         session = await self._get_session()
-        
+
         async with session.get(url, headers=headers) as response:
             try:
                 html = await response.text()
             except UnicodeDecodeError:
                 html = None
-            
+
             # Конвертуємо всі header values в string (проблема з Cython в Python 3.14)
             return FetchResponse(
                 url=url,
@@ -268,18 +265,18 @@ class StealthHTTPDriver(BaseDriver):
         """
         start_time = time.time()
         last_error = None
-        
+
         # Вибираємо браузер
         browser = self._get_browser_impersonation()
         headers = self._get_headers(browser)
-        
+
         ctx = AsyncHTTPContext(
             url=url,
             method="GET",
             headers=headers,
             timeout=self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT),
         )
-        
+
         self.plugin_manager.setup_event_subscriptions(ctx)
         self._publish_fetch_started(url, "stealth_http")
 
@@ -289,7 +286,7 @@ class StealthHTTPDriver(BaseDriver):
                 ctx = await self.plugin_manager.execute_hook_async(
                     AsyncHTTPStage.PREPARING_REQUEST, ctx
                 )
-                
+
                 if ctx.cancelled:
                     return self._create_cancelled_response(ctx)
 
@@ -310,11 +307,11 @@ class StealthHTTPDriver(BaseDriver):
                         f"🛡️ Cloudflare challenge detected for {url} "
                         f"(attempt {attempt + 1}/{self.max_retries + 1})"
                     )
-                    
+
                     # Змінюємо браузер для retry
                     browser = self._get_browser_impersonation()
                     headers = self._get_headers(browser)
-                    
+
                     # Exponential backoff
                     await asyncio.sleep(2 ** attempt + random.uniform(0.5, 1.5))
                     continue
@@ -329,7 +326,7 @@ class StealthHTTPDriver(BaseDriver):
                 logger.warning(
                     f"Attempt {attempt + 1}/{self.max_retries + 1} failed for {url}: {e}"
                 )
-                
+
                 if attempt < self.max_retries:
                     await asyncio.sleep(2 ** attempt + random.uniform(0.5, 1.5))
                     browser = self._get_browser_impersonation()
@@ -399,6 +396,6 @@ class StealthHTTPDriver(BaseDriver):
                 else:
                     self.session.close()
             self.session = None
-        
+
         await self.plugin_manager.teardown_all_async()
         logger.debug("StealthHTTPDriver closed")

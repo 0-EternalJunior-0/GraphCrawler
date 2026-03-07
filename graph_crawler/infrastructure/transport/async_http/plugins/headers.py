@@ -6,12 +6,11 @@ Async Headers плагін для Async HTTP драйвера.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 from graph_crawler.infrastructure.transport.async_http.context import AsyncHTTPContext
 from graph_crawler.infrastructure.transport.async_http.stages import AsyncHTTPStage
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
-from graph_crawler.infrastructure.transport.context import EventPriority
 
 logger = logging.getLogger(__name__)
 

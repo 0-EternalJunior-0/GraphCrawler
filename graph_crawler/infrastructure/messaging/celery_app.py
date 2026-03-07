@@ -22,9 +22,8 @@ Migration:
 
 import asyncio
 import logging
-import os
 import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict
 
 from celery import Celery
 
@@ -83,7 +82,6 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
     Returns:
         Dict з node_data, edges_data, new_urls, success
     """
-    import importlib
     import inspect
 
     from graph_crawler.application.use_cases.crawling.spider import GraphSpider

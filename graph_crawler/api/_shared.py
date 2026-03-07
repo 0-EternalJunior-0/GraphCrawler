@@ -6,9 +6,7 @@
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 
-from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import URLRule
 
 if TYPE_CHECKING:
     from graph_crawler.domain.interfaces.driver import IDriver

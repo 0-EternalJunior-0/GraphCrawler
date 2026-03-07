@@ -11,6 +11,7 @@
 import asyncio
 import logging
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
+from urllib.parse import urlparse
 
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.edge_analysis import EdgeAnalysis
@@ -19,7 +20,6 @@ from graph_crawler.domain.entities.graph_statistics import GraphStatistics
 from graph_crawler.domain.entities.node import Node
 
 logger = logging.getLogger(__name__)
-
 
 class Graph:
     """
@@ -56,7 +56,21 @@ class Graph:
             >>> g3 = g1 + g2  # Використає 'merge' стратегію
     """
 
-    def __init__(self, default_merge_strategy: Optional[str] = None):
+    def __init__(
+        self, 
+        default_merge_strategy: Optional[str] = None,
+        # LOW-MEMORY MODE параметри
+        low_memory_mode: bool = False,
+        evict_threshold: int = 500,
+        evict_batch_size: int = 100,
+        storage_path: Optional[str] = None,
+        eviction_storage: Optional[Any] = None,
+        # ============ EVICTION STRATEGY (Professional Configuration) ============
+        eviction_strategy: str = "balanced",
+        eviction_trigger_multiplier: float = 1.5,
+        eviction_target_multiplier: float = 1.0,
+        eviction_memory_threshold_percent: float = 75.0,
+    ):
         """
         Ініціалізує новий граф.
 
@@ -64,6 +78,54 @@ class Graph:
             default_merge_strategy: Дефолтна стратегія для union операцій.
                 Доступні: 'first', 'last', 'merge', 'newest', 'oldest', 'custom'.
                 За замовчуванням: 'last' (якщо None, використовується 'last').
+            
+            LOW-MEMORY MODE (для великих краулінгів 10k+ сторінок):
+            low_memory_mode: Активувати автоматичний eviction на диск
+            evict_threshold: Максимальна кількість нод в RAM (default: 500)
+            evict_batch_size: Розмір batch при eviction (default: 100)
+            storage_path: Директорія для eviction storage (deprecated, use eviction_storage)
+            eviction_storage: IEvictionStorage implementation 
+            
+            EVICTION STRATEGY (Professional Configuration):
+            eviction_strategy: Стратегія eviction:
+                - 'aggressive': 1.2x trigger, 0.8x target (максимальна економія RAM)
+                - 'balanced': 1.5x trigger, 1.0x target (оптимальний баланс, DEFAULT)
+                - 'lazy': 2.0x trigger, 1.2x target (мінімізація I/O)
+                - 'memory_adaptive': динамічна адаптація до RAM usage
+                - 'custom': використовує eviction_trigger_multiplier та eviction_target_multiplier
+            eviction_trigger_multiplier: Множник для trigger (тільки для 'custom')
+            eviction_target_multiplier: Множник для target (тільки для 'custom')
+            eviction_memory_threshold_percent: Поріг RAM % для 'memory_adaptive'
+        
+        Example:
+            >>> # Стандартний режим (все в RAM)
+            >>> graph = Graph()
+            
+            >>> # Low-memory режим з aggressive стратегією
+            >>> graph = Graph(
+            ...     low_memory_mode=True,
+            ...     evict_threshold=500,
+            ...     eviction_strategy="aggressive",
+            ...     eviction_storage=SQLiteEvictionStorage("/tmp/eviction")
+            ... )
+            
+            >>> # Low-memory режим з custom стратегією
+            >>> graph = Graph(
+            ...     low_memory_mode=True,
+            ...     evict_threshold=500,
+            ...     eviction_strategy="custom",
+            ...     eviction_trigger_multiplier=1.3,
+            ...     eviction_target_multiplier=0.9,
+            ...     eviction_storage=SQLiteEvictionStorage("/tmp/eviction")
+            ... )
+            
+            >>> # Memory-adaptive для production
+            >>> graph = Graph(
+            ...     low_memory_mode=True,
+            ...     eviction_strategy="memory_adaptive",
+            ...     eviction_memory_threshold_percent=70.0,
+            ...     eviction_storage=SQLiteEvictionStorage("/tmp/eviction")
+            ... )
         """
         self._nodes: Dict[str, Node] = {}
         self._edges: List[Edge] = []
@@ -81,25 +143,157 @@ class Graph:
 
         self._adjacency_list_out: Dict[str, Set[str]] = defaultdict(set)
         self._adjacency_list_in: Dict[str, Set[str]] = defaultdict(set)
-        
-        # FIX CRITICAL-001: Шардований Lock для зменшення contention
+
         # Замість одного глобального lock - кілька locks по hash(url)
         # Це дозволяє паралельний доступ до різних частин графа
         self._num_shards = 16  # 16 шардів для балансу між contention та overhead
         self._locks = [asyncio.Lock() for _ in range(self._num_shards)]
-        
+
         # Backward compatibility: глобальний lock для операцій що потребують atomic доступ до всього графа
         self._global_lock = asyncio.Lock()
-        
-        # FIX OPTIMIZATION-001: Кешування LSH індексу для find_similar_nodes/find_duplicates
+
         # Інвалідується при додаванні/видаленні нод з simhash
         self._lsh_index_cache: Optional[Dict[int, Dict[int, List[Node]]]] = None
         self._lsh_index_node_count: int = 0  # Для детекції змін
+        
+        # ============ LOW-MEMORY MODE ============
+        self._low_memory_mode = low_memory_mode
+        self._evict_threshold = evict_threshold
+        self._evict_batch_size = evict_batch_size
+        
+        # ============ EVICTION STRATEGY ============
+        self._eviction_strategy = eviction_strategy
+        self._eviction_trigger_multiplier = eviction_trigger_multiplier
+        self._eviction_target_multiplier = eviction_target_multiplier
+        self._eviction_memory_threshold_percent = eviction_memory_threshold_percent
+        
+        # Pre-calculate multipliers based on strategy
+        self._trigger_mult, self._target_mult = self._get_strategy_multipliers()
+        
+        # Економія: 8 bytes per hash vs 100+ bytes per URL string
+        # При 1M URLs: ~8MB замість ~150MB
+        self._evicted_url_hashes: Set[int] = set()  # hash(url) для evicted нод
+        
+        # DEPRECATED: Залишено для backward compatibility
+        # self._url_to_disk_map: Set[str] = set()  # URLs що evicted на диск
+        self._eviction_storage = None
+        self._eviction_lock = asyncio.Lock()
+        self._current_depth: int = 0  # Поточна глибина краулінгу
+        
+        # Статистика eviction
+        self._eviction_stats = {
+            'total_evicted': 0,
+            'total_loaded': 0,
+            'eviction_calls': 0,
+            'strategy': eviction_strategy,
+        }
+        
+        if low_memory_mode:
+            if eviction_storage is not None:
+                # Clean Architecture: Domain receives abstraction via DI
+                self._eviction_storage = eviction_storage
+            elif storage_path:
+                raise ValueError(
+                    "storage_path parameter is removed (Clean Architecture violation). "
+                    "Use eviction_storage parameter with IEvictionStorage implementation. "
+                    "Example: Graph(low_memory_mode=True, eviction_storage=SQLiteEvictionStorage(path))"
+                )
+            else:
+                raise ValueError(
+                    "low_memory_mode=True requires eviction_storage (IEvictionStorage). "
+                    "Example: Graph(low_memory_mode=True, eviction_storage=SQLiteEvictionStorage('/tmp/eviction'))"
+                )
+            
+            logger.info(
+                f"Graph initialized in LOW-MEMORY mode: "
+                f"strategy={eviction_strategy}, threshold={evict_threshold}, "
+                f"trigger_mult={self._trigger_mult:.2f}, target_mult={self._target_mult:.2f}, "
+                f"storage={type(self._eviction_storage).__name__}"
+            )
 
     @property
     def nodes(self) -> Dict[str, Node]:
-        """Read-only доступ до вузлів. Модифікація тільки через add_node()."""
+        """Read-only доступ до вузлів. Модифікація тільки через add_node().
+        
+        ВАЖЛИВО: Повертає Dict[str, Node] де ключі = node_id (strings).
+        Для ітерації по Node об'єктах використовуйте:
+            - for node in graph: ...  (рекомендовано)
+            - for node in graph.iter_nodes(): ...
+            - for node in graph.nodes.values(): ...
+        """
         return self._nodes
+
+    def iter_nodes(self) -> Iterator[Node]:
+        """
+        Ітератор по всіх нодах графу.
+        
+        Використовуйте цей метод замість прямої ітерації по graph.nodes,
+        яка повертає node_id (strings), а не Node об'єкти.
+        
+        Example:
+            >>> for node in graph.iter_nodes():
+            ...     print(node.url)
+        
+        Returns:
+            Iterator[Node]: Ітератор по Node об'єктах
+        """
+        return iter(self._nodes.values())
+
+    def _normalize_url(self, url: str) -> str:
+        """
+        Нормалізує URL для уникнення дублікатів.
+        
+        Операції:
+        - Нормалізує path (видаляє дублі слешів, бекслеші, trailing slash)
+        - Lowercase hostname (видаляє trailing бекслеші)
+        - Видаляє фрагменти (#...)
+        
+        Логіка нормалізації path:
+        - Пустий path залишається пустим (https://example.com)
+        - Path з тільки слешами/бекслешами → пустий (https://example.com//// → https://example.com)
+        - Нормальний path → видаляємо trailing slash (https://example.com/page/ → https://example.com/page)
+        
+        Args:
+            url: URL для нормалізації
+            
+        Returns:
+            Нормалізований URL
+            
+        Example:
+            >>> graph._normalize_url("https://Example.COM/page/")
+            'https://example.com/page'
+            >>> graph._normalize_url("https://example.com/#section")
+            'https://example.com'
+            >>> graph._normalize_url("https://example.com")
+            'https://example.com'
+            >>> graph._normalize_url("https://example.com/")
+            'https://example.com'
+            >>> graph._normalize_url("https://example.com////////////////\\\\////")
+            'https://example.com'
+        """
+        parsed = urlparse(url)
+        # Lowercase hostname and strip trailing backslashes (urlparse includes them in netloc)
+        netloc = parsed.netloc.lower().rstrip('\\')
+        
+        # Normalize path:
+        # 1. Replace backslashes with forward slashes
+        # 2. Collapse multiple slashes into one
+        # 3. Remove trailing slash
+        path = parsed.path
+        # Replace backslashes with forward slashes (browser-like behavior)
+        path = path.replace('\\', '/')
+        # Collapse multiple slashes into single slash
+        import re
+        path = re.sub(r'/+', '/', path)
+        # Remove trailing slash
+        path = path.rstrip('/')
+        # If path was only slashes, it's now empty - leave it empty (root without trailing slash)
+        
+        # Reconstruct without fragment
+        normalized = f"{parsed.scheme}://{netloc}{path}"
+        if parsed.query:
+            normalized += f"?{parsed.query}"
+        return normalized
 
     @property
     def edges(self) -> List[Edge]:
@@ -112,10 +306,27 @@ class Graph:
         return self._url_to_node
 
     @property
+    def _url_to_disk_map(self) -> Set[str]:
+        """
+                
+        DEPRECATED: Використовуйте is_url_evicted() замість цього.
+        
+        Повертає пустий set для backward compatibility.
+        Реальна перевірка тепер через _evicted_url_hashes або SQLite.
+        """
+        # Для backward compatibility повертаємо пустий set
+        # Код що покладається на цей property повинен бути оновлений
+        logger.warning(
+            "DEPRECATED: _url_to_disk_map is deprecated. "
+            "Use is_url_evicted() or get_evicted_urls_count() instead."
+        )
+        return set()
+
+    @property
     def default_merge_strategy(self) -> str:
         """Повертає дефолтну стратегію merge для цього графа."""
         return self._default_merge_strategy
-    
+
     @default_merge_strategy.setter
     def default_merge_strategy(self, value: str) -> None:
         """Встановлює дефолтну стратегію merge для цього графа."""
@@ -126,45 +337,34 @@ class Graph:
                 f"Valid: {valid_strategies}"
             )
         self._default_merge_strategy = value
-    
+
     def _get_effective_merge_strategy(self) -> tuple:
         """
         Отримує ефективну стратегію merge з урахуванням контексту.
-        
+
         ПРІОРИТЕТ (від вищого до нижчого):
         1. Локальний MergeContext (with with_merge_strategy('...'))
         2. default_merge_strategy графа self
         3. Глобальний DependencyRegistry default
-        
+
+                The MergeContextManager is imported lazily only when used, and the code
+        handles ImportError gracefully for backward compatibility.
+
         Returns:
             Tuple (strategy_name, custom_merge_fn)
         """
-        try:
-            # Спробуємо отримати з MergeContext (якщо є)
-            from graph_crawler.application.context.merge_context import (
-                MergeContextManager,
-            )
-            
-            context = MergeContextManager.current()
-            if context:
-                # Є локальний контекст - використовуємо його
-                return context.strategy, context.custom_merge_fn
-        except ImportError:
-            # Модуль context ще не доступний - використовуємо дефолт графа
-            pass
-        
-        # Fallback до default_merge_strategy графа
+        # Merge context should be passed via DI or method parameters
+        # For backward compatibility, we only use graph's default_merge_strategy
         return self._default_merge_strategy, None
 
     def _get_shard_index(self, url: str) -> int:
         """
-        FIX CRITICAL-001: Визначає індекс шарда для URL.
-        
+
         Використовує hash для рівномірного розподілу URLs по шардах.
-        
+
         Args:
             url: URL для хешування
-            
+
         Returns:
             Індекс шарда (0 до _num_shards-1)
         """
@@ -173,6 +373,11 @@ class Graph:
     def add_node(self, node: Node, overwrite: bool = False) -> Node:
         """
         Додає вузол до графу (sync версія).
+        
+        URL автоматично нормалізується для уникнення дублікатів:
+        - Видаляється trailing slash
+        - Hostname переводиться в lowercase
+        - Видаляються фрагменти (#...)
 
         Args:
             node: Вузол для додавання
@@ -181,30 +386,52 @@ class Graph:
         Returns:
             Доданий або існуючий вузол
         """
-        if node.url in self._url_to_node:
-            existing = self._url_to_node[node.url]
+        # Нормалізуємо URL для уникнення дублікатів
+        original_url = node.url
+        normalized_url = self._normalize_url(original_url)
+        
+        # Оновлюємо URL ноди якщо змінився
+        if original_url != normalized_url:
+            node.url = normalized_url
+            # Зберігаємо оригінальний URL в metadata
+            if not hasattr(node, 'metadata') or node.metadata is None:
+                node.metadata = {}
+            node.metadata['_original_url'] = original_url
+        
+        if self._low_memory_mode and self._is_url_evicted(normalized_url):
+            # URL був evicted - видаляємо з hash set, повертаємо в RAM
+            self._evicted_url_hashes.discard(hash(normalized_url))
+        
+        if normalized_url in self._url_to_node:
+            existing = self._url_to_node[normalized_url]
             if overwrite:
                 # Перезаписуємо існуючий вузол
-                logger.debug(f"Node overwritten: {node.url}")
+                logger.debug(f"Node overwritten: {normalized_url}")
                 self._nodes[existing.node_id] = node
-                self._url_to_node[node.url] = node
+                self._url_to_node[normalized_url] = node
                 return node
             else:
                 # Повертаємо існуючий вузол
                 return existing
 
         self._nodes[node.node_id] = node
-        self._url_to_node[node.url] = node
+        self._url_to_node[normalized_url] = node
         
-        # FIX OPTIMIZATION-001: Інвалідуємо LSH кеш при додаванні ноди з simhash
+        # Оновлюємо current_depth для eviction
+        if hasattr(node, 'depth') and node.depth > self._current_depth:
+            self._current_depth = node.depth
+
         if node.simhash:
             self._invalidate_lsh_cache()
         
+        # LOW-MEMORY MODE: НЕ викликаємо eviction тут!
+        # Eviction викликається централізовано в CrawlCoordinator
+        # після сканування нод. Це значно зменшує overhead.
+
         return node
-    
+
     async def add_node_async(self, node: Node, overwrite: bool = False) -> Node:
         """
-        FIX CRITICAL-001: Thread-safe async версія add_node з шардованим Lock.
 
         Використовує шардований lock для зменшення contention при batch mode.
         URLs розподіляються по шардах через hash(), дозволяючи паралельний доступ.
@@ -220,13 +447,172 @@ class Graph:
         async with self._locks[shard_idx]:
             return self.add_node(node, overwrite)
 
-    def get_node_by_url(self, url: str) -> Optional[Node]:
-        """Отримує вузол за URL."""
-        return self._url_to_node.get(url)
+    def get_node_by_url(self, url: str, load_from_disk: bool = True) -> Optional[Node]:
+        """
+        Отримує вузол за URL з підтримкою lazy loading.
+        
+        LOW-MEMORY MODE:
+        Якщо нода була evicted на диск і load_from_disk=True, 
+        автоматично завантажує її назад в RAM.
+        
+        ВАЖЛИВО: В low-memory mode використовуйте load_from_disk=False
+        для простої перевірки наявності URL без завантаження в RAM!
+        
+        Порядок пошуку:
+        1. RAM cache (_url_to_node)
+        2. Disk storage (якщо low_memory_mode та load_from_disk=True)
+        3. None якщо не знайдено
+        
+        Args:
+            url: URL ноди для пошуку
+            load_from_disk: Чи завантажувати evicted ноду з диску в RAM (default: True)
+            
+        Returns:
+            Node об'єкт або None
+        """
+        # Normalize URL before lookup
+        url = self._normalize_url(url)
+        
+        # 1. RAM first (швидкий шлях)
+        if url in self._url_to_node:
+            return self._url_to_node[url]
+        
+        # 2.         if self._low_memory_mode and load_from_disk and self._is_url_evicted(url):
+            node = self._load_node_from_disk(url)
+            if node:
+                return node
+        
+        return None
+    
+    def _is_url_evicted(self, url: str) -> bool:
+        """
+                
+        Використовує hash(url) для O(1) перевірки замість повних URL strings.
+        
+        Args:
+            url: URL для перевірки
+            
+        Returns:
+            True якщо URL evicted на диск
+        """
+        return hash(url) in self._evicted_url_hashes
+    
+    def _load_node_from_disk(self, url: str, lazy_metadata: bool = False) -> Optional[Node]:
+        """
+        Завантажує ноду з eviction storage.
+        
+                
+        Повертає ноду в RAM cache та видаляє з evicted hash set.
+        
+        Args:
+            url: URL ноди для завантаження
+            lazy_metadata: Якщо True - не завантажувати metadata 
+            
+        Returns:
+            Node об'єкт або None
+        """
+        if not self._eviction_storage:
+            return None
+        
+        if lazy_metadata and hasattr(self._eviction_storage, 'load_node_without_metadata_sync'):
+            node_data = self._eviction_storage.load_node_without_metadata_sync(url)
+        else:
+            node_data = self._eviction_storage.load_node_sync(url)
+            
+        if not node_data:
+            logger.warning(f"Node {url} not found in eviction storage")
+            self._evicted_url_hashes.discard(hash(url))
+            return None
+        
+        # Реконструюємо Node об'єкт
+        node = Node(
+            url=node_data['url'],
+            node_id=node_data['node_id'],
+            depth=node_data['depth'],
+            scanned=node_data['scanned'],
+        )
+        
+        # Відновлюємо додаткові поля
+        if node_data.get('response_status'):
+            node.response_status = node_data['response_status']
+        if node_data.get('content_hash'):
+            node.content_hash = node_data['content_hash']
+        if node_data.get('simhash'):
+            node.simhash = node_data['simhash']
+        if node_data.get('priority'):
+            node.priority = node_data['priority']
+        
+        if node_data.get('metadata') is not None:
+            node.metadata = node_data['metadata']
+        elif lazy_metadata:
+            # Позначаємо що metadata потрібно lazy load
+            node._lazy_metadata_url = url
+            node._eviction_storage_ref = self._eviction_storage
+            
+        if node_data.get('user_data') is not None:
+            node.user_data = node_data['user_data']
+        elif lazy_metadata:
+            # Позначаємо що user_data потрібно lazy load
+            node._lazy_user_data_url = url
+        
+        # Повертаємо в RAM cache
+        self._nodes[node.node_id] = node
+        self._url_to_node[url] = node
+        self._evicted_url_hashes.discard(hash(url))
+        
+        self._eviction_stats['total_loaded'] += 1
+        logger.debug(f"Loaded node from disk: {url} (lazy_metadata={lazy_metadata})")
+        
+        return node
 
     def get_node_by_id(self, node_id: str) -> Optional[Node]:
         """Отримує вузол за ID."""
         return self._nodes.get(node_id)
+
+    def update_node_simhash(self, node_id: str, simhash: str) -> bool:
+        """
+
+        Цей метод ОБОВ'ЯЗКОВО слід використовувати при оновленні simhash
+        після add_node(), наприклад в process_html(). Прямий доступ
+        node.simhash = '...' НЕ інвалідує кеш!
+
+        Args:
+            node_id: ID ноди
+            simhash: Нове значення simhash (hex string)
+
+        Returns:
+            True якщо ноду оновлено, False якщо не знайдено
+        """
+        node = self._nodes.get(node_id)
+        if not node:
+            return False
+
+        old_simhash = node.simhash
+        node.simhash = simhash
+
+        if simhash != old_simhash:
+            self._invalidate_lsh_cache()
+            logger.debug(f"Node {node_id} simhash updated, LSH cache invalidated")
+
+        return True
+
+    async def update_node_simhash_async(self, node_id: str, simhash: str) -> bool:
+        """
+
+        Args:
+            node_id: ID ноди
+            simhash: Нове значення simhash (hex string)
+
+        Returns:
+            True якщо ноду оновлено, False якщо не знайдено
+        """
+        node = self._nodes.get(node_id)
+        if not node:
+            return False
+
+        shard_idx = self._get_shard_index(node.url)
+        async with self._locks[shard_idx]:
+            return self.update_node_simhash(node_id, simhash)
 
     def add_edge(self, edge: Edge) -> Edge:
         """
@@ -245,11 +631,10 @@ class Graph:
         self._adjacency_list_out[edge.source_node_id].add(edge.target_node_id)
         self._adjacency_list_in[edge.target_node_id].add(edge.source_node_id)
         return edge
-    
+
     async def add_edge_async(self, edge: Edge) -> Edge:
         """
-        FIX CRITICAL-001: Thread-safe async версія add_edge з шардованим Lock.
-        
+
         Використовує шардований lock на основі source_node_id для зменшення contention.
         При batch mode та asyncio.gather() це дозволяє паралельне додавання edges
         з різних source nodes.
@@ -327,7 +712,6 @@ class Graph:
         if node_id in self._adjacency_list_in:
             del self._adjacency_list_in[node_id]
 
-        # FIX OPTIMIZATION-001: Інвалідуємо LSH кеш при видаленні ноди
         if node.simhash:
             self._invalidate_lsh_cache()
 
@@ -494,8 +878,7 @@ class Graph:
         self, original_node: Node, final_url: str, redirect_chain: list[str] = None
     ) -> Optional[Node]:
         """
-        FIX CRITICAL-001: Thread-safe async версія handle_redirect з глобальним Lock.
-        
+
         Використовує глобальний lock оскільки redirect може впливати на багато edges
         та потребує atomic операції над усім графом.
 
@@ -537,13 +920,13 @@ class Graph:
         Example:
             >>> # Отримати всі failed nodes
             >>> failed = graph.get_failed_nodes()
-            >>> 
+            >>>
             >>> # Тільки 429 (rate limited)
             >>> rate_limited = graph.get_failed_nodes([429])
         """
         if status_codes is None:
             status_codes = [429, 500, 502, 503, 504]
-        
+
         return [
             node for node in self._nodes.values()
             if node.response_status in status_codes
@@ -571,7 +954,7 @@ class Graph:
     def prepare_for_rescan(self, nodes: List[Node] = None, status_codes: List[int] = None) -> int:
         """
         Готує вузли для повторного сканування (rescan).
-        
+
         Скидає scanned=False та response_status=None для вказаних вузлів.
 
         Args:
@@ -586,7 +969,7 @@ class Graph:
             >>> # Підготувати всі 429 вузли для rescan
             >>> count = graph.prepare_for_rescan()
             >>> print(f"Prepared {count} nodes for rescan")
-            >>> 
+            >>>
             >>> # Або конкретні вузли
             >>> failed = graph.get_failed_nodes([429, 500])
             >>> graph.prepare_for_rescan(nodes=failed)
@@ -595,17 +978,17 @@ class Graph:
             if status_codes is None:
                 status_codes = [429]
             nodes = self.get_failed_nodes(status_codes)
-        
+
         count = 0
         for node in nodes:
             node.scanned = False
             node.response_status = None
             count += 1
             logger.debug(f"Prepared for rescan: {node.url}")
-        
+
         if count > 0:
             logger.info(f"Prepared {count} nodes for rescan")
-        
+
         return count
 
     def get_nodes_by_depth(self, depth: int) -> List[Node]:
@@ -623,7 +1006,639 @@ class Graph:
         Returns:
             Словник зі статистикою
         """
-        return GraphStatistics.get_stats(self)
+        stats = GraphStatistics.get_stats(self)
+        
+        if self._low_memory_mode:
+            stats['evicted_to_disk'] = len(self._evicted_url_hashes)
+            stats['total_nodes_including_evicted'] = len(self._nodes) + len(self._evicted_url_hashes)
+            stats['eviction_stats'] = self._eviction_stats.copy()
+            if self._eviction_storage:
+                stats['eviction_storage'] = self._eviction_storage.get_stats()
+        
+        return stats
+
+    # ==================== LOW-MEMORY MODE: Eviction Methods ====================
+    
+    def _get_strategy_multipliers(self) -> tuple:
+        """
+        Повертає (trigger_multiplier, target_multiplier) для поточної стратегії.
+        
+        Стратегії eviction:
+        - aggressive: Trigger при 1.2x, target 0.8x (максимальна економія RAM)
+        - balanced: Trigger при 1.5x, target 1.0x (оптимальний баланс)
+        - lazy: Trigger при 2.0x, target 1.2x (мінімізація I/O)
+        - memory_adaptive: Динамічно, базовані на balanced
+        - custom: Користувацькі значення
+        
+        Returns:
+            Tuple (trigger_multiplier, target_multiplier)
+        """
+        strategy_configs = {
+            "aggressive": (1.2, 0.8),   # Trigger швидко, evict багато
+            "balanced": (1.5, 1.0),     # Оптимальний баланс (DEFAULT)
+            "lazy": (2.0, 1.2),         # Trigger пізно, тримати більше в RAM
+            "memory_adaptive": (1.5, 1.0),  # Base values, adjusted dynamically
+            "custom": (
+                self._eviction_trigger_multiplier,
+                self._eviction_target_multiplier
+            ),
+        }
+        
+        return strategy_configs.get(
+            self._eviction_strategy, 
+            strategy_configs["balanced"]
+        )
+    
+    def _should_evict(self) -> bool:
+        """
+        Визначає чи потрібен eviction на основі стратегії.
+        
+        Returns:
+            True якщо потрібен eviction
+        """
+        if not self._low_memory_mode:
+            return False
+        
+        current_nodes = len(self._nodes)
+        
+        if self._eviction_strategy == "memory_adaptive":
+            return self._should_evict_memory_adaptive(current_nodes)
+        
+        # Для інших стратегій - перевіряємо threshold * trigger_multiplier
+        evict_trigger = int(self._evict_threshold * self._trigger_mult)
+        return current_nodes > evict_trigger
+    
+    def _should_evict_memory_adaptive(self, current_nodes: int) -> bool:
+        """
+        Memory-adaptive стратегія: враховує реальний RAM usage.
+        
+        Використовує psutil для моніторингу системної пам'яті.
+        Fallback до balanced якщо psutil недоступний.
+        
+        Args:
+            current_nodes: Поточна кількість нод в RAM
+            
+        Returns:
+            True якщо потрібен eviction
+        """
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            
+            # Evict якщо RAM usage > threshold%
+            if memory_percent > self._eviction_memory_threshold_percent:
+                logger.debug(
+                    f"Memory-adaptive eviction triggered: "
+                    f"RAM {memory_percent:.1f}% > {self._eviction_memory_threshold_percent}%"
+                )
+                return True
+            
+            # Також evict якщо nodes > threshold * 2 (safety net)
+            if current_nodes > self._evict_threshold * 2:
+                logger.debug(
+                    f"Memory-adaptive safety eviction: "
+                    f"nodes {current_nodes} > {self._evict_threshold * 2}"
+                )
+                return True
+                
+            return False
+            
+        except ImportError:
+            # psutil не встановлено - fallback до balanced
+            logger.warning(
+                "psutil not installed, falling back to balanced strategy. "
+                "Install psutil for memory_adaptive: pip install psutil"
+            )
+            evict_trigger = int(self._evict_threshold * 1.5)
+            return current_nodes > evict_trigger
+    
+    def _calculate_eviction_target(self) -> int:
+        """
+        Розраховує target кількість нод після eviction.
+        
+        Returns:
+            Target кількість нод в RAM після eviction
+        """
+        if self._eviction_strategy == "memory_adaptive":
+            # Для memory_adaptive - evict до 70% threshold
+            return int(self._evict_threshold * 0.7)
+        
+        return int(self._evict_threshold * self._target_mult)
+    
+    def _maybe_evict(self) -> None:
+        """
+        Перевіряє чи потрібен eviction та виконує його.
+        
+        Викликається автоматично при add_node() та після scan в low_memory_mode.
+        Sync версія для backward compatibility.
+        
+        PROFESSIONAL EVICTION STRATEGIES:
+        - aggressive: Trigger при 1.2x threshold, evict до 0.8x threshold
+        - balanced: Trigger при 1.5x threshold, evict до 1.0x threshold (DEFAULT)
+        - lazy: Trigger при 2.0x threshold, evict до 1.2x threshold
+        - memory_adaptive: Динамічна адаптація до реального RAM usage
+        - custom: Користувацькі multipliers
+        """
+        if not self._should_evict():
+            return
+        
+        evictable = self._find_evictable_nodes_fast()
+        
+        if not evictable:
+            logger.debug(
+                f"Cannot evict: {len(self._nodes)} nodes in RAM but none scanned."
+            )
+            return
+        
+        # Розраховуємо target на основі стратегії
+        target_size = self._calculate_eviction_target()
+        nodes_to_evict = len(self._nodes) - target_size
+        
+        if nodes_to_evict <= 0:
+            return
+        
+        # Evict стільки скільки потрібно, але не більше наявних
+        batch_size = min(nodes_to_evict, len(evictable))
+        batch = evictable[:batch_size]
+        
+        logger.info(
+            f"[{self._eviction_strategy}] Evicting {len(batch)} nodes. "
+            f"RAM: {len(self._nodes)} -> ~{len(self._nodes) - len(batch)} "
+            f"(target: {target_size})"
+        )
+        
+        self._evict_nodes_sync(batch)
+    
+    def _find_evictable_nodes(self) -> List[Node]:
+        """
+        Знаходить ноди які можна безпечно evict-нути.
+        
+        СТРАТЕГІЯ (LRU-like з пріоритетом):
+        1. Scanned ноди - evict спочатку (вони вже оброблені)
+        2. Unscanned ноди - evict якщо scanned недостатньо
+
+        
+        Returns:
+            Список нод для eviction, scanned спочатку, потім unscanned
+        """
+        return self._find_evictable_nodes_fast()
+    
+    def _find_evictable_nodes_fast(self) -> List[Node]:
+        """
+        ОПТИМІЗОВАНА версія: O(n) замість O(n log n).
+        
+        Не сортує - просто збирає scanned ноди першими.
+        Для eviction порядок не критичний, важлива швидкість.
+        
+        Returns:
+            Список нод: scanned спочатку, потім unscanned
+        """
+        scanned = []
+        unscanned = []
+        
+        for node in self._url_to_node.values():
+            if node.scanned:
+                scanned.append(node)
+            else:
+                unscanned.append(node)
+        
+        return scanned + unscanned
+    
+    def _has_pending_references(self, node: Node) -> bool:
+        """
+        DEPRECATED: Цей метод більше не використовується для eviction.
+        
+        Залишено для backward compatibility та можливого використання
+        в інших контекстах.
+        
+        Перевіряє чи є pending references до ноди.
+        
+        Args:
+            node: Нода для перевірки
+            
+        Returns:
+            True якщо є pending references
+        """
+        # Отримуємо всі source ноди які посилаються на цю ноду
+        source_ids = self._adjacency_list_in.get(node.node_id, set())
+        
+        for source_id in source_ids:
+            source_node = self._nodes.get(source_id)
+            if source_node and not source_node.scanned:
+                # Є нода яка ще не просканована і посилається на нашу
+                return True
+        
+        return False
+    
+    def _evict_nodes_sync(self, nodes: List[Node]) -> None:
+        """
+        Синхронно evict-ить ноди на диск.
+    
+        
+        Процес:
+        1. Зберігає ноди в SQLite
+        2. Зберігає edges пов'язані з нодами  
+        3. Batch видалення нод з _nodes та _url_to_node (GC optimized)
+        4. Видаляє edges з RAM
+        5. Додає URL hashes до evicted set
+        6. Очищає adjacency lists
+        
+        Args:
+            nodes: Список нод для eviction
+        """
+        import gc
+        
+        if not nodes or not self._eviction_storage:
+            return
+        
+        gc_was_enabled = gc.isenabled()
+        if gc_was_enabled:
+            gc.disable()
+        
+        try:
+            node_ids_to_evict = {n.node_id for n in nodes}
+            urls_to_evict = {n.url for n in nodes}
+            
+            # 1. Зберігаємо ноди (ШВИДКО - batch insert)
+            self._eviction_storage.save_nodes_sync(nodes)
+            
+            # Edges будуть перебудовані при load якщо потрібно
+            # Це критично для швидкості - 84k edges = bottleneck
+            edge_keys_to_remove = set()
+            edges_removed = 0
+            
+            # Тільки якщо batch малий (<1000) - зберігаємо edges
+            # Для великих batches - просто видаляємо edges з RAM
+            EDGE_SAVE_THRESHOLD = 1000
+            
+            if len(nodes) <= EDGE_SAVE_THRESHOLD:
+                # Малий batch - зберігаємо edges на диск
+                for node_id in node_ids_to_evict:
+                    for target_id in self._adjacency_list_out.get(node_id, set()):
+                        edge_key = (node_id, target_id)
+                        if edge_key in self._edge_index:
+                            edge_keys_to_remove.add(edge_key)
+                    for source_id in self._adjacency_list_in.get(node_id, set()):
+                        edge_key = (source_id, node_id)
+                        if edge_key in self._edge_index:
+                            edge_keys_to_remove.add(edge_key)
+                
+                if edge_keys_to_remove:
+                    edge_map = {(e.source_node_id, e.target_node_id): e for e in self._edges}
+                    edges_to_save = [edge_map[key] for key in edge_keys_to_remove if key in edge_map]
+                    if edges_to_save:
+                        self._eviction_storage.save_edges_sync(edges_to_save)
+            else:
+                # ВЕЛИКИЙ batch - швидке видалення edges БЕЗ збереження
+                # Edges для scanned нод не потрібні (граф вже побудований)
+                for node_id in node_ids_to_evict:
+                    for target_id in self._adjacency_list_out.get(node_id, set()):
+                        edge_keys_to_remove.add((node_id, target_id))
+                    for source_id in self._adjacency_list_in.get(node_id, set()):
+                        edge_keys_to_remove.add((source_id, node_id))
+            
+            # 3. Batch delete нод з RAM
+            self._batch_remove_nodes(node_ids_to_evict, urls_to_evict)
+            
+            if edge_keys_to_remove:
+                # Фільтруємо edge_keys через edge_index (може бути менше)
+                edge_keys_to_remove &= self._edge_index
+                
+                if edge_keys_to_remove:
+                    # Видаляємо з edge_index (O(k))
+                    self._edge_index -= edge_keys_to_remove
+                    edges_removed = len(edge_keys_to_remove)
+                    
+                    # Перебудовуємо _edges list (O(E) але один раз)
+                    self._edges = [
+                        e for e in self._edges
+                        if (e.source_node_id, e.target_node_id) in self._edge_index
+                    ]
+            
+            self._evicted_url_hashes.update(hash(url) for url in urls_to_evict)
+            
+            # 6. Очищаємо adjacency lists
+            self._cleanup_adjacency_lists_for_evicted(node_ids_to_evict)
+            
+            # Оновлюємо статистику
+            self._eviction_stats['total_evicted'] += len(nodes)
+            self._eviction_stats['eviction_calls'] += 1
+            self._eviction_stats['edges_evicted'] = self._eviction_stats.get('edges_evicted', 0) + edges_removed
+            
+            # Інвалідуємо LSH кеш
+            self._invalidate_lsh_cache()
+            
+            logger.debug(
+                f"Evicted {len(nodes)} nodes, {edges_removed} edges to disk. "
+                f"RAM: {len(self._nodes)} nodes, {len(self._edges)} edges, Disk: {len(self._evicted_url_hashes)} nodes"
+            )
+        
+        finally:
+            if gc_was_enabled:
+                gc.enable()
+                gc.collect(generation=0)  # Тільки молоді об'єкти
+    
+    def _batch_remove_nodes(self, node_ids: Set[str], urls: Set[str]) -> None:
+        """
+        Batch видалення нод з мінімальним GC impact.
+        
+        
+        Args:
+            node_ids: Set node_id для видалення
+            urls: Set URLs для видалення
+        """
+        # Один раз перебудовуємо словники замість поодиноких del
+        # Це O(n) але з меншим GC overhead ніж n операцій del
+        self._nodes = {k: v for k, v in self._nodes.items() if k not in node_ids}
+        self._url_to_node = {k: v for k, v in self._url_to_node.items() if k not in urls}
+    
+    async def _evict_nodes_async(self, nodes: List[Node]) -> None:
+        """
+        Асинхронно evict-ить ноди на диск (не блокує event loop).
+        
+        - Використовує asyncio.to_thread() для I/O операцій
+        - Event loop НЕ блокується під час eviction
+        - Паралельні tasks продовжують працювати
+        
+        Args:
+            nodes: Список нод для eviction
+        """
+        if not nodes or not self._eviction_storage:
+            return
+        
+        # Запускаємо sync eviction в thread pool (не блокує event loop)
+        await asyncio.to_thread(self._evict_nodes_sync, nodes)
+    
+    async def maybe_evict_async(self) -> None:
+        """
+        Асинхронна версія _maybe_evict().
+        
+        Використовуйте в async контексті (CrawlCoordinator) замість _maybe_evict().
+        Не блокує event loop під час eviction.
+        """
+        if not self._should_evict():
+            return
+        
+        evictable = self._find_evictable_nodes_fast()
+        
+        if not evictable:
+            logger.debug(
+                f"Cannot evict: {len(self._nodes)} nodes in RAM but none scanned."
+            )
+            return
+        
+        target_size = self._calculate_eviction_target()
+        nodes_to_evict = len(self._nodes) - target_size
+        
+        if nodes_to_evict <= 0:
+            return
+        
+        batch_size = min(nodes_to_evict, len(evictable))
+        batch = evictable[:batch_size]
+        
+        logger.info(
+            f"[{self._eviction_strategy}] Async evicting {len(batch)} nodes. "
+            f"RAM: {len(self._nodes)} -> ~{len(self._nodes) - len(batch)} "
+            f"(target: {target_size})"
+        )
+        
+        await self._evict_nodes_async(batch)
+    
+    def _cleanup_adjacency_lists_for_evicted(self, evicted_node_ids: Set[str]) -> None:
+        """
+        
+        
+        СТАРИЙ КОД (O(N * M) - ДУЖЕ ПОВІЛЬНО):
+        - Для кожної evicted ноди проходив через ВСІ adjacency lists
+        - При eviction 35k нод з 50k total: 35000 * 50000 = 1.75 billion операцій!
+        
+        НОВИЙ КОД (O(E_evicted) - ШВИДКО):
+        - Використовує зворотні посилання з adjacency_list_in/out
+        - Тільки оновлює записи що реально посилаються на evicted ноди
+        - При eviction 35k нод: ~70k операцій (2 adjacency lists на ноду)
+        
+        Args:
+            evicted_node_ids: Set node_id що були evicted
+        """
+        # Збираємо всі ноди що потрібно оновити (зворотні посилання)
+        nodes_to_update_out: Set[str] = set()  # Ноди в adjacency_list_out які посилаються на evicted
+        nodes_to_update_in: Set[str] = set()   # Ноди в adjacency_list_in які посилаються на evicted
+        
+        for node_id in evicted_node_ids:
+            # Знаходимо хто посилається НА цю ноду (через adjacency_list_in)
+            # Ці ноди мають запис в adjacency_list_out що треба очистити
+            if node_id in self._adjacency_list_in:
+                nodes_to_update_out.update(self._adjacency_list_in[node_id])
+            
+            # Знаходимо на кого посилається ЦЯ нода (через adjacency_list_out)  
+            # Ці ноди мають запис в adjacency_list_in що треба очистити
+            if node_id in self._adjacency_list_out:
+                nodes_to_update_in.update(self._adjacency_list_out[node_id])
+        
+        # Виключаємо evicted ноди - їх видалимо повністю
+        nodes_to_update_out -= evicted_node_ids
+        nodes_to_update_in -= evicted_node_ids
+        
+        # Batch видалення посилань НА evicted ноди з adjacency_list_out
+        for source_id in nodes_to_update_out:
+            if source_id in self._adjacency_list_out:
+                self._adjacency_list_out[source_id] -= evicted_node_ids
+        
+        # Batch видалення посилань ВІД evicted нод з adjacency_list_in
+        for target_id in nodes_to_update_in:
+            if target_id in self._adjacency_list_in:
+                self._adjacency_list_in[target_id] -= evicted_node_ids
+        
+        # Видаляємо самі evicted ноди з adjacency lists
+        for node_id in evicted_node_ids:
+            self._adjacency_list_out.pop(node_id, None)
+            self._adjacency_list_in.pop(node_id, None)
+    
+    def set_current_depth(self, depth: int) -> None:
+        """
+        Встановлює поточну глибину краулінгу.
+        
+        Використовується для визначення які ноди можна evict-нути.
+        Ноди на поточній глибині та на 1 рівень вище не evict-яться.
+        
+        Args:
+            depth: Поточна глибина краулінгу
+        """
+        self._current_depth = depth
+    
+    def get_total_nodes_count(self) -> int:
+        """
+        Повертає загальну кількість нод (RAM + Disk).
+        
+        В low_memory_mode враховує evicted ноди.
+        
+        Returns:
+            Загальна кількість нод
+        """
+        if self._low_memory_mode:
+            return len(self._nodes) + len(self._evicted_url_hashes)
+        return len(self._nodes)
+    
+    def is_url_known(self, url: str) -> bool:
+        """
+        Перевіряє чи URL вже відомий графу (в RAM або на диску).
+        
+        Args:
+            url: URL для перевірки
+            
+        Returns:
+            True якщо URL вже є в графі
+        """
+        url = self._normalize_url(url)
+        if url in self._url_to_node:
+            return True
+        if self._low_memory_mode and self._is_url_evicted(url):
+            return True
+        return False
+    
+    def get_url_status(self, url: str) -> Tuple[bool, Optional[Node]]:
+        """
+        
+        Замінює два окремих виклики:
+        - scheduler.has_url(url) 
+        - graph.get_node_by_url(url)
+        
+        Один lookup замість двох = 2x швидше.
+        
+        Args:
+            url: URL для перевірки
+            
+        Returns:
+            Tuple[bool, Optional[Node]]:
+                - (True, Node) - URL відомий, нода в RAM
+                - (True, None) - URL відомий, але evicted на диск
+                - (False, None) - URL невідомий
+        """
+        url = self._normalize_url(url)
+        # 1. Перевірка RAM (найшвидша)
+        node = self._url_to_node.get(url)
+        if node:
+            return True, node
+        
+        # 2. Перевірка evicted (low_memory_mode)
+        if self._low_memory_mode and self._is_url_evicted(url):
+            return True, None  # Відомий, але evicted
+        
+        return False, None  # Невідомий URL
+    
+    def check_urls_batch(self, urls: List[str]) -> Dict[str, Tuple[bool, Optional[Node]]]:
+        """
+        
+        Перевіряє багато URLs за один раз замість N окремих викликів.
+        Оптимізовано для обробки links зі сторінки (100+ URLs).
+        
+        Args:
+            urls: Список URLs для перевірки
+            
+        Returns:
+            Dict[url, Tuple[is_known, node]]:
+                - url: URL що перевірявся
+                - is_known: True якщо URL відомий
+                - node: Node якщо в RAM, None якщо evicted або невідомий
+        """
+        result: Dict[str, Tuple[bool, Optional[Node]]] = {}
+        unknown_urls: List[str] = []
+        
+        # Normalize all URLs first
+        normalized_urls = [self._normalize_url(url) for url in urls]
+        
+        # 1. Спочатку RAM (швидко) - O(n)
+        for url in normalized_urls:
+            node = self._url_to_node.get(url)
+            if node:
+                result[url] = (True, node)
+            else:
+                unknown_urls.append(url)
+        
+        if not unknown_urls:
+            return result
+        
+        # 2. Для low_memory_mode - batch перевірка evicted URLs
+        if self._low_memory_mode and self._eviction_storage:
+            # Batch query до SQLite (один запит замість N)
+            evicted_urls = self._eviction_storage.urls_exist_batch(unknown_urls)
+            
+            for url in unknown_urls:
+                if url in evicted_urls:
+                    result[url] = (True, None)  # Evicted
+                else:
+                    result[url] = (False, None)  # Невідомий
+        else:
+            # Без low_memory_mode - всі unknown є невідомими
+            for url in unknown_urls:
+                result[url] = (False, None)
+        
+        return result
+    
+    def get_evicted_urls_count(self) -> int:
+        """
+                
+        Замінює len(self._url_to_disk_map) для backward compatibility.
+        
+        Returns:
+            Кількість evicted URLs
+        """
+        return len(self._evicted_url_hashes)
+    
+    def load_all_from_disk(self) -> int:
+        """
+        Завантажує всі evicted ноди назад в RAM.
+        
+        Використовується для фіналізації графа або серіалізації.
+        
+        Returns:
+            Кількість завантажених нод
+        """
+        if not self._low_memory_mode or not self._evicted_url_hashes:
+            return 0
+        
+        if not self._eviction_storage:
+            return 0
+        
+        loaded = 0
+        # Отримуємо URLs з SQLite (бо hash не дозволяє відновити URL)
+        urls_to_load = self._eviction_storage.get_all_evicted_urls()
+        
+        for url in urls_to_load:
+            node = self._load_node_from_disk(url)
+            if node:
+                loaded += 1
+        
+        logger.info(f"Loaded {loaded} nodes from disk to RAM")
+        return loaded
+    
+    def close_eviction_storage(self) -> None:
+        """Закриває eviction storage (БД залишається на диску)."""
+        if self._eviction_storage:
+            self._eviction_storage.close()
+            self._eviction_storage = None
+    
+    def cleanup_eviction_storage(self) -> None:
+        """
+        Видаляє eviction storage з диску після завершення краулінгу.
+        
+        ВАЖЛИВО: Викликайте цей метод після завершення краулінгу,
+        щоб не накопичувались дані на диску!
+        
+        Example:
+            >>> # Після завершення краулінгу
+            >>> graph.save("final_graph.json")
+            >>> graph.cleanup_eviction_storage()  # Видаляє eviction.db
+        """
+        if self._eviction_storage:
+            if hasattr(self._eviction_storage, 'cleanup'):
+                self._eviction_storage.cleanup(delete_files=True)
+            else:
+                self._eviction_storage.close()
+            self._eviction_storage = None
+            self._evicted_url_hashes.clear()
+            logger.info("Eviction storage cleaned up")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -702,6 +1717,8 @@ class Graph:
             >>> node in graph
         """
         if isinstance(item, str):
+            # Normalize URL before lookup
+            item = self._normalize_url(item)
             # Перевіряємо за URL
             return item in self._url_to_node
         elif isinstance(item, Node):
@@ -728,6 +1745,8 @@ class Graph:
             >>> node = graph[0]
         """
         if isinstance(key, str):
+            # Normalize URL before lookup
+            key = self._normalize_url(key)
             # Доступ за URL
             node = self._url_to_node.get(key)
             if node is None:
@@ -772,12 +1791,12 @@ class Graph:
         """
         if not isinstance(other, Graph):
             raise TypeError(f"Cannot add Graph and {type(other)}")
-        
+
         # Отримуємо стратегію з контексту або з графа
         strategy, custom_fn = self._get_effective_merge_strategy()
-        
+
         return GraphOperations.union(
-            self, other, 
+            self, other,
             merge_strategy=strategy,
             custom_merge_fn=custom_fn,
         )
@@ -846,10 +1865,10 @@ class Graph:
         """
         if not isinstance(other, Graph):
             raise TypeError(f"Cannot OR Graph and {type(other)}")
-        
+
         # Отримуємо стратегію з контексту або з графа
         strategy, custom_fn = self._get_effective_merge_strategy()
-        
+
         return GraphOperations.union(
             self, other,
             merge_strategy=strategy,
@@ -1011,15 +2030,22 @@ class Graph:
     def copy(self) -> "Graph":
         """
         Створює глибоку копію графу.
+        Раніше використовувався shallow copy, що призводило до того що
+        модифікація нод в копії впливала на оригінал.
 
         Returns:
-            Новий граф з копіями вузлів та ребер
+            Новий граф з НЕЗАЛЕЖНИМИ копіями вузлів та ребер
         """
-        result = Graph()
+
+        result = Graph(default_merge_strategy=self._default_merge_strategy)
         for node in self._nodes.values():
-            result.add_node(node)
+            # Pydantic v2 deep copy - копіює всі вкладені структури
+            node_copy = node.model_copy(deep=True)
+            result.add_node(node_copy)
         for edge in self._edges:
-            result.add_edge(edge)
+            edge_copy = edge.model_copy(deep=True)
+            result.add_edge(edge_copy)
+
         return result
 
     # ==================== Edge Analysis Methods ====================
@@ -1103,6 +2129,8 @@ class Graph:
 
         Підтримує формати: json, csv, dot
 
+                Use GraphExportUseCase from Application layer instead.
+
         Args:
             filepath: Шлях до файлу
             format: Формат ('json', 'csv', 'dot')
@@ -1111,108 +2139,134 @@ class Graph:
         Returns:
             Результат експорту (залежить від формату)
 
-        Example:
-            >>> # JSON експорт
-            >>> graph.export_edges("edges.json", format="json")
-            >>>
-            >>> # CSV експорт
-            >>> graph.export_edges("edges.csv", format="csv")
-            >>>
-            >>> # DOT експорт для Graphviz
-            >>> graph.export_edges("graph.dot", format="dot", edge_label="anchor_text")
+        Raises:
+            NotImplementedError: This method is deprecated in Clean Architecture
+
+        Example (Clean Architecture):
+            >>> from graph_crawler.application.use_cases import GraphExportUseCase
+            >>> exporter = GraphExportUseCase(edge_exporter=EdgeExporter, mapper=GraphMapper)
+            >>> exporter.export_edges(graph, filepath, format="json")
         """
-        from graph_crawler.application.services.exporters.edge_exporter import (
-            EdgeExporter,
+        raise NotImplementedError(
+            "export_edges() is deprecated (Clean Architecture violation). "
+            "Use GraphExportUseCase from Application layer:\n"
+            "  from graph_crawler.application.use_cases import GraphExportUseCase\n"
+            "  exporter = GraphExportUseCase(edge_exporter=EdgeExporter)\n"
+            "  exporter.export_edges(graph, filepath, format='json')"
         )
 
-        if format == "json":
-            return EdgeExporter.export_to_json(self, filepath, **kwargs)
-        elif format == "csv":
-            return EdgeExporter.export_to_csv(self, filepath, **kwargs)
-        elif format == "dot":
-            return EdgeExporter.export_to_dot(self, filepath, **kwargs)
-        else:
-            raise ValueError(
-                f"Unsupported format: {format}. Use 'json', 'csv', or 'dot'"
-            )
+    def export_nodes(
+        self,
+        filepath: str,
+        format: str = "json",
+        node_fields: Optional[List[str]] = None,
+        transform_node: Optional[callable] = None,
+        predicate: Optional[callable] = None,
+        **kwargs
+    ) -> Any:
+        """Експортує ноди в файл з вибором полів та трансформацією.
+
+        Підтримує формати: json, csv
+
+                Use GraphExportUseCase from Application layer instead.
+
+        Args:
+            filepath: Шлях до файлу
+            format: Формат ('json', 'csv')
+            node_fields: Список полів для включення (dot notation: 'metadata.title')
+            transform_node: Функція трансформації (node) -> dict
+            predicate: Фільтр нод (node) -> bool
+            **kwargs: Додаткові параметри
+
+        Raises:
+            NotImplementedError: This method is deprecated in Clean Architecture
+
+        Example (Clean Architecture):
+            >>> from graph_crawler.application.use_cases import GraphExportUseCase
+            >>> exporter = GraphExportUseCase(node_exporter=NodeExporter)
+            >>> exporter.export_nodes(graph, filepath, format="json")
+        """
+        raise NotImplementedError(
+            "export_nodes() is deprecated (Clean Architecture violation). "
+            "Use GraphExportUseCase from Application layer:\n"
+            "  from graph_crawler.application.use_cases import GraphExportUseCase\n"
+            "  exporter = GraphExportUseCase(node_exporter=NodeExporter)\n"
+            "  exporter.export_nodes(graph, filepath, format='json')"
+        )
 
     # ==================== SimHash: Пошук подібних/дублюючих нод ====================
-    
+
     def _build_lsh_index(self, force_rebuild: bool = False) -> Dict[int, Dict[int, List[Node]]]:
         """
-        FIX CRITICAL-011 + OPTIMIZATION-001: LSH індекс з кешуванням.
-        
+
         Будує LSH індекс для швидкого пошуку подібних нод.
         Розбиває 64-бітний simhash на 4 бенди по 16 біт.
-        
-        ОПТИМІЗАЦІЯ: Кешує індекс та інвалідує при зміні кількості нод.
-        Це дозволяє уникнути повторної побудови O(n) при послідовних викликах.
-        
+
+
         Args:
             force_rebuild: Примусово перебудувати індекс (ігнорувати кеш)
-        
+
         Returns:
             Dict[band_idx][band_value] = [nodes]
         """
         # Перевіряємо чи потрібно перебудувати кеш
         current_node_count = len(self._nodes)
-        
-        if (not force_rebuild 
-            and self._lsh_index_cache is not None 
+
+        if (not force_rebuild
+            and self._lsh_index_cache is not None
             and self._lsh_index_node_count == current_node_count):
             # Кеш валідний - повертаємо його
             return self._lsh_index_cache
-        
+
         # Будуємо новий індекс
         num_bands = 4
         band_size = 16
-        
+
         buckets: Dict[int, Dict[int, List[Node]]] = {
             i: {} for i in range(num_bands)
         }
-        
+
         for node in self._nodes.values():
             if not node.simhash:
                 continue
-            
+
             try:
                 simhash_int = int(node.simhash, 16) if isinstance(node.simhash, str) else node.simhash
             except (ValueError, TypeError):
                 continue
-            
+
             for band_idx in range(num_bands):
                 shift = band_idx * band_size
                 band_value = (simhash_int >> shift) & ((1 << band_size) - 1)
-                
+
                 if band_value not in buckets[band_idx]:
                     buckets[band_idx][band_value] = []
                 buckets[band_idx][band_value].append(node)
-        
+
         # Зберігаємо в кеш
         self._lsh_index_cache = buckets
         self._lsh_index_node_count = current_node_count
-        
+
         logger.debug(f"LSH index rebuilt: {current_node_count} nodes")
-        
+
         return buckets
-    
+
     def _invalidate_lsh_cache(self) -> None:
         """Інвалідує кеш LSH індексу."""
         self._lsh_index_cache = None
         self._lsh_index_node_count = 0
 
     def find_similar_nodes(
-        self, 
-        node: Node, 
+        self,
+        node: Node,
         max_distance: int = 10,
         limit: Optional[int] = None
     ) -> List[Tuple[Node, int]]:
         """
-        FIX CRITICAL-011: LSH-оптимізований пошук подібних нод за SimHash.
-        
+
         Замість O(n) порівнянь з усіма нодами, використовує LSH індекс
         для знаходження кандидатів, потім перевіряє тільки їх.
-        
+
         Складність: O(k) де k - середня кількість кандидатів з LSH бакетів.
         Для типових даних k << n.
 
@@ -1239,59 +2293,57 @@ class Graph:
         if not node.simhash:
             logger.warning(f"Node {node.url} has no simhash, cannot find similar nodes")
             return []
-        
+
         try:
             node_simhash_int = int(node.simhash, 16) if isinstance(node.simhash, str) else node.simhash
         except (ValueError, TypeError):
             logger.warning(f"Invalid simhash for node {node.url}")
             return []
-        
-        # FIX CRITICAL-011: Використовуємо LSH для знаходження кандидатів
+
         num_bands = 4
         band_size = 16
-        
+
         # Збираємо кандидатів з LSH бакетів
         candidates: Set[str] = set()
         lsh_index = self._build_lsh_index()
-        
+
         for band_idx in range(num_bands):
             shift = band_idx * band_size
             band_value = (node_simhash_int >> shift) & ((1 << band_size) - 1)
-            
+
             if band_value in lsh_index[band_idx]:
                 for candidate in lsh_index[band_idx][band_value]:
                     if candidate.node_id != node.node_id:
                         candidates.add(candidate.node_id)
-        
+
         # Перевіряємо тільки кандидатів
         results = []
-        
+
         for candidate_id in candidates:
             other = self._nodes.get(candidate_id)
             if not other or not other.simhash:
                 continue
-            
+
             # Обчислюємо Hamming distance
             distance = Node.hamming_distance(node.simhash, other.simhash)
-            
+
             if distance <= max_distance:
                 results.append((other, distance))
-        
+
         # Сортуємо за distance (менша = більш схожі)
         results.sort(key=lambda x: x[1])
-        
+
         # Обмежуємо кількість якщо вказано limit
         if limit is not None:
             results = results[:limit]
-        
+
         return results
 
     def find_duplicates(self, max_distance: int = 3) -> List[List[Node]]:
         """
-        FIX CRITICAL-002 + OPTIMIZATION-001: LSH-оптимізований пошук дублікатів.
-        
+
         Використовує кешований LSH індекс замість побудови нового при кожному виклику.
-        
+
         Складність: O(n * k) де k - середня кількість елементів у бакеті.
         Для типових даних k << n, тому практична складність близька до O(n).
 
@@ -1311,19 +2363,19 @@ class Graph:
         """
         # Збираємо ноди з simhash
         nodes_with_simhash = [
-            node for node in self._nodes.values() 
+            node for node in self._nodes.values()
             if node.simhash
         ]
-        
+
         if not nodes_with_simhash:
             return []
-        
+
         # OPTIMIZATION-001: Використовуємо кешований LSH індекс
         lsh_index = self._build_lsh_index()
-        
+
         # Збираємо кандидатів для порівняння з кешованого індексу
         candidate_pairs: Set[Tuple[str, str]] = set()
-        
+
         for band_buckets in lsh_index.values():
             for bucket_nodes in band_buckets.values():
                 if len(bucket_nodes) > 1:
@@ -1333,62 +2385,62 @@ class Graph:
                             # Сортуємо ID щоб уникнути дублікатів пар
                             pair = tuple(sorted([node1.node_id, node2.node_id]))
                             candidate_pairs.add(pair)
-        
+
         # Перевіряємо тільки кандидатів (значно менше ніж n²)
         # Будуємо граф подібності
         similarity_graph: Dict[str, Set[str]] = {}
-        
+
         for node1_id, node2_id in candidate_pairs:
             node1 = self._nodes.get(node1_id)
             node2 = self._nodes.get(node2_id)
-            
+
             if not node1 or not node2 or not node1.simhash or not node2.simhash:
                 continue
-            
+
             distance = Node.hamming_distance(node1.simhash, node2.simhash)
-            
+
             if distance <= max_distance:
                 if node1_id not in similarity_graph:
                     similarity_graph[node1_id] = set()
                 if node2_id not in similarity_graph:
                     similarity_graph[node2_id] = set()
-                    
+
                 similarity_graph[node1_id].add(node2_id)
                 similarity_graph[node2_id].add(node1_id)
-        
+
         # Групуємо за компонентами зв'язності (Union-Find)
         processed: Set[str] = set()
         groups: List[List[Node]] = []
-        
+
         for node_id in similarity_graph:
             if node_id in processed:
                 continue
-            
+
             # BFS для знаходження компоненти зв'язності
             group_ids: List[str] = []
             queue = [node_id]
-            
+
             while queue:
                 current_id = queue.pop(0)
                 if current_id in processed:
                     continue
-                    
+
                 processed.add(current_id)
                 group_ids.append(current_id)
-                
+
                 for neighbor_id in similarity_graph.get(current_id, []):
                     if neighbor_id not in processed:
                         queue.append(neighbor_id)
-            
+
             # Конвертуємо ID в Node об'єкти
             if len(group_ids) > 1:
                 group = [self._nodes[nid] for nid in group_ids if nid in self._nodes]
                 if len(group) > 1:
                     groups.append(group)
-        
+
         # Сортуємо групи за розміром (більші спочатку)
         groups.sort(key=len, reverse=True)
-        
+
         return groups
 
     def get_duplicate_stats(self, max_distance: int = 3) -> Dict[str, Any]:
@@ -1412,16 +2464,16 @@ class Graph:
             >>> print(f"Duplicate rate: {stats['duplicate_rate']:.1f}%")
         """
         duplicates = self.find_duplicates(max_distance)
-        
+
         nodes_with_simhash = sum(1 for n in self._nodes.values() if n.simhash)
         total_duplicates = sum(len(group) for group in duplicates)
         largest_group = max((len(g) for g in duplicates), default=0)
-        
+
         duplicate_rate = (
-            (total_duplicates / nodes_with_simhash * 100) 
+            (total_duplicates / nodes_with_simhash * 100)
             if nodes_with_simhash > 0 else 0
         )
-        
+
         return {
             "total_nodes": len(self._nodes),
             "nodes_with_simhash": nodes_with_simhash,
@@ -1430,3 +2482,652 @@ class Graph:
             "largest_group_size": largest_group,
             "duplicate_rate": round(duplicate_rate, 2),
         }
+
+    # ==================== Canonical URL Deduplication ====================
+
+    def deduplicate_by_url(
+        self,
+        extract_base_url: callable,
+        select_best: str = 'canonical',
+        language_priority: Optional[List[str]] = None,
+        remove_duplicates: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Дедуплікує ноди за canonical/base URL.
+
+        Корисно для сайтів з мовними версіями:
+        - /en/jobs/developer
+        - /pl/jobs/developer
+        - /de/jobs/developer
+        Це одна вакансія в 10+ версіях.
+
+        Args:
+            extract_base_url: Функція (url) -> base_url для групування.
+                              Наприклад: видаляє /en/, /pl/ prefix.
+            select_best: Стратегія вибору найкращої ноди з групи:
+                - 'canonical': вибрати ноду де canonical_url == url (self-referencing)
+                - 'language': вибрати за пріоритетом мов (потребує language_priority)
+                - 'first': перша знайдена
+                - 'scanned': вибрати просканану
+            language_priority: Пріоритет мов для стратегії 'language'.
+                              Наприклад: ['en', 'pl', 'de']
+            remove_duplicates: Якщо True - видалити дублікати з графу,
+                              залишивши тільки найкращу з кожної групи.
+
+        Returns:
+            Словник з результатами:
+            - groups: Dict[base_url, List[Node]] - групи дублікатів
+            - unique_nodes: List[Node] - унікальні ноди (найкращі з груп)
+            - removed_count: int - кількість видалених (якщо remove_duplicates=True)
+            - stats: Dict - статистика
+
+        Example:
+            >>> def remove_lang_prefix(url):
+            ...     import re
+            ...     return re.sub(r'^(https?://[^/]+)/[a-z]{2}/', r'\\1/', url)
+            >>>
+            >>> result = graph.deduplicate_by_url(
+            ...     extract_base_url=remove_lang_prefix,
+            ...     select_best='language',
+            ...     language_priority=['en', 'pl', 'de'],
+            ...     remove_duplicates=True
+            ... )
+            >>> print(f"Removed {result['removed_count']} duplicates")
+        """
+
+        # Групуємо ноди за base URL
+        groups: Dict[str, List[Node]] = {}
+
+        for node in self._nodes.values():
+            try:
+                base_url = extract_base_url(node.url)
+            except Exception as e:
+                logger.warning(f"Error extracting base URL for {node.url}: {e}")
+                base_url = node.url
+
+            if base_url not in groups:
+                groups[base_url] = []
+            groups[base_url].append(node)
+
+        # Вибираємо найкращу ноду з кожної групи
+        unique_nodes = []
+        removed_nodes = []
+
+        for base_url, group_nodes in groups.items():
+            if len(group_nodes) == 1:
+                unique_nodes.append(group_nodes[0])
+                continue
+
+            # Вибираємо найкращу
+            best = self._select_best_node(
+                group_nodes,
+                select_best,
+                language_priority
+            )
+            unique_nodes.append(best)
+
+            # Інші - дублікати
+            for node in group_nodes:
+                if node.node_id != best.node_id:
+                    removed_nodes.append(node)
+
+        # Видаляємо дублікати якщо потрібно
+        removed_count = 0
+        if remove_duplicates:
+            for node in removed_nodes:
+                if self.remove_node(node.node_id):
+                    removed_count += 1
+
+        # Статистика
+        duplicate_groups = [g for g in groups.values() if len(g) > 1]
+
+        stats = {
+            'total_nodes': len(self._nodes) + removed_count,
+            'unique_base_urls': len(groups),
+            'duplicate_groups': len(duplicate_groups),
+            'total_duplicates': len(removed_nodes),
+            'removed': removed_count,
+            'largest_group': max((len(g) for g in groups.values()), default=0),
+        }
+
+        if removed_count > 0:
+            logger.info(
+                f"Canonical dedup: removed {removed_count} duplicates, "
+                f"{len(unique_nodes)} unique nodes remain"
+            )
+
+        return {
+            'groups': groups,
+            'unique_nodes': unique_nodes,
+            'removed_count': removed_count,
+            'stats': stats,
+        }
+
+    def _select_best_node(
+        self,
+        nodes: List[Node],
+        strategy: str,
+        language_priority: Optional[List[str]] = None
+    ) -> Node:
+        """
+        Вибирає найкращу ноду з групи дублікатів.
+
+        Args:
+            nodes: Список нод-дублікатів
+            strategy: Стратегія вибору
+            language_priority: Пріоритет мов
+
+        Returns:
+            Найкраща нода
+        """
+        import re
+
+        if strategy == 'canonical':
+            # Шукаємо self-referencing canonical
+            for node in nodes:
+                canonical = node.metadata.get('canonical_url') or node.get_canonical_url()
+                if canonical and canonical == node.url:
+                    return node
+            # Fallback - перша просканована
+            for node in nodes:
+                if node.scanned:
+                    return node
+            return nodes[0]
+
+        elif strategy == 'language' and language_priority:
+            # Вибираємо за пріоритетом мов
+            for lang in language_priority:
+                pattern = rf'[/\-_]{lang}[/\-_]|^/{lang}/|/{lang}$'
+                for node in nodes:
+                    if re.search(pattern, node.url, re.IGNORECASE):
+                        return node
+            return nodes[0]
+
+        elif strategy == 'scanned':
+            for node in nodes:
+                if node.scanned:
+                    return node
+            return nodes[0]
+
+        else:  # 'first' or default
+            return nodes[0]
+
+    def get_language_versions(self, node: Node) -> List[Node]:
+        """
+        Знаходить всі мовні версії сторінки.
+
+        Шукає ноди з однаковим URL path але різними мовними префіксами.
+
+        Args:
+            node: Нода для пошуку версій
+
+        Returns:
+            Список нод - мовних версій (включаючи оригінальну)
+
+        Example:
+            >>> node = graph.get_node_by_url("https://example.com/en/jobs")
+            >>> versions = graph.get_language_versions(node)
+            >>> for v in versions:
+            ...     print(v.url)  # /en/jobs, /pl/jobs, /de/jobs
+        """
+        import re
+        from urllib.parse import urlparse
+
+        parsed = urlparse(node.url)
+        path = parsed.path
+
+        # Видаляємо мовний prefix
+        base_path = re.sub(r'^/[a-z]{2}(-[a-z]{2})?/', '/', path)
+        base_path = re.sub(r'^/[a-z]{2}(-[a-z]{2})?$', '', base_path)
+
+        versions = []
+        for n in self._nodes.values():
+            n_parsed = urlparse(n.url)
+            if n_parsed.netloc != parsed.netloc:
+                continue
+
+            n_path = n_parsed.path
+            n_base = re.sub(r'^/[a-z]{2}(-[a-z]{2})?/', '/', n_path)
+            n_base = re.sub(r'^/[a-z]{2}(-[a-z]{2})?$', '', n_base)
+
+            if n_base == base_path or n_base == base_path.rstrip('/'):
+                versions.append(n)
+
+        return versions
+
+    # ==================== Batch Operations ====================
+
+    def filter(self, predicate: callable) -> List[Node]:
+        """
+        Фільтрує ноди за умовою (predicate).
+
+        Args:
+            predicate: Функція (node) -> bool
+
+        Returns:
+            Список нод що відповідають умові
+
+        Example:
+            >>> # Всі просканані ноди
+            >>> scanned = graph.filter(lambda n: n.scanned)
+            >>>
+            >>> # Ноди з JobPosting схемою
+            >>> jobs = graph.filter(lambda n: n.user_data.get('structured_data', {}).has_type('JobPosting'))
+        """
+        return [node for node in self._nodes.values() if predicate(node)]
+
+    def remove_where(self, predicate: callable) -> int:
+        """
+        Видаляє ноди що відповідають умові.
+
+        Також видаляє всі пов'язані edges.
+
+        Args:
+            predicate: Функція (node) -> bool. Ноди де True будуть видалені.
+
+        Returns:
+            Кількість видалених нод
+
+        Example:
+            >>> # Видалити всі blog posts
+            >>> removed = graph.remove_where(
+            ...     lambda n: 'BlogPosting' in (n.user_data.get('structured_data', {}).all_types or set())
+            ... )
+            >>> print(f"Removed {removed} blog posts")
+            >>>
+            >>> # Видалити непросканані ноди
+            >>> removed = graph.remove_where(lambda n: not n.scanned)
+        """
+        nodes_to_remove = [node for node in self._nodes.values() if predicate(node)]
+
+        for node in nodes_to_remove:
+            self.remove_node(node.node_id)
+
+        if nodes_to_remove:
+            logger.info(f"Batch removed {len(nodes_to_remove)} nodes")
+
+        return len(nodes_to_remove)
+
+    def update_where(
+        self,
+        predicate: callable,
+        updates: Dict[str, Any] = None,
+        update_fn: callable = None
+    ) -> int:
+        """
+        Оновлює ноди що відповідають умові.
+
+        Можна використати словник updates для простих оновлень
+        або update_fn для складної логіки.
+
+        Args:
+            predicate: Функція (node) -> bool. Ноди де True будуть оновлені.
+            updates: Словник {field: value} для оновлення
+            update_fn: Функція (node) -> None для кастомного оновлення
+
+        Returns:
+            Кількість оновлених нод
+
+        Example:
+            >>> # Скинути scanned для 429 помилок
+            >>> updated = graph.update_where(
+            ...     predicate=lambda n: n.response_status == 429,
+            ...     updates={'scanned': False, 'response_status': None}
+            ... )
+            >>>
+            >>> # Кастомне оновлення
+            >>> updated = graph.update_where(
+            ...     predicate=lambda n: n.depth > 3,
+            ...     update_fn=lambda n: setattr(n, 'priority', 1)
+            ... )
+        """
+        if updates is None and update_fn is None:
+            raise ValueError("Either 'updates' dict or 'update_fn' must be provided")
+
+        count = 0
+        for node in self._nodes.values():
+            if predicate(node):
+                if updates:
+                    for field, value in updates.items():
+                        if hasattr(node, field):
+                            setattr(node, field, value)
+                        else:
+                            # Якщо поле не існує - додаємо в user_data
+                            node.user_data[field] = value
+
+                if update_fn:
+                    update_fn(node)
+
+                count += 1
+
+        if count > 0:
+            logger.info(f"Batch updated {count} nodes")
+
+        return count
+
+    def count_where(self, predicate: callable) -> int:
+        """
+        Підраховує ноди що відповідають умові.
+
+        Args:
+            predicate: Функція (node) -> bool
+
+        Returns:
+            Кількість нод
+
+        Example:
+            >>> # Кількість JobPosting сторінок
+            >>> job_count = graph.count_where(
+            ...     lambda n: n.user_data.get('structured_data', {}).has_type('JobPosting')
+            ... )
+        """
+        return sum(1 for node in self._nodes.values() if predicate(node))
+
+    # ==================== Cascade Query API ====================
+
+    def query_cascade(
+        self,
+        predicates: List[callable],
+        min_matches: int = 1,
+        stop_at_first: bool = True,
+    ) -> "CascadeResult":
+        """
+        Каскадний запит нод з fallback логікою.
+
+        Перебирає predicates по порядку (від найнадійнішого до fallback)
+        і повертає ноди з першого рівня що має достатньо matches.
+
+        Args:
+            predicates: Список predicate функцій в порядку пріоритету.
+                        Перший predicate - найнадійніший, останній - fallback.
+            min_matches: Мінімальна кількість нод на рівні для зупинки.
+                        Якщо менше - продовжуємо до наступного рівня.
+            stop_at_first: Зупинитись на першому непустому рівні (True)
+                          або зібрати всі унікальні ноди з усіх рівнів (False)
+
+        Returns:
+            CascadeResult з нодами та інформацією про рівень
+
+        Example:
+            >>> # Пошук вакансій з fallback
+            >>> result = graph.query_cascade([
+            ...     lambda n: n.user_data.get('structured_data', {}).has_type('JobPosting'),  # Level 0
+            ...     lambda n: getattr(n, 'is_jobs_url', False) and n.scanned,  # Level 1
+            ...     lambda n: getattr(n, 'is_jobs_h1', False) and n.scanned,   # Level 2
+            ...     lambda n: getattr(n, 'is_jobs_title', False),              # Level 3
+            ... ])
+            >>> print(f"Found {len(result.nodes)} nodes at level {result.level}")
+            >>>
+            >>> # З мінімальним порогом
+            >>> result = graph.query_cascade(predicates, min_matches=5)
+        """
+
+        all_nodes: List[Node] = []
+        matched_node_ids: Set[str] = set()
+        result_level = -1
+        levels_tried = 0
+
+        for level, predicate in enumerate(predicates):
+            levels_tried += 1
+            level_nodes = []
+
+            for node in self._nodes.values():
+                if node.node_id not in matched_node_ids:
+                    try:
+                        if predicate(node):
+                            level_nodes.append(node)
+                            if not stop_at_first:
+                                matched_node_ids.add(node.node_id)
+                    except Exception as e:
+                        logger.warning(f"Predicate error at level {level} for {node.url}: {e}")
+                        continue
+
+            if level_nodes:
+                if stop_at_first and len(level_nodes) >= min_matches:
+                    # Зупиняємось на цьому рівні
+                    return CascadeResult(
+                        nodes=level_nodes,
+                        level=level,
+                        levels_tried=levels_tried,
+                        total_predicates=len(predicates),
+                    )
+                elif not stop_at_first:
+                    all_nodes.extend(level_nodes)
+                    if result_level == -1:
+                        result_level = level
+
+        # Якщо stop_at_first і жоден рівень не дав min_matches,
+        # повертаємо останній непустий рівень або пустий результат
+        if stop_at_first:
+            # Шукаємо останній непустий рівень
+            for level, predicate in enumerate(predicates):
+                level_nodes = []
+                for node in self._nodes.values():
+                    try:
+                        if predicate(node):
+                            level_nodes.append(node)
+                    except Exception as e:
+                        logger.warning(f"Predicate error at level {level} for {node.url}: {e}")
+                        continue
+                if level_nodes:
+                    return CascadeResult(
+                        nodes=level_nodes,
+                        level=level,
+                        levels_tried=len(predicates),
+                        total_predicates=len(predicates),
+                    )
+
+            return CascadeResult(
+                nodes=[],
+                level=-1,
+                levels_tried=len(predicates),
+                total_predicates=len(predicates),
+            )
+
+        return CascadeResult(
+            nodes=all_nodes,
+            level=result_level,
+            levels_tried=levels_tried,
+            total_predicates=len(predicates),
+        )
+
+class CascadeResult:
+    """
+    Результат каскадного запиту.
+
+    Атрибути:
+        nodes: Список знайдених нод
+        level: Рівень на якому знайдено (0 = найвищий пріоритет, -1 = не знайдено)
+        levels_tried: Кількість перевірених рівнів
+        total_predicates: Загальна кількість predicates
+    """
+
+    def __init__(
+        self,
+        nodes: List[Node],
+        level: int,
+        levels_tried: int,
+        total_predicates: int,
+    ):
+        self.nodes = nodes
+        self.level = level
+        self.levels_tried = levels_tried
+        self.total_predicates = total_predicates
+
+    @property
+    def count(self) -> int:
+        """Кількість знайдених нод."""
+        return len(self.nodes)
+
+    @property
+    def found(self) -> bool:
+        """Чи знайдено хоч одну ноду."""
+        return len(self.nodes) > 0
+
+    @property
+    def is_primary_level(self) -> bool:
+        """Чи знайдено на найвищому рівні (level 0)."""
+        return self.level == 0
+
+    @property
+    def is_fallback(self) -> bool:
+        """Чи використано fallback рівень (не перший)."""
+        return self.level > 0
+
+    def __len__(self) -> int:
+        return len(self.nodes)
+
+    def __iter__(self):
+        return iter(self.nodes)
+
+    def __repr__(self) -> str:
+        return (
+            f"CascadeResult(count={self.count}, level={self.level}, "
+            f"levels_tried={self.levels_tried}/{self.total_predicates})"
+        )
+
+# ==================== Schema Filter Methods (добавляємо до Graph) ====================
+# Ці методи додаються окремо для зручності фільтрації по JSON-LD схемах
+
+def _add_schema_filter_methods():
+    """Додає методи фільтрації по JSON-LD схемах до класу Graph."""
+
+    def filter_by_schema(
+        self,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        fallback: str = 'keep',
+    ) -> List["Node"]:
+        """
+        Фільтрує ноди за JSON-LD schema типами.
+
+        Працює з StructuredDataPlugin результатами в user_data['structured_data'].
+
+        Args:
+            include: Список schema типів для включення (OR логіка).
+                    Якщо вказано - повертає тільки ноди з цими типами.
+            exclude: Список schema типів для виключення.
+                    Ноди з цими типами будуть видалені з результату.
+            fallback: Що робити з нодами без schema:
+                    - 'keep': залишити в результаті (default)
+                    - 'remove': видалити з результату
+
+        Returns:
+            Список нод що відповідають критеріям
+
+        Example:
+            >>> # Тільки JobPosting
+            >>> jobs = graph.filter_by_schema(include=['JobPosting'])
+            >>>
+            >>> # Всі крім блогів
+            >>> not_blogs = graph.filter_by_schema(
+            ...     exclude=['BlogPosting', 'Article', 'NewsArticle']
+            ... )
+            >>>
+            >>> # Вакансії без блогів
+            >>> vacancies = graph.filter_by_schema(
+            ...     include=['JobPosting'],
+            ...     exclude=['BlogPosting'],
+            ...     fallback='remove'
+            ... )
+        """
+        results = []
+
+        for node in self._nodes.values():
+            sd = node.user_data.get('structured_data')
+
+            # Якщо немає structured_data
+            if sd is None or not hasattr(sd, 'all_types'):
+                # Якщо вказано include - ноди без schema не включаємо
+                # (вони не можуть мати вказаний тип)
+                if include:
+                    continue
+                # Інакше - дивимось на fallback
+                if fallback == 'keep':
+                    results.append(node)
+                continue
+
+            node_types = sd.all_types or set()
+
+            # Перевірка include
+            if include:
+                has_include = any(t in node_types for t in include)
+                if not has_include:
+                    continue
+
+            # Перевірка exclude
+            if exclude:
+                has_exclude = any(t in node_types for t in exclude)
+                if has_exclude:
+                    continue
+
+            results.append(node)
+
+        return results
+
+    def get_nodes_by_schema(self, schema_type: str) -> List["Node"]:
+        """
+        Повертає всі ноди з вказаним schema типом.
+
+        Shortcut для filter_by_schema(include=[schema_type]).
+
+        Args:
+            schema_type: Schema.org тип (наприклад 'JobPosting', 'Product')
+
+        Returns:
+            Список нод з цим типом
+
+        Example:
+            >>> jobs = graph.get_nodes_by_schema('JobPosting')
+            >>> products = graph.get_nodes_by_schema('Product')
+        """
+        return self.filter_by_schema(include=[schema_type])
+
+    def get_schema_stats(self) -> Dict[str, int]:
+        """
+        Повертає статистику schema типів у графі.
+
+        Returns:
+            Словник {schema_type: count}
+
+        Example:
+            >>> stats = graph.get_schema_stats()
+            >>> print(f"JobPosting: {stats.get('JobPosting', 0)}")
+            >>> print(f"BlogPosting: {stats.get('BlogPosting', 0)}")
+        """
+        from collections import Counter
+
+        type_counter = Counter()
+
+        for node in self._nodes.values():
+            sd = node.user_data.get('structured_data')
+            if sd and hasattr(sd, 'all_types') and sd.all_types:
+                for schema_type in sd.all_types:
+                    type_counter[schema_type] += 1
+
+        return dict(type_counter)
+
+    def has_schema_type(self, schema_type: str) -> bool:
+        """
+        Перевіряє чи є в графі хоча б одна нода з вказаним schema типом.
+
+        Args:
+            schema_type: Schema.org тип
+
+        Returns:
+            True якщо є хоча б одна нода
+        """
+        for node in self._nodes.values():
+            sd = node.user_data.get('structured_data')
+            if sd and hasattr(sd, 'has_type') and sd.has_type(schema_type):
+                return True
+        return False
+
+    # Додаємо методи до класу Graph
+    Graph.filter_by_schema = filter_by_schema
+    Graph.get_nodes_by_schema = get_nodes_by_schema
+    Graph.get_schema_stats = get_schema_stats
+    Graph.has_schema_type = has_schema_type
+
+# Виконуємо при імпорті модуля
+_add_schema_filter_methods()

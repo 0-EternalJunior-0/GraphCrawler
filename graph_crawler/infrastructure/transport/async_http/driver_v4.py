@@ -64,16 +64,16 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         user_agent: str = "..."        # User-Agent header
         max_retries: int = 3           # Retry count
         retry_delay: float = 1.0       # Delay between retries
-        
+
         # Concurrency
         max_concurrent_requests: int = 100
-        
+
         # TCP Connector
         connector_limit: int = 200           # Total connection limit
         connector_limit_per_host: int = 50   # Per-host limit
         dns_cache_ttl: int = 300             # DNS cache TTL (seconds)
         keepalive_timeout: int = 30          # Keepalive timeout
-        
+
         # Python 3.14 optimization
         auto_optimize_for_free_threading: bool = True
         free_threading_concurrent_multiplier: int = 3
@@ -82,7 +82,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         >>> # Default config
         >>> async with AsyncDriver() as driver:
         ...     response = await driver.fetch('https://example.com')
-        
+
         >>> # Custom config
         >>> config = {
         ...     'max_concurrent_requests': 200,
@@ -117,18 +117,18 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         self._connector: Optional[aiohttp.TCPConnector] = None
 
         # ========== READ CONFIG (all with defaults from constants) ==========
-        
+
         # Basic settings
         self._timeout = self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
         self._user_agent = self.config.get("user_agent", DEFAULT_USER_AGENT)
         self._max_retries = self.config.get("max_retries", DEFAULT_MAX_RETRIES)
         self._retry_delay = self.config.get("retry_delay", DEFAULT_RETRY_DELAY)
-        
+
         # Concurrency
         self._base_concurrent = self.config.get(
             "max_concurrent_requests", DEFAULT_MAX_CONCURRENT_REQUESTS
         )
-        
+
         # TCP Connector settings
         self._connector_limit = self.config.get(
             "connector_limit", DEFAULT_CONNECTOR_LIMIT
@@ -142,20 +142,20 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         self._keepalive_timeout = self.config.get(
             "keepalive_timeout", DEFAULT_KEEPALIVE_TIMEOUT
         )
-        
+
         # Python 3.14 free-threading optimization
         self._auto_optimize = self.config.get(
             "auto_optimize_for_free_threading", True
         )
         self._ft_multiplier = self.config.get(
-            "free_threading_concurrent_multiplier", 
+            "free_threading_concurrent_multiplier",
             FREE_THREADING_CONCURRENT_MULTIPLIER
         )
-        
+
         # ========== APPLY FREE-THREADING OPTIMIZATIONS (if enabled) ==========
-        
+
         self._free_threading = is_free_threading_enabled()
-        
+
         if self._free_threading and self._auto_optimize:
             # Apply free-threading optimized values
             self.max_concurrent = self._base_concurrent * self._ft_multiplier
@@ -186,23 +186,23 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
     async def _get_session(self) -> aiohttp.ClientSession:
         """
         Створює або повертає існуючу aiohttp session.
-        
+
         Всі параметри з конфігу!
-        
-        
+
+
         """
         if not self._session or self._session.closed:
             # SSL/TLS Configuration
             ssl_verify = self.config.get("ssl_verify", True)
             ssl_context = None
-            
+
             if ssl_verify:
                 # Створюємо secure SSL context
                 import ssl
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = True
                 ssl_context.verify_mode = ssl.CERT_REQUIRED
-                
+
                 # Custom CA bundle (опціонально)
                 ssl_ca_bundle = self.config.get("ssl_ca_bundle")
                 if ssl_ca_bundle:
@@ -213,7 +213,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
                     "⚠️ SSL verification DISABLED! Use only for testing."
                 )
                 ssl_context = False
-            
+
             self._connector = aiohttp.TCPConnector(
                 limit=self._connector_limit,
                 limit_per_host=self._connector_limit_per_host,
@@ -224,13 +224,13 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
                 force_close=False,
                 ssl=ssl_context,  # SSL/TLS verification
             )
-            
+
             timeout = aiohttp.ClientTimeout(
                 total=self._timeout,
                 connect=min(5, self._timeout),
                 sock_read=self._timeout,
             )
-            
+
             self._session = aiohttp.ClientSession(
                 connector=self._connector,
                 headers={"User-Agent": self._user_agent},
@@ -346,7 +346,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
     async def fetch_many(self, urls: List[str]) -> List[FetchResponse]:
         """
         Паралельне завантаження з контролем concurrency.
-        
+
         Concurrency контролюється через config['max_concurrent_requests'].
         """
         if not urls:
@@ -379,21 +379,21 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
     async def fetch_fast(self, url: str) -> FetchResponse:
         """
         Ultra-fast fetch БЕЗ плагінів.
-        
+
         Для максимальної швидкості коли не потрібні:
         - Rate limiting
         - Retry logic
         - Custom headers/cookies
         """
         session = await self._get_session()
-        
+
         try:
             async with session.get(url) as response:
                 try:
                     html = await response.text()
                 except UnicodeDecodeError:
                     html = None
-                    
+
                 # Конвертуємо всі header values в string (проблема з Cython в Python 3.14)
                 return FetchResponse(
                     url=url,
@@ -414,16 +414,16 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         """Ultra-fast batch fetch БЕЗ плагінів."""
         if not urls:
             return []
-            
+
         semaphore = asyncio.Semaphore(self.max_concurrent)
-        
+
         async def fetch_limited(url: str) -> FetchResponse:
             async with semaphore:
                 return await self.fetch_fast(url)
-        
+
         tasks = [asyncio.create_task(fetch_limited(url)) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         processed = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -438,7 +438,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
                 )
             else:
                 processed.append(result)
-        
+
         return processed
 
     # ==================== Resource Management ====================
@@ -447,12 +447,12 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         """Close session and connector."""
         if self._session and not self._session.closed:
             await self._session.close()
-        
+
         if self._connector and not self._connector.closed:
             await self._connector.close()
-            
+
         await asyncio.sleep(0.1)
-        
+
         self._session = None
         self._connector = None
 

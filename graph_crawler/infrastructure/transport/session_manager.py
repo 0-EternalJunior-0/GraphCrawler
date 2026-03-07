@@ -1,21 +1,42 @@
 """Session Manager - управління сесіями та cookies для різних доменів.
 
 Team 3: Reliability & DevOps
-Task 3.2: Session & Cookie Management (P0)
 Week 2
+
+ВИПРАВЛЕНО: Замінено requests на httpx для async HTTP запитів.
+Додано async методи та підтримку httpx.AsyncClient.
 """
 
+import asyncio
 import json
 import logging
-import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional, Union
+
 from urllib.parse import urlparse
 
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+
+# Fallback to requests for sync operations
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Thread pool для неблокуючих операцій
+_session_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="session_mgr_")
 
 
 class SessionManager:
@@ -386,3 +407,176 @@ class SessionManager:
         """Context manager exit - закриває всі сесії."""
         self.close_all()
         return False
+
+    # ============= ASYNC МЕТОДИ з httpx/aiohttp =============
+
+    async def get_async_client(self, url_or_domain: str) -> "httpx.AsyncClient":
+        """
+        Отримує або створює async HTTP client (httpx.AsyncClient) для домену.
+
+        Використовує httpx для async HTTP запитів замість requests.
+
+        Args:
+            url_or_domain: URL або домен
+
+        Returns:
+            httpx.AsyncClient для цього домену
+
+        Raises:
+            ImportError: Якщо httpx не встановлено
+        """
+        if not HTTPX_AVAILABLE:
+            raise ImportError(
+                "httpx is required for async operations. "
+                "Install with: pip install httpx"
+            )
+
+        domain = self._extract_domain(url_or_domain)
+
+        if not hasattr(self, '_async_clients'):
+            self._async_clients: Dict[str, httpx.AsyncClient] = {}
+
+        if domain not in self._async_clients:
+            # Створюємо новий async client
+            client = httpx.AsyncClient(
+                headers=self.default_headers,
+                timeout=httpx.Timeout(30.0),
+                follow_redirects=True,
+            )
+
+            # Завантажуємо cookies якщо є збережені
+            if self.has_session(domain):
+                await self._load_cookies_to_async_client(client, domain)
+
+            self._async_clients[domain] = client
+
+            if domain not in self.session_metadata:
+                self.session_metadata[domain] = {
+                    "created_at": datetime.now().isoformat(),
+                    "last_used": datetime.now().isoformat(),
+                    "request_count": 0,
+                    "client_type": "httpx",
+                }
+
+            logger.info(f"New async client (httpx) created for domain: {domain}")
+        else:
+            # Оновлюємо метадані
+            self.session_metadata[domain]["last_used"] = datetime.now().isoformat()
+            self.session_metadata[domain]["request_count"] += 1
+
+        return self._async_clients[domain]
+
+    async def _load_cookies_to_async_client(
+        self, client: "httpx.AsyncClient", domain: str
+    ) -> None:
+        """Завантажує збережені cookies в async client."""
+        file_path = self._get_session_file_path(domain)
+
+        if not file_path.exists():
+            return
+
+        try:
+            loop = asyncio.get_event_loop()
+            session_data = await loop.run_in_executor(
+                _session_executor,
+                partial(self._sync_read_json_file, file_path)
+            )
+
+            cookies = session_data.get("cookies", {})
+            for key, value in cookies.items():
+                client.cookies.set(key, value, domain=domain)
+
+            logger.debug(f"Loaded {len(cookies)} cookies to async client for {domain}")
+
+        except Exception as e:
+            logger.warning(f"Failed to load cookies for async client: {e}")
+
+    async def save_async_client_cookies(self, url_or_domain: str) -> bool:
+        """
+        Зберігає cookies з async client на диск.
+
+        Args:
+            url_or_domain: URL або домен
+
+        Returns:
+            True якщо успішно збережено
+        """
+        domain = self._extract_domain(url_or_domain)
+
+        if not hasattr(self, '_async_clients') or domain not in self._async_clients:
+            logger.warning(f"No async client for domain {domain}")
+            return False
+
+        try:
+            client = self._async_clients[domain]
+
+            # Конвертуємо cookies в dict
+            cookies_dict = dict(client.cookies)
+
+            session_data = {
+                "domain": domain,
+                "cookies": cookies_dict,
+                "headers": dict(client.headers),
+                "metadata": self.session_metadata.get(domain, {}),
+                "saved_at": datetime.now().isoformat(),
+                "client_type": "httpx",
+            }
+
+            file_path = self._get_session_file_path(domain)
+
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                _session_executor,
+                partial(self._sync_write_json_file, file_path, session_data)
+            )
+
+            logger.info(f"Async client cookies saved for domain: {domain}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving async client cookies for {domain}: {e}")
+            return False
+
+    async def close_async_client(self, url_or_domain: str) -> None:
+        """Закриває async client для домену."""
+        domain = self._extract_domain(url_or_domain)
+
+        if hasattr(self, '_async_clients') and domain in self._async_clients:
+            await self._async_clients[domain].aclose()
+            del self._async_clients[domain]
+            logger.debug(f"Closed async client for domain: {domain}")
+
+    async def close_all_async(self) -> None:
+        """Закриває всі async clients."""
+        if hasattr(self, '_async_clients'):
+            for domain, client in list(self._async_clients.items()):
+                try:
+                    await client.aclose()
+                    logger.debug(f"Closed async client for domain: {domain}")
+                except Exception as e:
+                    logger.error(f"Error closing async client for {domain}: {e}")
+
+            self._async_clients.clear()
+            logger.info("All async clients closed")
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - закриває всі async clients."""
+        await self.close_all_async()
+        self.close_all()
+        return False
+
+    @staticmethod
+    def _sync_read_json_file(file_path: Path) -> Dict:
+        """Синхронне читання JSON файлу."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def _sync_write_json_file(file_path: Path, data: Dict) -> None:
+        """Синхронний запис JSON файлу."""
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
