@@ -1,7 +1,7 @@
 """Strategy Pattern для URL фільтрів."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class BaseURLFilter(ABC):
@@ -17,7 +17,7 @@ class BaseURLFilter(ABC):
     - CustomFilter - кастомна логіка
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
         self.enabled = True
         self.event_bus = None  # For event publishing
@@ -29,7 +29,7 @@ class BaseURLFilter(ABC):
         pass
 
     @abstractmethod
-    def is_allowed(self, url: str, source_url: str = None) -> bool:
+    def is_allowed(self, url: str, source_url: Optional[str] = None) -> bool:
         """
         Перевіряє чи дозволений URL.
 
@@ -43,7 +43,7 @@ class BaseURLFilter(ABC):
         pass
 
     def _publish_filtered_event(
-        self, url: str, filter_type: str, reason: str, pattern: str = None
+        self, url: str, filter_type: str, reason: str, pattern: Optional[str] = None
     ):
         """
         Публікує подію про фільтрацію URL.
@@ -66,9 +66,7 @@ class BaseURLFilter(ABC):
         if pattern:
             data["pattern"] = pattern
 
-        self.event_bus.publish(
-            CrawlerEvent.create(EventType.URL_FILTERED_OUT, data=data)
-        )
+        self.event_bus.publish(CrawlerEvent.create(EventType.URL_FILTERED_OUT, data=data))
 
     def __repr__(self):
         return f"{self.__class__.__name__}(enabled={self.enabled})"

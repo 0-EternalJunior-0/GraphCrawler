@@ -20,7 +20,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 try:
-    import asyncpg
+    import asyncpg  # type: ignore[import-not-found]
 
     ASYNCPG_AVAILABLE = True
 except ImportError:
@@ -68,23 +68,8 @@ class PostgreSQLJobStorage:
     """Job storage в PostgreSQL.
 
     Production-ready storage з підтримкою:
-    - Connection pooling (min 5, max 20 connections)
-    - JSONB для гнучкості схеми
-    - Ефективні індекси
-    - Concurrent access
-    - SQL Injection Prevention (whitelist keys)
-
     Example:
         import os
-
-        storage = PostgreSQLJobStorage(
-            host=os.getenv("DB_HOST", "localhost"),
-            database=os.getenv("DB_NAME", "package_crawler"),
-            user=os.getenv("DB_USER", "crawler_user"),
-            password=os.getenv("DB_PASSWORD")  # REQUIRED from env!
-        )
-        await storage.create_job("job_1", {"url": "..."})
-
     Args:
         host: PostgreSQL host
         port: PostgreSQL port (default 5432)
@@ -107,8 +92,7 @@ class PostgreSQLJobStorage:
     ):
         if not ASYNCPG_AVAILABLE:
             raise ImportError(
-                "asyncpg is required for PostgreSQL storage. "
-                "Install with: pip install asyncpg"
+                "asyncpg is required for PostgreSQL storage. Install with: pip install asyncpg"
             )
 
         self.host = host
@@ -119,7 +103,7 @@ class PostgreSQLJobStorage:
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
 
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: Optional["asyncpg.Pool"] = None  # type: ignore[name-defined]
         self._initialized = False
 
     async def _ensure_initialized(self):
@@ -145,9 +129,7 @@ class PostgreSQLJobStorage:
                 await conn.execute(index_sql)
 
         self._initialized = True
-        logger.info(
-            f"PostgreSQLJobStorage initialized: {self.host}:{self.port}/{self.database}"
-        )
+        logger.info("PostgreSQLJobStorage initialized: %s:%s/%s", self.host, self.port, self.database)
 
     async def create_job(
         self, job_id: str, config: Dict[str, Any], status: str = "pending"
@@ -173,16 +155,14 @@ class PostgreSQLJobStorage:
                 json.dumps(progress),
             )
 
-        logger.debug(f"Created job {job_id} in PostgreSQL")
+        logger.debug("Created job %s in PostgreSQL", job_id)
 
     async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Отримує job за ID."""
         await self._ensure_initialized()
 
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM crawl_jobs WHERE job_id = $1", job_id
-            )
+            row = await conn.fetchrow("SELECT * FROM crawl_jobs WHERE job_id = $1", job_id)
 
             if not row:
                 return None
@@ -226,16 +206,11 @@ class PostgreSQLJobStorage:
         # SQL Injection Prevention: валідація ключів
         invalid_keys = set(updates.keys()) - ALLOWED_UPDATE_KEYS
         if invalid_keys:
-            raise ValueError(
-                f"Invalid update keys: {invalid_keys}. "
-                f"Allowed: {ALLOWED_UPDATE_KEYS}"
-            )
+            raise ValueError(f"Invalid update keys: {invalid_keys}. Allowed: {ALLOWED_UPDATE_KEYS}")
 
         async with self._pool.acquire() as conn:
             # Get current job
-            row = await conn.fetchrow(
-                "SELECT progress FROM crawl_jobs WHERE job_id = $1", job_id
-            )
+            row = await conn.fetchrow("SELECT progress FROM crawl_jobs WHERE job_id = $1", job_id)
 
             if not row:
                 return False
@@ -248,9 +223,7 @@ class PostgreSQLJobStorage:
             for key, value in updates.items():
                 if key == "progress" and isinstance(value, dict):
                     # Merge progress with existing
-                    current_progress = (
-                        json.loads(row["progress"]) if row["progress"] else {}
-                    )
+                    current_progress = json.loads(row["progress"]) if row["progress"] else {}
                     current_progress.update(value)
                     set_parts.append(f"progress = ${param_num}")
                     values.append(json.dumps(current_progress))
@@ -327,9 +300,7 @@ class PostgreSQLJobStorage:
         await self._ensure_initialized()
 
         async with self._pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM crawl_jobs WHERE job_id = $1", job_id
-            )
+            result = await conn.execute("DELETE FROM crawl_jobs WHERE job_id = $1", job_id)
             return result != "DELETE 0"
 
     async def close(self) -> None:

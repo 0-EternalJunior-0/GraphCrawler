@@ -1,25 +1,9 @@
 """Unified Storage - єдина точка доступу до storage.
 
 Цей клас надає уніфікований інтерфейс для:
-- Jobs storage (стан сканувань)
-- Queue storage (черга URL)
-- Graph storage (результати)
-
-За замовчуванням використовує файлову систему (SQLite в ./crawl_data/).
-Користувач може явно вказати backend через параметри.
-
 Example:
     # Default - файлова система
     storage = UnifiedStorage()
-
-    # Memory (для тестів)
-    storage = UnifiedStorage(backend="memory")
-
-    # PostgreSQL (для великих проектів)
-    storage = UnifiedStorage(
-        backend="postgresql",
-        db_config={"host": "localhost", "database": "package_crawler"}
-    )
 """
 
 import logging
@@ -66,56 +50,12 @@ class UnifiedStorage:
     """Єдина точка доступу до всіх типів storage.
 
     Атрибути:
-        jobs: IJobStorage - зберігання стану сканувань
-        queue: IQueueStorage - черга URL для обробки
-        graphs: IGraphStorage - зберігання графа (використовує існуючий storage)
-
-    Приклади використання:
-
-        # 1. Default - файлова система ./crawl_data/
-        storage = UnifiedStorage()
-
-        # 2. Memory (швидко, без persistence)
-        storage = UnifiedStorage(backend="memory")
-
-        # 3. Явний шлях до папки
-        storage = UnifiedStorage(storage_dir="./my_project/data")
-
-        # 4. SQLite з явним шляхом до файлу
-        storage = UnifiedStorage(
-            backend="sqlite",
-            storage_path="./project.db"
-        )
-
-        # 5. PostgreSQL для великих проектів
-        storage = UnifiedStorage(
-            backend="postgresql",
-            db_config={
-                "host": "localhost",
-                "port": 5432,
-                "database": "package_crawler",
-                "user": "user",
-                "password": "pass"
-            }
-        )
-
-    Використання jobs:
-        await storage.jobs.create_job("job_1", {"url": "https://..."})
-        job = await storage.jobs.get_job("job_1")
-        await storage.jobs.update_job("job_1", {"status": "running"})
-        jobs = await storage.jobs.list_jobs(status="pending")
-
-    Використання queue:
-        await storage.queue.push_urls("scan_1", [("https://...", 0, 10)])
-        urls = await storage.queue.pop_urls("scan_1", batch_size=24)
-        await storage.queue.mark_done("scan_1", ["https://..."])
-        stats = await storage.queue.get_stats("scan_1")
     """
 
     def __init__(
         self,
         backend: Union[str, StorageBackend] = StorageBackend.FILE,
-        storage_dir: str = "./crawl_data",
+        storage_dir: Optional[str] = None,
         storage_path: Optional[str] = None,
         db_config: Optional[Dict[str, Any]] = None,
         auto_thresholds: Optional[Dict[str, int]] = None,
@@ -123,17 +63,19 @@ class UnifiedStorage:
         """
         Args:
             backend: Тип backend ('memory', 'file', 'sqlite', 'postgresql', 'mongodb', 'auto')
-            storage_dir: Директорія для зберігання (для file/sqlite)
+            storage_dir: Директорія для зберігання (default: ./crawler_data)
             storage_path: Повний шлях до файлу БД (для sqlite)
             db_config: Конфігурація БД (для postgresql/mongodb)
             auto_thresholds: Пороги для автоматичного вибору backend
         """
+        from graph_crawler.shared.constants import DEFAULT_DATA_DIR
+
         # Normalize backend
         if isinstance(backend, str):
             backend = StorageBackend(backend.lower())
 
         self.backend = backend
-        self.storage_dir = Path(storage_dir)
+        self.storage_dir = Path(storage_dir or DEFAULT_DATA_DIR)
         self.storage_path = Path(storage_path) if storage_path else None
         self.db_config = db_config or {}
         self.auto_thresholds = auto_thresholds or {
@@ -144,7 +86,7 @@ class UnifiedStorage:
         # Create storage directory
         if backend in (StorageBackend.FILE, StorageBackend.SQLITE, StorageBackend.AUTO):
             self.storage_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f" Storage directory: {self.storage_dir.absolute()}")
+            logger.info(" Storage directory: %s", self.storage_dir.absolute())
 
         # Initialize storages
         self.jobs: IJobStorage = self._create_job_storage()
@@ -154,8 +96,7 @@ class UnifiedStorage:
         # через application layer
 
         logger.info(
-            f" UnifiedStorage initialized: backend={backend.value}, "
-            f"storage_dir={self.storage_dir}"
+            f" UnifiedStorage initialized: backend={backend.value}, storage_dir={self.storage_dir}"
         )
 
     def _create_job_storage(self) -> IJobStorage:
@@ -268,9 +209,7 @@ class UnifiedStorage:
             "backend": self.backend.value,
             "storage_dir": str(self.storage_dir.absolute()),
             "storage_path": str(self.storage_path) if self.storage_path else None,
-            "db_config": {
-                k: "***" if "password" in k else v for k, v in self.db_config.items()
-            },
+            "db_config": {k: "***" if "password" in k else v for k, v in self.db_config.items()},
             "auto_thresholds": self.auto_thresholds,
         }
 
@@ -296,9 +235,7 @@ def get_storage(
     global _default_storage
 
     if _default_storage is None:
-        _default_storage = UnifiedStorage(
-            backend=backend, storage_dir=storage_dir, **kwargs
-        )
+        _default_storage = UnifiedStorage(backend=backend, storage_dir=storage_dir, **kwargs)
 
     return _default_storage
 

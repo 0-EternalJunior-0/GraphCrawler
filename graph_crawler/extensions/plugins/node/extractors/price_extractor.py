@@ -17,24 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class PriceExtractorPlugin(BaseNodePlugin):
-    """Витягує ціни/зарплати з HTML.
+    """Extract prices and salaries from HTML with multi-currency support.
 
-    Підтримувані формати:
-    - USD: $50, $1,000, $1.5k, $1M
-    - EUR: €50, 50€, 50 EUR
-    - UAH: ₴50, 50 грн, 50 гривень
-    - Salary ranges: $50k - $70k, від 30000 грн
-
-    Attributes:
-        PRICE_PATTERNS: Список (pattern, currency_type) tuples
-
-    Usage:
-        plugin = PriceExtractorPlugin()
-        context = plugin.execute(context)
-        prices = context.user_data['prices']
+    Supported currencies: USD, EUR, UAH with range detection.
 
     Example:
-        >>> from graph_crawler.extensions.CustomPlugins.node.extractors import PriceExtractorPlugin
+        >>> from graph_crawler.extensions.plugins.node.extractors import PriceExtractorPlugin
         >>> plugin = PriceExtractorPlugin()
         >>> context = plugin.execute(context)
         >>> print(context.user_data['prices'])
@@ -114,7 +102,7 @@ class PriceExtractorPlugin(BaseNodePlugin):
         context.user_data["price_count"] = len(prices)
 
         if prices:
-            logger.debug(f"Extracted {len(prices)} prices from {context.url}")
+            logger.debug("Extracted %s prices from %s", len(prices), context.url)
 
         return context
 

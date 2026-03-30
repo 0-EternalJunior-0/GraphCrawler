@@ -1,40 +1,6 @@
 """Prometheus-compatible Metrics для GraphCrawler.
 
 Features:
-- Prometheus-compatible format
-- Counters, Gauges, Histograms
-- Easy export для Prometheus/Grafana
-- Thread-safe
-- Zero dependencies (built-in)
-
-Usage:
-    >>> from graph_crawler.observability.metrics import (
-    ...     MetricsRegistry,
-    ...     Counter,
-    ...     Gauge,
-    ...     Histogram,
-    ...     get_metrics,
-    ... )
-    >>>
-    >>> # Get global metrics registry
-    >>> metrics = get_metrics()
-    >>>
-    >>> # Record metrics
-    >>> metrics.counter("requests_total", labels={"status": "200"}).inc()
-    >>> metrics.gauge("active_connections").set(42)
-    >>> metrics.histogram("request_duration_seconds").observe(0.5)
-    >>>
-    >>> # Export for Prometheus
-    >>> print(metrics.export_prometheus())
-
-Output (Prometheus format):
-    # HELP requests_total Total number of requests
-    # TYPE requests_total counter
-    requests_total{status="200"} 1
-
-    # HELP active_connections Number of active connections
-    # TYPE active_connections gauge
-    active_connections 42
 """
 
 import threading
@@ -47,6 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 @dataclass
 class MetricValue:
     """Single metric value with labels."""
+
     value: float = 0.0
     labels: Dict[str, str] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
@@ -189,10 +156,7 @@ class Histogram:
     DEFAULT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
     def __init__(
-        self,
-        name: str,
-        description: str = "",
-        buckets: Optional[Tuple[float, ...]] = None
+        self, name: str, description: str = "", buckets: Optional[Tuple[float, ...]] = None
     ):
         self.name = name
         self.description = description
@@ -289,10 +253,7 @@ class MetricsRegistry:
             return self._gauges[full_name]
 
     def histogram(
-        self,
-        name: str,
-        description: str = "",
-        buckets: Optional[Tuple[float, ...]] = None
+        self, name: str, description: str = "", buckets: Optional[Tuple[float, ...]] = None
     ) -> Histogram:
         """Get or create a histogram."""
         full_name = f"{self.prefix}_{name}" if self.prefix else name
@@ -340,23 +301,23 @@ class MetricsRegistry:
                     lines.append(f"{name}_bucket{labels_str} {cumulative}")
                 # +Inf bucket
                 inf_labels = {**labels_dict, "le": "+Inf"}
-                lines.append(f"{name}_bucket{self._format_labels(inf_labels)} {hist._totals[labels_tuple]}")
-                lines.append(f"{name}_sum{self._format_labels(labels_dict)} {hist._sums[labels_tuple]}")
-                lines.append(f"{name}_count{self._format_labels(labels_dict)} {hist._totals[labels_tuple]}")
+                lines.append(
+                    f"{name}_bucket{self._format_labels(inf_labels)} {hist._totals[labels_tuple]}"
+                )
+                lines.append(
+                    f"{name}_sum{self._format_labels(labels_dict)} {hist._sums[labels_tuple]}"
+                )
+                lines.append(
+                    f"{name}_count{self._format_labels(labels_dict)} {hist._totals[labels_tuple]}"
+                )
 
         return "\n".join(lines)
 
     def export_dict(self) -> Dict[str, Any]:
         """Export all metrics as dictionary."""
         return {
-            "counters": {
-                name: dict(counter._values)
-                for name, counter in self._counters.items()
-            },
-            "gauges": {
-                name: dict(gauge._values)
-                for name, gauge in self._gauges.items()
-            },
+            "counters": {name: dict(counter._values) for name, counter in self._counters.items()},
+            "gauges": {name: dict(gauge._values) for name, gauge in self._gauges.items()},
             "histograms": {
                 name: {
                     "counts": dict(hist._counts),
@@ -418,43 +379,25 @@ class CrawlerMetrics:
     _registry = get_metrics()
 
     # Counters
-    requests_total = _registry.counter(
-        "requests_total",
-        "Total number of HTTP requests"
-    )
-    pages_crawled = _registry.counter(
-        "pages_crawled_total",
-        "Total number of pages crawled"
-    )
-    errors_total = _registry.counter(
-        "errors_total",
-        "Total number of errors"
-    )
+    requests_total = _registry.counter("requests_total", "Total number of HTTP requests")
+    pages_crawled = _registry.counter("pages_crawled_total", "Total number of pages crawled")
+    errors_total = _registry.counter("errors_total", "Total number of errors")
 
     # Gauges
-    active_requests = _registry.gauge(
-        "active_requests",
-        "Number of currently active requests"
-    )
-    queue_size = _registry.gauge(
-        "queue_size",
-        "Number of URLs in queue"
-    )
-    memory_usage_bytes = _registry.gauge(
-        "memory_usage_bytes",
-        "Current memory usage in bytes"
-    )
+    active_requests = _registry.gauge("active_requests", "Number of currently active requests")
+    queue_size = _registry.gauge("queue_size", "Number of URLs in queue")
+    memory_usage_bytes = _registry.gauge("memory_usage_bytes", "Current memory usage in bytes")
 
     # Histograms
     request_duration = _registry.histogram(
         "request_duration_seconds",
         "HTTP request duration in seconds",
-        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
     )
     page_size_bytes = _registry.histogram(
         "page_size_bytes",
         "Page size in bytes",
-        buckets=(1000, 10000, 50000, 100000, 500000, 1000000)
+        buckets=(1000, 10000, 50000, 100000, 500000, 1000000),
     )
 
 

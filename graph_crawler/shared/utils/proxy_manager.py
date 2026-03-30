@@ -131,9 +131,7 @@ class Proxy:
                 "average_response_time_ms": self.stats.average_response_time,
                 "is_healthy": self.stats.is_healthy,
                 "consecutive_failures": self.stats.consecutive_failures,
-                "last_used": (
-                    self.stats.last_used.isoformat() if self.stats.last_used else None
-                ),
+                "last_used": (self.stats.last_used.isoformat() if self.stats.last_used else None),
                 "last_check": (
                     self.stats.last_check.isoformat() if self.stats.last_check else None
                 ),
@@ -154,18 +152,6 @@ class ProxyPoolManager:
         health_check_interval: Інтервал між автоматичними перевірками в секундах (0 = вимкнено)
         max_consecutive_failures: Максимальна кількість послідовних помилок перед видаленням proxy
         auto_remove_failed: Автоматично видаляти неробочі proxy
-
-    Example:
-        >>> manager = ProxyPoolManager(
-        ...     proxies=[
-        ...         Proxy(url="http://proxy1.example.com:8080", proxy_type=ProxyType.HTTP),
-        ...         Proxy(url="http://proxy2.example.com:8080", proxy_type=ProxyType.HTTP),
-        ...     ],
-        ...     rotation_strategy=RotationStrategy.ROUND_ROBIN
-        ... )
-        >>> proxy = manager.get_next_proxy()
-        >>> print(proxy.url)
-        'http://proxy1.example.com:8080'
     """
 
     def __init__(
@@ -216,20 +202,16 @@ class ProxyPoolManager:
         Returns:
             True якщо успішно додано, False якщо health check провалився
         """
-        proxy = Proxy(
-            url=url, proxy_type=proxy_type, username=username, password=password
-        )
+        proxy = Proxy(url=url, proxy_type=proxy_type, username=username, password=password)
 
         if check_health:
             if not self.check_proxy_health(proxy):
-                logger.warning(f" Proxy {url} не пройшов health check, не додано")
+                logger.warning(" Proxy %s не пройшов health check, не додано", url)
                 return False
 
         with self._lock:
             self._proxies.append(proxy)
-            logger.info(
-                f"Додано proxy: {url}, загальна кількість: {len(self._proxies)}"
-            )
+            logger.info("Додано proxy: %s, загальна кількість: %s", url, len(self._proxies))
         return True
 
     def remove_proxy(self, url: str) -> bool:
@@ -246,11 +228,9 @@ class ProxyPoolManager:
             for i, proxy in enumerate(self._proxies):
                 if proxy.url == url:
                     self._proxies.pop(i)
-                    logger.info(
-                        f" Видалено proxy: {url}, залишилось: {len(self._proxies)}"
-                    )
+                    logger.info(" Видалено proxy: %s, залишилось: %s", url, len(self._proxies))
                     return True
-        logger.warning(f" Proxy {url} не знайдено")
+        logger.warning(" Proxy %s не знайдено", url)
         return False
 
     def get_next_proxy(self) -> Optional[Proxy]:
@@ -287,11 +267,7 @@ class ProxyPoolManager:
                     healthy_proxies,
                     key=lambda p: (
                         p.stats.success_rate if p.stats.total_requests > 0 else 0,
-                        (
-                            -p.stats.average_response_time
-                            if p.stats.successful_requests > 0
-                            else 0
-                        ),
+                        (-p.stats.average_response_time if p.stats.successful_requests > 0 else 0),
                     ),
                 )
             else:
@@ -323,21 +299,17 @@ class ProxyPoolManager:
                 proxy.stats.is_healthy = True
                 proxy.stats.consecutive_failures = 0
                 proxy.stats.last_check = datetime.now()
-                logger.debug(
-                    f"Proxy {proxy.url} здоровий, час відповіді: {response_time:.2f}s"
-                )
+                logger.debug("Proxy %s здоровий, час відповіді: %.2fs", proxy.url, response_time)
                 return True
             else:
-                logger.warning(
-                    f" Proxy {proxy.url} повернув статус {response.status_code}"
-                )
+                logger.warning(" Proxy %s повернув статус %s", proxy.url, response.status_code)
                 return False
 
         except Exception as e:
             proxy.stats.is_healthy = False
             proxy.stats.consecutive_failures += 1
             proxy.stats.last_check = datetime.now()
-            logger.warning(f" Health check failed for {proxy.url}: {str(e)}")
+            logger.warning(" Health check failed for %s: %s", proxy.url, str(e))
 
             if (
                 self._auto_remove_failed
@@ -367,9 +339,7 @@ class ProxyPoolManager:
             results[proxy.url] = is_healthy
 
         healthy_count = sum(1 for v in results.values() if v)
-        logger.info(
-            f" Health check завершено: {healthy_count}/{len(results)} proxy здорові"
-        )
+        logger.info(" Health check завершено: %s/%s proxy здорові", healthy_count, len(results))
         return results
 
     def record_request_result(
@@ -396,8 +366,7 @@ class ProxyPoolManager:
 
                 if (
                     self._auto_remove_failed
-                    and proxy.stats.consecutive_failures
-                    >= self._max_consecutive_failures
+                    and proxy.stats.consecutive_failures >= self._max_consecutive_failures
                 ):
                     logger.error(
                         f" Видалення proxy {proxy.url} після "
@@ -423,9 +392,7 @@ class ProxyPoolManager:
 
             healthy = sum(1 for p in self._proxies if p.stats.is_healthy)
             total_requests = sum(p.stats.total_requests for p in self._proxies)
-            successful_requests = sum(
-                p.stats.successful_requests for p in self._proxies
-            )
+            successful_requests = sum(p.stats.successful_requests for p in self._proxies)
 
             return {
                 "total_proxies": len(self._proxies),
@@ -435,9 +402,7 @@ class ProxyPoolManager:
                 "successful_requests": successful_requests,
                 "failed_requests": total_requests - successful_requests,
                 "overall_success_rate": (
-                    (successful_requests / total_requests * 100)
-                    if total_requests > 0
-                    else 0.0
+                    (successful_requests / total_requests * 100) if total_requests > 0 else 0.0
                 ),
                 "rotation_strategy": self._rotation_strategy.value,
                 "uptime_seconds": (datetime.now() - self._start_time).total_seconds(),
@@ -456,30 +421,30 @@ class ProxyPoolManager:
         summary = f"""
  Proxy Pool Manager Summary
 
-Proxies: {stats['total_proxies']} total
-   Healthy: {stats['healthy_proxies']}
-   Unhealthy: {stats['unhealthy_proxies']}
+Proxies: {stats["total_proxies"]} total
+   Healthy: {stats["healthy_proxies"]}
+   Unhealthy: {stats["unhealthy_proxies"]}
 
-Requests: {stats['total_requests']} total
-   Successful: {stats['successful_requests']}
-   Failed: {stats['failed_requests']}
-   Success Rate: {stats['overall_success_rate']:.1f}%
+Requests: {stats["total_requests"]} total
+   Successful: {stats["successful_requests"]}
+   Failed: {stats["failed_requests"]}
+   Success Rate: {stats["overall_success_rate"]:.1f}%
 
-Rotation Strategy: {stats['rotation_strategy']}
-Uptime: {stats['uptime_seconds']:.0f}s
+Rotation Strategy: {stats["rotation_strategy"]}
+Uptime: {stats["uptime_seconds"]:.0f}s
 
 Proxy Details:
 """
         for i, proxy_dict in enumerate(stats["proxies"], 1):
             proxy_stats = proxy_dict["stats"]
             summary += f"""
-  {i}. {proxy_dict['url']}
-     Type: {proxy_dict['proxy_type']}
-     Status: {'Healthy' if proxy_stats['is_healthy'] else ' Unhealthy'}
-     Requests: {proxy_stats['total_requests']} (Success: {proxy_stats['successful_requests']}, Failed: {proxy_stats['failed_requests']})
-     Success Rate: {proxy_stats['success_rate']:.1f}%
-     Avg Response Time: {proxy_stats['average_response_time_ms']:.0f}ms
-     Consecutive Failures: {proxy_stats['consecutive_failures']}
+  {i}. {proxy_dict["url"]}
+     Type: {proxy_dict["proxy_type"]}
+     Status: {"Healthy" if proxy_stats["is_healthy"] else " Unhealthy"}
+     Requests: {proxy_stats["total_requests"]} (Success: {proxy_stats["successful_requests"]}, Failed: {proxy_stats["failed_requests"]})
+     Success Rate: {proxy_stats["success_rate"]:.1f}%
+     Avg Response Time: {proxy_stats["average_response_time_ms"]:.0f}ms
+     Consecutive Failures: {proxy_stats["consecutive_failures"]}
 """
 
         return summary

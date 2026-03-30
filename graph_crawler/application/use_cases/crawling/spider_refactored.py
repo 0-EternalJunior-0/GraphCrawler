@@ -56,23 +56,6 @@ class GraphSpiderRefactored(BaseSpider):
     """
     Рефакторений GraphSpider з дотриманням SRP (Single Responsibility Principle).
 
-    Responsibilities (ТІЛЬКИ 3):
-    1. Ініціалізація компонентів (filters, scanner, processor, CustomPlugins)
-    2. Координація компонентів через Dependency Injection
-    3. Управління на високому рівні (crawl method)
-
-    Делегування відповідальностей:
-    - SpiderLifecycleManager → lifecycle hooks (BEFORE_CRAWL, AFTER_CRAWL)
-    - IncrementalCrawlStrategy → incremental crawling логіка
-    - CrawlProgressTracker → progress tracking, metrics, events
-    - CrawlCoordinator → координація sequential/batch mode
-
-    ПЕРЕВАГИ рефакторингу:
-    - Кожен клас має одну відповідальність (SRP)
-    - Легко тестувати кожен компонент окремо
-    - Зменшено розмір класу з 622 до ~150 рядків
-    - Покращена підтримуваність та читабельність
-    - Легше розширювати (нові стратегії, координатори)
     """
 
     def __init__(
@@ -99,9 +82,7 @@ class GraphSpiderRefactored(BaseSpider):
 
         # Граф та scheduler
         self.graph = Graph()
-        self.scheduler = CrawlScheduler(
-            url_rules=config.url_rules, event_bus=self.event_bus
-        )
+        self.scheduler = CrawlScheduler(url_rules=config.url_rules, event_bus=self.event_bus)
 
         # Ініціалізуємо фільтри
         if domain_filter is None or path_filter is None:
@@ -147,7 +128,7 @@ class GraphSpiderRefactored(BaseSpider):
 
         # Додаємо патерни з url_rules
         # URLRule використовує should_scan замість action
-        # ВАЖЛИВО: Тільки should_scan=False додається в excluded_patterns!
+        # Note: Тільки should_scan=False додається в excluded_patterns
         # should_scan=True НЕ додається в included_patterns, бо це перебиває
         # всі інші URL через логіку PathFilter (дозволяє ТІЛЬКИ included)
         for rule in self.config.url_rules:
@@ -171,9 +152,9 @@ class GraphSpiderRefactored(BaseSpider):
         )
         self.path_filter = PathFilter(path_config, self.event_bus)
 
-        logger.info(f"Filters initialized: base_domain={base_domain}")
+        logger.info("Filters initialized: base_domain=%s", base_domain)
         if self.config.has_url_rules():
-            logger.info(f"URL rules active: {self.config.get_url_rules_count()} rules")
+            logger.info("URL rules active: %s rules", self.config.get_url_rules_count())
 
     def _init_node_plugins(self):
         """Ініціалізує Node Plugin Manager."""
@@ -186,20 +167,17 @@ class GraphSpiderRefactored(BaseSpider):
 
         if self.config.node_plugins is not None:
             plugins = self.config.node_plugins
-            logger.info(f"Using custom node CustomPlugins: {len(plugins)} CustomPlugins")
+            logger.info("Using custom node CustomPlugins: %s CustomPlugins", len(plugins))
         else:
             plugins = get_default_node_plugins()
-            logger.info(f"Using default node CustomPlugins: {len(plugins)} CustomPlugins")
+            logger.info("Using default node CustomPlugins: %s CustomPlugins", len(plugins))
 
         for plugin in plugins:
             if plugin.enabled:
                 self.node_plugin_manager.register(plugin)
-                logger.debug(
-                    f"Registered plugin: {plugin.name} "
-                    f"(type={plugin.plugin_type.value})"
-                )
+                logger.debug("Registered plugin: %s (type=%s)", plugin.name, plugin.plugin_type.value)
 
-        logger.info(f"Node CustomPlugins initialized: {self.node_plugin_manager}")
+        logger.info("Node CustomPlugins initialized: %s", self.node_plugin_manager)
 
     def _init_components(self, base_graph: Optional[Graph]) -> None:
         """
@@ -270,11 +248,8 @@ class GraphSpiderRefactored(BaseSpider):
             )
         )
 
-        logger.info(f"Starting crawl: {self.config.url}")
-        logger.info(
-            f"Config: max_depth={self.config.max_depth}, "
-            f"max_pages={self.config.max_pages}"
-        )
+        logger.info("Starting crawl: %s", self.config.url)
+        logger.info("Config: max_depth=%s, max_pages=%s", self.config.max_depth, self.config.max_pages)
 
         try:
             # ДЕЛЕГУВАННЯ: Lifecycle Manager виконує BEFORE_CRAWL hooks
@@ -294,7 +269,7 @@ class GraphSpiderRefactored(BaseSpider):
             return result
 
         except Exception as e:
-            logger.error(f"Crawl error: {e}", exc_info=True)
+            logger.error("Crawl error: %s", e, exc_info=True)
 
             # Подія помилки
             self.event_bus.publish(
@@ -311,7 +286,8 @@ class GraphSpiderRefactored(BaseSpider):
             self.lifecycle_manager.execute_after_crawl(pages_crawled)
 
             # ДЕЛЕГУВАННЯ: Progress Tracker публікує завершення
-            self.progress_tracker.publish_crawl_completed()
+            edges_count = len(self.graph.edges) if self.graph else 0
+            self.progress_tracker.publish_crawl_completed(edges_count=edges_count)
 
     def get_stats(self) -> dict:
         """

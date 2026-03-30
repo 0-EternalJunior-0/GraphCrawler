@@ -66,43 +66,7 @@ class FailedURL:
 
 
 class DeadLetterQueue:
-    """
-    Dead Letter Queue для зберігання та обробки failed URLs.
-
-    Функціонал:
-    - Зберігає failed URLs з детальною інформацією про помилку
-    - Retry механізм з exponential backoff
-    - Максимум 3 спроби, після цього → permanent failure
-    - Експорт списку failed URLs для аналізу
-    - Статистика по типах помилок
-
-    Exponential Backoff:
-    - Спроба 1: retry через 1 секунду
-    - Спроба 2: retry через 2 секунди
-    - Спроба 3: retry через 4 секунди
-    - Після 3 спроб → permanent failure
-
-    Example:
-        >>> dlq = DeadLetterQueue(max_retries=3)
-        >>>
-        >>> # Додати failed URL
-        >>> dlq.add_failed_url(
-        ...     url="https://site.com/page",
-        ...     error_message="Connection timeout",
-        ...     error_type="TimeoutError"
-        ... )
-        >>>
-        >>> # Отримати URLs для retry
-        >>> urls_to_retry = dlq.get_urls_for_retry()
-        >>>
-        >>> # Експорт failed URLs
-        >>> dlq.export_to_json("failed_urls.json")
-        >>>
-        >>> # Статистика
-        >>> stats = dlq.get_statistics()
-        >>> print(f"Total failed: {stats['total_failed']}")
-        >>> print(f"Permanent failures: {stats['permanent_failures']}")
-    """
+    """Dead Letter Queue для зберігання та обробки failed URLs."""
 
     def __init__(
         self,
@@ -192,7 +156,7 @@ class DeadLetterQueue:
                 is_permanent_failure=False,
             )
             self.failed_urls[url] = failed_url
-            logger.info(f"New failed URL added to DLQ: {url} (error: {error_type})")
+            logger.info("New failed URL added to DLQ: %s (error: %s)", url, error_type)
 
         self.error_stats[error_type] += 1
 
@@ -236,7 +200,7 @@ class DeadLetterQueue:
             ):
                 urls_for_retry.append(failed_url)
 
-        logger.info(f"Found {len(urls_for_retry)} URLs ready for retry")
+        logger.info("Found %s URLs ready for retry", len(urls_for_retry))
         return urls_for_retry
 
     def mark_as_success(self, url: str) -> None:
@@ -279,9 +243,7 @@ class DeadLetterQueue:
             - average_attempts: середня кількість спроб
         """
         total_failed = len(self.failed_urls)
-        permanent_failures = sum(
-            1 for url in self.failed_urls.values() if url.is_permanent_failure
-        )
+        permanent_failures = sum(1 for url in self.failed_urls.values() if url.is_permanent_failure)
         pending_retry = total_failed - permanent_failures
 
         # Середня кількість спроб
@@ -302,32 +264,13 @@ class DeadLetterQueue:
 
         Args:
             filepath: Шлях до JSON файлу
-
-        Example JSON format:
-        {
-            "metadata": {
-                "exported_at": "2024-11-25T10:30:00",
-                "total_failed": 150,
-                "permanent_failures": 50
-            },
-            "failed_urls": [
-                {
-                    "url": "https://site.com/page",
-                    "error_type": "TimeoutError",
-                    "attempt_count": 3,
-                    ...
-                }
-            ]
-        }
         """
         metadata = {
             "exported_at": datetime.now().isoformat(),
             "statistics": self.get_statistics(),
         }
 
-        failed_urls_list = [
-            failed_url.to_dict() for failed_url in self.failed_urls.values()
-        ]
+        failed_urls_list = [failed_url.to_dict() for failed_url in self.failed_urls.values()]
 
         export_data = {"metadata": metadata, "failed_urls": failed_urls_list}
 
@@ -337,7 +280,7 @@ class DeadLetterQueue:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(export_data, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Exported {len(failed_urls_list)} failed URLs to {filepath}")
+        logger.info("Exported %s failed URLs to %s", len(failed_urls_list), filepath)
 
     def import_from_json(self, filepath: str) -> None:
         """
@@ -356,14 +299,14 @@ class DeadLetterQueue:
             self.failed_urls[failed_url.url] = failed_url
             self.error_stats[failed_url.error_type] += 1
 
-        logger.info(f"Imported {len(failed_urls_list)} failed URLs from {filepath}")
+        logger.info("Imported %s failed URLs from %s", len(failed_urls_list), filepath)
 
     def clear(self) -> None:
         """Очищає всі failed URLs з DLQ."""
         count = len(self.failed_urls)
         self.failed_urls.clear()
         self.error_stats.clear()
-        logger.info(f"Cleared {count} failed URLs from DLQ")
+        logger.info("Cleared %s failed URLs from DLQ", count)
 
     def get_summary(self) -> str:
         """

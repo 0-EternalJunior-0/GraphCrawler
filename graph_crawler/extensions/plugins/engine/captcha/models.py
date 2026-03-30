@@ -47,9 +47,7 @@ class CaptchaInfo:
     action: Optional[str] = None
 
     def __repr__(self):
-        return (
-            f"CaptchaInfo(type={self.captcha_type}, site_key={self.site_key[:20]}...)"
-        )
+        return f"CaptchaInfo(type={self.captcha_type}, site_key={self.site_key[:20]}...)"
 
 
 @dataclass

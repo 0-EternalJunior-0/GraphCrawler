@@ -23,18 +23,6 @@ class IEventListener(Protocol):
     """
     Protocol інтерфейс для Event Listeners.
 
-        Замість reflection і магії імен (dir(listener), startswith('on_')),
-        використовуємо явний інтерфейс через Protocol.
-
-        Це покращує:
-        - Читабельність коду (явно видно які методи потрібні)
-        - Type safety (перевірка на етапі статичного аналізу)
-        - IDE підтримку (autocomplete)
-        - Документацію (явний контракт)
-
-        Listener може реалізувати тільки ті методи які йому потрібні.
-        Всі методи опціональні завдяки @runtime_checkable.
-
         Example:
             >>> class MyListener:
             ...     def on_crawl_started(self, event: CrawlerEvent):
@@ -80,17 +68,6 @@ class BaseListener(
 ):
     """
     Уніфікований базовий клас (Multiple Inheritance).
-
-        Об'єднує всі спеціалізовані listeners через множинне наслідування:
-        - BaseCrawlListener - події краулінгу
-        - BaseNodeListener - події нод
-        - BaseURLListener - події URL
-        - BasePluginListener - події плагінів
-        - BaseMetricsListener - метрики
-        - BaseStorageListener - storage події
-        - BaseErrorListener - помилки
-
-        Можна наслідувати BaseListener і перевизначити тільки потрібні методи.
 
         Example:
             >>> class MyListener(BaseListener):

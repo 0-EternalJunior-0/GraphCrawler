@@ -44,31 +44,67 @@ class MarkdownOptions(BaseModel):
 
     # Теги для видалення (immutable для thread-safety)
     noise_tags: FrozenSet[str] = Field(
-        default_factory=lambda: frozenset({
-            "script", "style", "noscript", "template", "svg", "canvas",
-            "iframe", "embed", "object", "video", "audio"
-        }),
-        description="Теги для автоматичного видалення"
+        default_factory=lambda: frozenset(
+            {
+                "script",
+                "style",
+                "noscript",
+                "template",
+                "svg",
+                "canvas",
+                "iframe",
+                "embed",
+                "object",
+                "video",
+                "audio",
+            }
+        ),
+        description="Теги для автоматичного видалення",
     )
 
     # Класи для видалення (реклама, попапи)
     noise_classes: FrozenSet[str] = Field(
-        default_factory=lambda: frozenset({
-            "ad", "ads", "advertisement", "advert", "banner",
-            "sidebar", "cookie", "popup", "modal", "overlay",
-            "newsletter", "subscribe", "social", "share",
-            "comment", "comments", "related", "recommended"
-        }),
-        description="CSS класи для видалення"
+        default_factory=lambda: frozenset(
+            {
+                "ad",
+                "ads",
+                "advertisement",
+                "advert",
+                "banner",
+                "sidebar",
+                "cookie",
+                "popup",
+                "modal",
+                "overlay",
+                "newsletter",
+                "subscribe",
+                "social",
+                "share",
+                "comment",
+                "comments",
+                "related",
+                "recommended",
+            }
+        ),
+        description="CSS класи для видалення",
     )
 
     # ID для видалення
     noise_ids: FrozenSet[str] = Field(
-        default_factory=lambda: frozenset({
-            "cookie", "popup", "modal", "overlay", "ad", "ads",
-            "sidebar", "newsletter", "comments"
-        }),
-        description="HTML ID для видалення"
+        default_factory=lambda: frozenset(
+            {
+                "cookie",
+                "popup",
+                "modal",
+                "overlay",
+                "ad",
+                "ads",
+                "sidebar",
+                "newsletter",
+                "comments",
+            }
+        ),
+        description="HTML ID для видалення",
     )
 
     # Включення контенту

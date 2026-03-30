@@ -9,7 +9,6 @@ Template Method забезпечує:
 - Загальна логіка (events, error handling) в базовому класі
 - Специфічна логіка (_do_fetch) в підкласах
 
-
 """
 
 import asyncio
@@ -30,32 +29,6 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
     """
     Базовий клас для всіх async драйверів (Template Method pattern).
 
-    Реалізує IAsyncDriver Protocol через:
-    - fetch() - Template Method з загальною логікою
-    - _do_fetch() - Abstract Method для специфічної реалізації
-
-    Забезпечує:
-    - Публікацію подій (FETCH_STARTED, FETCH_SUCCESS, FETCH_ERROR)
-    - Error handling з FetchResponse
-    - Async context manager
-    - Дефолтний fetch_many через asyncio.gather
-
-    Підкласи повинні реалізувати:
-    - _do_fetch(url) - специфічна логіка завантаження
-    - _do_close() - специфічна логіка закриття (опціонально)
-
-    Example:
-        >>> class MyAsyncDriver(BaseAsyncDriver):
-        ...     async def _do_fetch(self, url: str) -> FetchResponse:
-        ...         # Специфічна логіка
-        ...         async with aiohttp.ClientSession() as session:
-        ...             async with session.get(url) as response:
-        ...                 html = await response.text()
-        ...                 return FetchResponse(
-        ...                     url=url, html=html,
-        ...                     status_code=response.status,
-        ...                     headers=dict(response.headers)
-        ...                 )
     """
 
     # Назва драйвера для логів та подій
@@ -75,8 +48,6 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
         """
         self.config = config or {}
         self.event_bus = event_bus
-
-    # ==================== Template Method ====================
 
     async def fetch(self, url: str) -> FetchResponse:
         """
@@ -131,8 +102,6 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
         """
         pass
 
-    # ==================== Batch Fetching ====================
-
     async def fetch_many(self, urls: List[str]) -> List[FetchResponse]:
         """
         Async паралельне завантаження через asyncio.gather.
@@ -157,9 +126,7 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 processed.append(
-                    self._create_error_response(
-                        urls[i], f"{type(result).__name__}: {result}"
-                    )
+                    self._create_error_response(urls[i], f"{type(result).__name__}: {result}")
                 )
             else:
                 processed.append(result)
@@ -169,8 +136,6 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
     def supports_batch_fetching(self) -> bool:
         """Всі async драйвери підтримують batch fetching."""
         return True
-
-    # ==================== Resource Management ====================
 
     async def close(self) -> None:
         """
@@ -197,17 +162,11 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
         await self.close()
         return False
 
-    # ==================== Event Helpers ====================
-
     def _publish_fetch_started(self, url: str) -> None:
         """Публікує подію FETCH_STARTED."""
-        self.publish_event(
-            EventType.FETCH_STARTED, data={"url": url, "driver": self.driver_name}
-        )
+        self.publish_event(EventType.FETCH_STARTED, data={"url": url, "driver": self.driver_name})
 
-    def _publish_fetch_success(
-        self, url: str, status_code: Optional[int], duration: float
-    ) -> None:
+    def _publish_fetch_success(self, url: str, status_code: Optional[int], duration: float) -> None:
         """Публікує подію FETCH_SUCCESS."""
         self.publish_event(
             EventType.FETCH_SUCCESS,
@@ -236,7 +195,7 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
         duration = time.time() - start_time
         error_msg = f"{type(exception).__name__}: {exception}"
 
-        logger.error(f"Fetch error for {url}: {error_msg}")
+        logger.error("Fetch error for %s: %s", url, error_msg)
 
         self.publish_event(
             EventType.FETCH_ERROR,
@@ -253,6 +212,4 @@ class BaseAsyncDriver(EventPublisherMixin, ABC):
 
     def _create_error_response(self, url: str, error: str) -> FetchResponse:
         """Створює FetchResponse для помилки."""
-        return FetchResponse(
-            url=url, html=None, status_code=None, headers={}, error=error
-        )
+        return FetchResponse(url=url, html=None, status_code=None, headers={}, error=error)

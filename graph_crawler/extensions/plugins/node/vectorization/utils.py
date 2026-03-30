@@ -101,15 +101,14 @@ def get_model(model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
     Raises:
         VectorizationError: Якщо модель не вдалося завантажити
     """
-    # Перевіряємо кеш
     if model_name in _model_cache:
-        logger.debug(f"Using cached model: {model_name}")
+        logger.debug("Using cached model: %s", model_name)
         return _model_cache[model_name]
 
     try:
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 
-        logger.info(f"Loading sentence-transformers model: {model_name}...")
+        logger.info("Loading sentence-transformers model: %s...", model_name)
         model = SentenceTransformer(model_name)
 
         # Кешуємо модель
@@ -139,7 +138,7 @@ def vectorize_text(
     model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
     target_size: int = 512,
     clean: bool = True,
-    prefix: str = None,
+    prefix: Optional[str] = None,
 ) -> np.ndarray:
     """
     Векторизує текст в числовий вектор фіксованого розміру.
@@ -166,9 +165,7 @@ def vectorize_text(
         if clean:
             text = clean_text(text)
             if not text:
-                logger.warning(
-                    "Text became empty after cleaning, returning zero vector"
-                )
+                logger.warning("Text became empty after cleaning, returning zero vector")
                 return np.zeros(target_size, dtype=np.float32)
 
         # E5 моделі потребують prefix
@@ -177,27 +174,23 @@ def vectorize_text(
 
         if prefix:
             text = prefix + text
-
-        # Отримуємо модель
         model = get_model(model_name)
 
         # Векторизація
         embedding = model.encode(text, convert_to_numpy=True)
-
-        # Перевіряємо розмір
         original_size = embedding.shape[0]
 
         if original_size == target_size:
             return embedding.astype(np.float32)
         elif original_size < target_size:
             # Розширюємо вектор (padding нулями)
-            logger.debug(f"Padding vector from {original_size} to {target_size}")
+            logger.debug("Padding vector from %s to %s", original_size, target_size)
             padded = np.zeros(target_size, dtype=np.float32)
             padded[:original_size] = embedding
             return padded
         else:
             # Зменшуємо вектор (truncate)
-            logger.debug(f"Truncating vector from {original_size} to {target_size}")
+            logger.debug("Truncating vector from %s to %s", original_size, target_size)
             return embedding[:target_size].astype(np.float32)
 
     except VectorizationError:
@@ -212,7 +205,7 @@ def vectorize_batch(
     target_size: int = 512,
     clean: bool = True,
     batch_size: int = 64,
-    prefix: str = None,
+    prefix: Optional[str] = None,
 ) -> List[np.ndarray]:
     """
     Векторизує список текстів батчами для швидкості.
@@ -251,8 +244,6 @@ def vectorize_batch(
         # Додаємо prefix якщо потрібно
         if prefix:
             cleaned_texts = [prefix + t if t and t.strip() else t for t in cleaned_texts]
-
-        # Отримуємо модель
         model = get_model(model_name)
 
         # Векторизація батчами - ПАРАЛЕЛЬНА обробка
@@ -271,7 +262,9 @@ def vectorize_batch(
         # Batch encode всіх непорожніх текстів ОДНИМ викликом (паралельно!)
         if non_empty_texts:
             total_batches = (len(non_empty_texts) + batch_size - 1) // batch_size
-            logger.info(f"Batch vectorization: {len(non_empty_texts)} texts in {total_batches} batches (batch_size={batch_size})")
+            logger.info(
+                f"Batch vectorization: {len(non_empty_texts)} texts in {total_batches} batches (batch_size={batch_size})"
+            )
 
             # ОДИН виклик model.encode для ВСІХ текстів - модель сама розбиває на батчі
             raw_embeddings = model.encode(
@@ -279,7 +272,7 @@ def vectorize_batch(
                 convert_to_numpy=True,
                 batch_size=batch_size,
                 show_progress_bar=len(non_empty_texts) > 50,
-                normalize_embeddings=False
+                normalize_embeddings=False,
             )
 
             # Підгонка до цільового розміру
@@ -305,7 +298,7 @@ def vectorize_batch(
             else:
                 all_embeddings.append(next(emb_iter))
 
-        logger.info(f"Vectorized {len(all_embeddings)} texts successfully")
+        logger.info("Vectorized %s texts successfully", len(all_embeddings))
         return all_embeddings
 
     except VectorizationError:
@@ -323,15 +316,11 @@ def clear_model_cache():
     """
     global _model_cache
     if _model_cache:
-        logger.info(f"Clearing model cache ({len(_model_cache)} models)")
+        logger.info("Clearing model cache (%s models)", len(_model_cache))
         _model_cache.clear()
 
 
-# =============================================================================
 # НОВІ ФУНКЦІЇ: Пошук, Порівняння, Групування
-# =============================================================================
-
-
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """
     Обчислює косинусну схожість між двома векторами.
@@ -402,18 +391,12 @@ def compare(
     """
     Порівнює два вектори або текст з вектором.
 
-    Підтримує:
-    - Вектор vs Вектор
-    - Текст vs Вектор (автовекторизація тексту)
-    - Текст vs Текст
-
     Args:
         input1: Перший вектор або текст
         input2: Другий вектор або текст
         metric: Метрика схожості (cosine за замовчуванням - індустріальний стандарт)
         model_name: Назва моделі для автовекторизації тексту
         vector_size: Розмір вектору (автоматично визначається з вхідних векторів)
-
     Returns:
         Словник з результатами:
         {
@@ -423,15 +406,6 @@ def compare(
             'input1_type': str,   # 'vector' або 'text'
             'input2_type': str    # 'vector' або 'text'
         }
-
-    Приклад:
-        >>> # Порівняння двох векторів
-        >>> result = compare(vector1, vector2)
-        >>> print(result['similarity'])
-
-        >>> # Порівняння тексту з вектором
-        >>> result = compare(vector, "Привіт світ")
-        >>> print(result['similarity'])
     """
     # Нормалізуємо метрику
     if isinstance(metric, str):
@@ -443,27 +417,21 @@ def compare(
     # Визначаємо розмір з першого input, якщо це вектор
     if auto_vector_size is None:
         if isinstance(input1, (np.ndarray, list)) and not isinstance(input1, str):
-            auto_vector_size = (
-                len(input1) if isinstance(input1, list) else input1.shape[0]
-            )
+            auto_vector_size = len(input1) if isinstance(input1, list) else input1.shape[0]
         elif isinstance(input2, (np.ndarray, list)) and not isinstance(input2, str):
-            auto_vector_size = (
-                len(input2) if isinstance(input2, list) else input2.shape[0]
-            )
+            auto_vector_size = len(input2) if isinstance(input2, list) else input2.shape[0]
         else:
             # Обидва текст - використовуємо натуральний розмір моделі
             model = get_model(model_name)
             auto_vector_size = model.get_sentence_embedding_dimension()
 
-    logger.debug(f"Auto-detected vector_size: {auto_vector_size}")
+    logger.debug("Auto-detected vector_size: %s", auto_vector_size)
 
     # Визначаємо типи входів та конвертуємо
     def to_vector(inp) -> Tuple[np.ndarray, str]:
         if isinstance(inp, str):
             # Це текст - векторизуємо з автоматичним розміром
-            vec = vectorize_text(
-                inp, model_name=model_name, target_size=auto_vector_size
-            )
+            vec = vectorize_text(inp, model_name=model_name, target_size=auto_vector_size)
             return vec, "text"
         elif isinstance(inp, list):
             return np.array(inp, dtype=np.float32), "vector"
@@ -510,8 +478,6 @@ def search(
     """
     Векторний пошук по графу - знаходить найбільш схожі ноди за текстовим запитом.
 
-    Це основа всього - must-have функція для семантичного пошуку.
-
     Args:
         graph: Граф з нодами (має атрибут .nodes)
         query: Текстовий запит для пошуку
@@ -521,37 +487,18 @@ def search(
         model_name: Назва моделі для векторизації запиту
         vector_size: Розмір вектору
         threshold: Мінімальний поріг схожості (опціонально)
-
-    Returns:
-        Список результатів, відсортований за схожістю:
-        [
-            {
-                'node_id': str,
-                'url': str,
-                'similarity': float,
-                'rank': int
-            },
-            ...
-        ]
-
-    Приклад:
-        >>> results = search(graph, "Python розробник", top_k=5)
-        >>> for r in results:
-        ...     print(f"{r['rank']}. {r['url']} - {r['similarity']:.3f}")
     """
     # Нормалізуємо метрику
     if isinstance(metric, str):
         metric = SimilarityMetric(metric.lower())
 
     # Векторизуємо запит
-    logger.info(f"Пошук: '{query[:50]}...' (top_k={top_k}, metric={metric.value})")
+    logger.info("Пошук: '%s...' (top_k=%s, metric=%s)", query, top_k, metric.value)
     query_vector = vectorize_text(query, model_name=model_name, target_size=vector_size)
 
     # Збираємо всі ноди з векторами
     results = []
     nodes_without_vectors = 0
-
-    # Отримуємо ноди з графа
     if hasattr(graph, "nodes"):
         nodes = graph.nodes
     elif isinstance(graph, dict):
@@ -560,7 +507,6 @@ def search(
         raise ValueError("graph має бути об'єктом з атрибутом .nodes або словником")
 
     for node_id, node in nodes.items():
-        # Отримуємо вектор з user_data
         node_vector = None
 
         if hasattr(node, "user_data") and vector_key in node.user_data:
@@ -574,6 +520,7 @@ def search(
 
         # Обчислюємо схожість
         node_vector = np.array(node_vector, dtype=np.float32)
+        similarity = 0.0  # Default value
 
         if metric == SimilarityMetric.COSINE:
             similarity = cosine_similarity(query_vector, node_vector)
@@ -586,8 +533,6 @@ def search(
         # Фільтруємо за порогом
         if threshold is not None and similarity < threshold:
             continue
-
-        # Отримуємо URL
         url = getattr(node, "url", None) or (
             node.get("url") if isinstance(node, dict) else str(node_id)
         )
@@ -602,9 +547,7 @@ def search(
         )
 
     if nodes_without_vectors > 0:
-        logger.warning(
-            f"Пропущено {nodes_without_vectors} нод без векторів (ключ: {vector_key})"
-        )
+        logger.warning("Пропущено %s нод без векторів (ключ: %s)", nodes_without_vectors, vector_key)
 
     # Сортуємо за схожістю (від більшого до меншого)
     results.sort(key=lambda x: x["similarity"], reverse=True)
@@ -616,7 +559,7 @@ def search(
     for i, r in enumerate(results):
         r["rank"] = i + 1
 
-    logger.info(f"Знайдено {len(results)} результатів")
+    logger.info("Знайдено %s результатів", len(results))
     return results
 
 
@@ -630,8 +573,6 @@ def cluster(
     """
     Групує (кластеризує) ноди графу за векторами.
 
-    Дозволяє робити категоризацію, теми, структуру контенту.
-
     Args:
         graph: Граф з нодами
         method: Метод кластеризації (kmeans за замовчуванням)
@@ -640,35 +581,12 @@ def cluster(
         **kwargs: Додаткові параметри для алгоритму:
             - eps: Радіус сусідства для DBSCAN (за замовчуванням 0.5)
             - min_samples: Мін. точок для DBSCAN (за замовчуванням 2)
-
-    Returns:
-        Словник з результатами:
-        {
-            'clusters': {
-                0: [node_id1, node_id2, ...],
-                1: [node_id3, ...],
-                ...
-            },
-            'labels': {node_id: cluster_label, ...},
-            'n_clusters': int,
-            'method': str,
-            'stats': {
-                'total_nodes': int,
-                'clustered_nodes': int,
-                'noise_nodes': int  # Для DBSCAN
-            }
-        }
-
-    Приклад:
-        >>> result = cluster(graph, method='kmeans', n_clusters=5)
-        >>> for cluster_id, nodes in result['clusters'].items():
-        ...     print(f"Кластер {cluster_id}: {len(nodes)} нод")
     """
     # Нормалізуємо метод
     if isinstance(method, str):
         method = ClusteringMethod(method.lower())
 
-    logger.info(f"Групування: method={method.value}, n_clusters={n_clusters}")
+    logger.info("Групування: method=%s, n_clusters=%s", method.value, n_clusters)
 
     # Збираємо вектори з графа
     node_ids = []
@@ -694,7 +612,7 @@ def cluster(
             vectors.append(np.array(node_vector, dtype=np.float32))
 
     if len(vectors) < 2:
-        logger.warning(f"Недостатньо нод з векторами для кластеризації: {len(vectors)}")
+        logger.warning("Недостатньо нод з векторами для кластеризації: %s", len(vectors))
         return {
             "clusters": {},
             "labels": {},
@@ -712,7 +630,11 @@ def cluster(
 
     # Кластеризація
     try:
-        from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
+        from sklearn.cluster import (  # type: ignore[import-not-found]
+            DBSCAN,
+            AgglomerativeClustering,
+            KMeans,
+        )
     except ImportError:
         raise VectorizationError(
             "scikit-learn не встановлено. Встановіть: pip install scikit-learn"
@@ -760,9 +682,7 @@ def cluster(
 
     n_actual_clusters = len(clusters)
 
-    logger.info(
-        f"Кластеризація завершена: {n_actual_clusters} кластерів, {noise_count} шуму"
-    )
+    logger.info("Кластеризація завершена: %s кластерів, %s шуму", n_actual_clusters, noise_count)
 
     return {
         "clusters": clusters,

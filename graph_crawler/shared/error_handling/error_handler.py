@@ -41,29 +41,6 @@ class ErrorHandler:
     """
     Централізований обробник помилок краулінгу.
 
-    Функціонал:
-    - Класифікація помилок по типу та severity
-    - Визначення чи можна робити retry
-    - Логування помилок з контекстом
-    - Інтеграція з DeadLetterQueue
-    - Callbacks для custom обробки помилок
-
-    Example:
-        >>> from graph_crawler.application.use_cases.crawling.dead_letter_queue import DeadLetterQueue
-        >>>
-        >>> dlq = DeadLetterQueue()
-        >>> error_handler = ErrorHandler(dead_letter_queue=dlq)
-        >>>
-        >>> # Обробка помилки
-        >>> try:
-        ...     # краулінг код
-        ...     pass
-        ... except Exception as e:
-        ...     error_handler.handle_error(
-        ...         error=e,
-        ...         url="https://site.com/page",
-        ...         context={"depth": 2, "source": "https://site.com"}
-        ...     )
     """
 
     def __init__(
@@ -87,13 +64,9 @@ class ErrorHandler:
         self.errors_by_category = {}
         self.errors_by_severity = {}
 
-        logger.info(
-            f"ErrorHandler initialized with DLQ: {dead_letter_queue is not None}"
-        )
+        logger.info("ErrorHandler initialized with DLQ: %s", dead_letter_queue is not None)
 
-    def handle_error(
-        self, error: Exception, url: str, context: Optional[dict] = None
-    ) -> None:
+    def handle_error(self, error: Exception, url: str, context: Optional[dict] = None) -> None:
         """
         Обробляє помилку краулінгу.
 
@@ -112,12 +85,8 @@ class ErrorHandler:
 
         # Оновлення статистики
         self.error_count += 1
-        self.errors_by_category[category.value] = (
-            self.errors_by_category.get(category.value, 0) + 1
-        )
-        self.errors_by_severity[severity.value] = (
-            self.errors_by_severity.get(severity.value, 0) + 1
-        )
+        self.errors_by_category[category.value] = self.errors_by_category.get(category.value, 0) + 1
+        self.errors_by_severity[severity.value] = self.errors_by_severity.get(severity.value, 0) + 1
 
         # Логування з відповідним рівнем
         log_message = (
@@ -154,9 +123,7 @@ class ErrorHandler:
             try:
                 self.on_error_callback(error, url, context)
             except Exception as callback_error:
-                logger.error(
-                    f"Error in error callback: {callback_error}", exc_info=True
-                )
+                logger.error("Error in error callback: %s", callback_error, exc_info=True)
 
     def _classify_error(self, error: Exception) -> ErrorCategory:
         """
@@ -172,14 +139,10 @@ class ErrorHandler:
         error_message = str(error).lower()
 
         # Network errors
-        if any(
-            keyword in error_type for keyword in ["connection", "timeout", "network"]
-        ):
+        if any(keyword in error_type for keyword in ["connection", "timeout", "network"]):
             return ErrorCategory.NETWORK
 
-        if any(
-            keyword in error_message for keyword in ["connection", "timeout", "network"]
-        ):
+        if any(keyword in error_message for keyword in ["connection", "timeout", "network"]):
             return ErrorCategory.NETWORK
 
         # HTTP errors
@@ -198,15 +161,10 @@ class ErrorHandler:
             return ErrorCategory.VALIDATION
 
         # Authentication errors
-        if any(
-            keyword in error_type for keyword in ["auth", "permission", "forbidden"]
-        ):
+        if any(keyword in error_type for keyword in ["auth", "permission", "forbidden"]):
             return ErrorCategory.AUTHENTICATION
 
-        if any(
-            keyword in error_message
-            for keyword in ["401", "403", "unauthorized", "forbidden"]
-        ):
+        if any(keyword in error_message for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return ErrorCategory.AUTHENTICATION
 
         # Rate limit errors
@@ -214,18 +172,12 @@ class ErrorHandler:
             return ErrorCategory.RATE_LIMIT
 
         # Driver errors
-        if (
-            "driver" in error_type
-            or "playwright" in error_type
-            or "selenium" in error_type
-        ):
+        if "driver" in error_type or "playwright" in error_type or "selenium" in error_type:
             return ErrorCategory.DRIVER
 
         return ErrorCategory.UNKNOWN
 
-    def _determine_severity(
-        self, error: Exception, category: ErrorCategory
-    ) -> ErrorSeverity:
+    def _determine_severity(self, error: Exception, category: ErrorCategory) -> ErrorSeverity:
         """
         Визначає severity помилки.
 
@@ -328,7 +280,9 @@ class ErrorHandlerBuilder:
     Builder для створення ErrorHandler з різними конфігураціями.
 
     Example:
-        >>> from graph_crawler.application.use_cases.crawling.dead_letter_queue import DeadLetterQueue
+        >>> from graph_crawler.application.use_cases.crawling.dead_letter_queue import (
+        ...     DeadLetterQueue
+        ... )
         >>>
         >>> dlq = DeadLetterQueue(max_retries=3)
         >>>
@@ -358,6 +312,4 @@ class ErrorHandlerBuilder:
 
     def build(self) -> ErrorHandler:
         """Створює ErrorHandler."""
-        return ErrorHandler(
-            dead_letter_queue=self._dlq, on_error_callback=self._callback
-        )
+        return ErrorHandler(dead_letter_queue=self._dlq, on_error_callback=self._callback)

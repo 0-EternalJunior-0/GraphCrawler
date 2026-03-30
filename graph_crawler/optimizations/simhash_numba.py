@@ -24,21 +24,15 @@ import logging
 from typing import List
 
 logger = logging.getLogger(__name__)
-
-# ============ NUMBA DETECTION ============
-
 try:
-    import numba
+    import numba  # type: ignore[import-not-found]
     import numpy as np
+
     NUMBA_AVAILABLE = True
-    logger.info(f"🚀 Numba {numba.__version__} loaded - SimHash acceleration enabled")
+    logger.info(" Numba %s loaded - SimHash acceleration enabled", numba.__version__)
 except ImportError:
     NUMBA_AVAILABLE = False
     logger.info("Numba not available - using pure Python SimHash (slower)")
-
-
-# ============ NUMBA OPTIMIZED FUNCTIONS ============
-
 if NUMBA_AVAILABLE:
 
     @numba.jit(nopython=True, cache=True, fastmath=True)
@@ -131,9 +125,10 @@ if NUMBA_AVAILABLE:
 
         for token in tokens:
             # MD5 hash токена (беремо перші 64 біти)
-            token_hash = hashlib.md5(token.encode("utf-8")).hexdigest()
+            # usedforsecurity=False - MD5 для fingerprinting, не для безпеки
+            token_hash = hashlib.md5(token.encode("utf-8"), usedforsecurity=False).hexdigest()
             # Обмежуємо значення до signed int64 range
-            hash_int = int(token_hash[:bits // 4], 16) & mask
+            hash_int = int(token_hash[: bits // 4], 16) & mask
             # Конвертуємо в numpy int64 для Numba
             hash_int_np = np.int64(hash_int if hash_int < (1 << 63) else hash_int - (1 << 64))
 
@@ -160,7 +155,6 @@ if NUMBA_AVAILABLE:
         return _hamming_distance_numba(hash1, hash2)
 
 else:
-    # ============ PURE PYTHON FALLBACK ============
 
     def compute_simhash_fast(tokens: List[str], bits: int = 64) -> str:
         """
@@ -180,12 +174,13 @@ else:
         if not tokens:
             return "0" * (bits // 4)
 
-        v = array('i', [0] * bits)
+        v = array("i", [0] * bits)
         mask = (1 << bits) - 1
 
         for token in tokens:
-            token_hash = hashlib.md5(token.encode("utf-8")).hexdigest()
-            hash_int = int(token_hash[:bits // 4], 16) & mask
+            # usedforsecurity=False - MD5 для fingerprinting, не для безпеки
+            token_hash = hashlib.md5(token.encode("utf-8"), usedforsecurity=False).hexdigest()
+            hash_int = int(token_hash[: bits // 4], 16) & mask
 
             for i in range(bits):
                 v[i] += ((hash_int & 1) << 1) - 1
@@ -194,7 +189,7 @@ else:
         simhash = 0
         for i in range(bits):
             if v[i] >= 0:
-                simhash |= (1 << i)
+                simhash |= 1 << i
 
         return format(simhash, f"0{bits // 4}x")
 
@@ -214,8 +209,6 @@ else:
         xor_result = hash1 ^ hash2
         return bin(xor_result).count("1")
 
-
-# ============ STATUS FUNCTIONS ============
 
 def is_numba_available() -> bool:
     """
@@ -250,8 +243,6 @@ def get_optimization_status() -> dict:
     return status
 
 
-# ============ BENCHMARK ============
-
 def benchmark_simhash(n_tokens: int = 1000, n_iterations: int = 100) -> dict:
     """
     Бенчмарк SimHash обчислень.
@@ -266,7 +257,7 @@ def benchmark_simhash(n_tokens: int = 1000, n_iterations: int = 100) -> dict:
     import time
 
     # Генеруємо тестові токени
-    tokens = [f"token_{i} next_{i+1} word_{i+2}" for i in range(n_tokens)]
+    tokens = [f"token_{i} next_{i + 1} word_{i + 2}" for i in range(n_tokens)]
 
     # Warmup (важливо для Numba JIT)
     for _ in range(3):

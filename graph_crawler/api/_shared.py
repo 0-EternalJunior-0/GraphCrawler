@@ -1,7 +1,4 @@
-"""Спільна логіка для sync та async API.
-
-Винесений спільний код з Crawler/AsyncCrawler.
-"""
+"""Спільна логіка для sync та async API."""
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
@@ -15,28 +12,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DriverType = Union[Literal["http", "async", "playwright", "stealth"], "IDriver", None]
-StorageType = Union[
-    Literal["memory", "json", "sqlite", "postgresql", "mongodb"], "IStorage", None
-]
+# Type aliases для драйверів та сховищ
+# Включаємо str для сумісності з runtime значеннями
+DriverLiteral = Literal["http", "async", "playwright", "stealth"]
+StorageLiteral = Literal["memory", "json", "sqlite", "postgresql", "mongodb"]
+
+DriverType = Union[DriverLiteral, str, "IDriver", None]
+StorageType = Union[StorageLiteral, str, "IStorage", None]
 EventCallback = Callable[[Any], None]
 
 
 class _BaseCrawler:
-    """Базовий клас для Crawler та AsyncCrawler.
-
-    Винесено спільний код для уникнення дублювання.
-
-    Attributes:
-        max_depth: Максимальна глибина краулінгу
-        max_pages: Максимальна кількість сторінок
-        same_domain: Краулити тільки в межах домену
-        request_delay: Затримка між запитами
-        driver: Тип драйвера
-        storage: Тип storage
-        plugins: Список плагінів
-        edge_strategy: Стратегія створення edges
-    """
+    """Базовий клас для Crawler та AsyncCrawler."""
 
     def __init__(
         self,
@@ -118,9 +105,7 @@ class _BaseCrawler:
             RuntimeError: Якщо краулер вже закрито
         """
         if self._closed:
-            raise RuntimeError(
-                f"{self.__class__.__name__} is closed. Create a new instance."
-            )
+            raise RuntimeError(f"{self.__class__.__name__} is closed. Create a new instance.")
 
 
 __all__ = [

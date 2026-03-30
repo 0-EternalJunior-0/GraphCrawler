@@ -46,24 +46,24 @@ BLOCKED_HOSTS = frozenset(
 # Заблоковані порти (common internal services)
 BLOCKED_PORTS = frozenset(
     [
-        22,     # SSH
-        23,     # Telnet
-        25,     # SMTP
-        53,     # DNS
-        110,    # POP3
-        135,    # Windows RPC
-        139,    # NetBIOS
-        143,    # IMAP
-        445,    # SMB
-        3306,   # MySQL
-        5432,   # PostgreSQL
-        6379,   # Redis
+        22,  # SSH
+        23,  # Telnet
+        25,  # SMTP
+        53,  # DNS
+        110,  # POP3
+        135,  # Windows RPC
+        139,  # NetBIOS
+        143,  # IMAP
+        445,  # SMB
+        3306,  # MySQL
+        5432,  # PostgreSQL
+        6379,  # Redis
         27017,  # MongoDB
-        9200,   # Elasticsearch
+        9200,  # Elasticsearch
         11211,  # Memcached
-        5672,   # RabbitMQ
-        9092,   # Kafka
-        2181,   # Zookeeper
+        5672,  # RabbitMQ
+        9092,  # Kafka
+        2181,  # Zookeeper
     ]
 )
 
@@ -71,7 +71,7 @@ BLOCKED_PORTS = frozenset(
 ALLOWED_PROTOCOLS = frozenset(["http", "https"])
 
 # Regex для виявлення IPv6 у різних форматах
-IPV6_BRACKET_PATTERN = re.compile(r'^\[(.+)\]$')
+IPV6_BRACKET_PATTERN = re.compile(r"^\[(.+)\]$")
 
 
 class SSRFError(Exception):
@@ -102,8 +102,8 @@ def _normalize_ipv6(hostname: str) -> str:
         hostname = match.group(1)
 
     # Видаляємо zone identifier (%eth0, %1, etc.)
-    if '%' in hostname:
-        hostname = hostname.split('%')[0]
+    if "%" in hostname:
+        hostname = hostname.split("%")[0]
 
     return hostname
 
@@ -131,8 +131,7 @@ def _is_private_ip(ip_str: str) -> bool:
         ip = ipaddress.ip_address(ip_str)
 
         # Базові перевірки
-        if (ip.is_private or ip.is_loopback or ip.is_reserved
-            or ip.is_link_local or ip.is_multicast):
+        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local or ip.is_multicast:
             return True
 
         # Додаткові перевірки для IPv6
@@ -140,22 +139,24 @@ def _is_private_ip(ip_str: str) -> bool:
             # Перевірка IPv4-mapped IPv6 (::ffff:x.x.x.x)
             if ip.ipv4_mapped:
                 ipv4 = ip.ipv4_mapped
-                if (ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved
-                    or ipv4.is_link_local):
+                if ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved or ipv4.is_link_local:
                     return True
 
             # Перевірка 6to4 адрес (2002::/16)
             if ip.sixtofour:
                 ipv4 = ip.sixtofour
-                if (ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved
-                    or ipv4.is_link_local):
+                if ipv4.is_private or ipv4.is_loopback or ipv4.is_reserved or ipv4.is_link_local:
                     return True
 
             # Перевірка Teredo адрес
             if ip.teredo:
                 client_ipv4 = ip.teredo[1]
-                if (client_ipv4.is_private or client_ipv4.is_loopback
-                    or client_ipv4.is_reserved or client_ipv4.is_link_local):
+                if (
+                    client_ipv4.is_private
+                    or client_ipv4.is_loopback
+                    or client_ipv4.is_reserved
+                    or client_ipv4.is_link_local
+                ):
                     return True
 
         return False
@@ -179,8 +180,12 @@ def _is_suspicious_hostname(hostname: str) -> bool:
 
     # DNS rebinding services
     suspicious_suffixes = (
-        '.xip.io', '.nip.io', '.sslip.io',
-        '.localtest.me', '.lvh.me', '.vcap.me',
+        ".xip.io",
+        ".nip.io",
+        ".sslip.io",
+        ".localtest.me",
+        ".lvh.me",
+        ".vcap.me",
     )
 
     for suffix in suspicious_suffixes:
@@ -189,7 +194,7 @@ def _is_suspicious_hostname(hostname: str) -> bool:
 
     # Numeric-looking hostnames that could be IP obfuscation
     # e.g., "0x7f000001" = 127.0.0.1 in hex
-    if hostname_lower.startswith('0x') and len(hostname_lower) <= 10:
+    if hostname_lower.startswith("0x") and len(hostname_lower) <= 10:
         try:
             # Спроба розпарсити як hex IP
             ip_int = int(hostname_lower, 16)
@@ -207,24 +212,13 @@ def validate_url_security(url: str, allow_internal: bool = False) -> bool:
     """
     Валідує URL на SSRF вразливості.
 
-    Перевіряє:
-    1. Протокол (тільки http/https)
-    2. Hostname (не в BLOCKED_HOSTS)
-    3. IP адресу (не приватна/loopback) включаючи IPv6
-    4. IPv4-mapped IPv6 адреси
-    5. Порт (не в BLOCKED_PORTS)
-    6. Підозрілі DNS rebinding домени
-
     Args:
         url: URL для валідації
         allow_internal: Дозволити внутрішні адреси (для тестування)
-
     Returns:
         True якщо URL безпечний
-
     Raises:
         SSRFError: Якщо URL небезпечний
-
     Example:
         >>> validate_url_security("https://example.com/")
         True
@@ -241,8 +235,7 @@ def validate_url_security(url: str, allow_internal: bool = False) -> bool:
     # Перевірка протоколу
     if parsed.scheme not in ALLOWED_PROTOCOLS:
         raise SSRFError(
-            f"Unsupported protocol: {parsed.scheme}. "
-            f"Allowed: {', '.join(ALLOWED_PROTOCOLS)}"
+            f"Unsupported protocol: {parsed.scheme}. Allowed: {', '.join(ALLOWED_PROTOCOLS)}"
         )
 
     # Перевірка hostname
@@ -275,7 +268,7 @@ def validate_url_security(url: str, allow_internal: bool = False) -> bool:
     if port and port in BLOCKED_PORTS:
         raise SSRFError(f"Blocked port: {port}")
 
-    logger.debug(f"URL validated: {url}")
+    logger.debug("URL validated: %s", url)
     return True
 
 

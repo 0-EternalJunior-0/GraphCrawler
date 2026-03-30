@@ -44,21 +44,21 @@ class LinkExtractorPlugin(BaseNodePlugin):
         """Витягує посилання з HTML дерева."""
         # Перевірка чи не пропущено витягування посилань
         if context.skip_link_extraction:
-            logger.debug(f"Skipping link extraction for {context.url}")
+            logger.debug("Skipping link extraction for %s", context.url)
             return context
 
         # Перевірка наявності parser
         if not context.parser:
-            logger.warning(f"No parser for link extraction: {context.url}")
+            logger.warning("No parser for link extraction: %s", context.url)
             return context
 
         try:
             links = self._extract_all_links(context)
             context.extracted_links = links
-            logger.debug(f"Extracted {len(links)} links from {context.url}")
+            logger.debug("Extracted %s links from %s", len(links), context.url)
 
         except Exception as e:
-            logger.error(f"Error extracting links for {context.url}: {e}")
+            logger.error("Error extracting links for %s: %s", context.url, e)
 
         return context
 

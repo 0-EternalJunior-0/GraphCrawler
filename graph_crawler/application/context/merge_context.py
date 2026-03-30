@@ -1,28 +1,6 @@
 """MergeContext - Контекст для динамічної зміни merge_strategy.
 
 Дозволяє змінювати стратегію merge під час виконання:
-- Глобально через DependencyRegistry
-- Локально через context manager
-- На рівні окремої операції
-
-Приклад використання з вашого завдання:
-    >>> # Дефолт: 'last'
-    >>> graph1 = load_graph('data1.json')
-    >>> graph2 = load_graph('data2.json')
-    >>> merged = graph1 + graph2  # Використає 'last'
-    >>>
-    >>> # Локальна зміна на 'merge' для batch операцій
-    >>> with with_merge_strategy('merge'):
-    ...     for chunk in data_chunks:
-    ...         merged = merged + chunk  # Використає 'merge'
-    >>>
-    >>> # Знову 'last' після виходу з контексту
-    >>> another_merged = graph1 + graph3  # Використає 'last'
-    >>>
-    >>> # Ще один приклад - часткове сканування з 'newest'
-    >>> with with_merge_strategy('newest'):
-    ...     partial_scan = await package_crawler.scan(urls[:100])
-    ...     merged = base_graph + partial_scan  # Використає 'newest'
 """
 
 import logging
@@ -44,23 +22,19 @@ class MergeContext:
         custom_merge_fn: Кастомна функція для 'custom' стратегії
         source: Джерело контексту (для debugging)
     """
+
     strategy: str = "last"
     custom_merge_fn: Optional[Callable] = None
     source: str = "default"
 
     def __post_init__(self):
         """Валідація після створення."""
-        valid_strategies = ['first', 'last', 'merge', 'newest', 'oldest', 'custom']
+        valid_strategies = ["first", "last", "merge", "newest", "oldest", "custom"]
         if self.strategy not in valid_strategies:
-            raise ValueError(
-                f"Invalid merge strategy: {self.strategy}. "
-                f"Valid: {valid_strategies}"
-            )
+            raise ValueError(f"Invalid merge strategy: {self.strategy}. Valid: {valid_strategies}")
 
-        if self.strategy == 'custom' and self.custom_merge_fn is None:
-            raise ValueError(
-                "custom_merge_fn is required for 'custom' strategy"
-            )
+        if self.strategy == "custom" and self.custom_merge_fn is None:
+            raise ValueError("custom_merge_fn is required for 'custom' strategy")
 
 
 class MergeContextManager:
@@ -84,7 +58,7 @@ class MergeContextManager:
     @classmethod
     def _get_stack(cls) -> List[MergeContext]:
         """Отримує стек контекстів для поточного thread."""
-        if not hasattr(cls._local, 'stack'):
+        if not hasattr(cls._local, "stack"):
             cls._local.stack = []
         return cls._local.stack
 
@@ -99,8 +73,7 @@ class MergeContextManager:
         stack = cls._get_stack()
         stack.append(context)
         logger.debug(
-            f"MergeContext pushed: {context.strategy} "
-            f"(source={context.source}, depth={len(stack)})"
+            f"MergeContext pushed: {context.strategy} (source={context.source}, depth={len(stack)})"
         )
 
     @classmethod
@@ -150,6 +123,7 @@ class MergeContextManager:
 
         # Fallback до DependencyRegistry
         from graph_crawler.application.context.dependency_registry import DependencyRegistry
+
         return DependencyRegistry.get_default_merge_strategy()
 
     @classmethod
@@ -161,7 +135,7 @@ class MergeContextManager:
             Callable або None
         """
         context = cls.current()
-        if context and context.strategy == 'custom':
+        if context and context.strategy == "custom":
             return context.custom_merge_fn
         return None
 
@@ -172,7 +146,7 @@ class MergeContextManager:
 
         Корисно для тестування.
         """
-        if hasattr(cls._local, 'stack'):
+        if hasattr(cls._local, "stack"):
             cls._local.stack = []
             logger.debug("MergeContext stack cleared")
 
@@ -191,37 +165,10 @@ def with_merge_strategy(
     """
     Context manager для тимчасової зміни merge strategy.
 
-    Дозволяє змінити стратегію для блоку коду, після чого
-    автоматично повертається попередня стратегія.
-
     Args:
         strategy: Стратегія merge
         custom_merge_fn: Кастомна функція для 'custom' стратегії
         source: Джерело контексту (для debugging)
-
-    Yields:
-        MergeContext для поточного блоку
-
-    Example:
-        >>> # Проста зміна стратегії
-        >>> with with_merge_strategy('merge'):
-        ...     result = graph1 + graph2
-        >>>
-        >>> # Кастомна функція
-        >>> def my_merge(n1, n2):
-        ...     return n1 if n1.scanned else n2
-        >>>
-        >>> with with_merge_strategy('custom', custom_merge_fn=my_merge):
-        ...     result = graph1 + graph2
-        >>>
-        >>> # Вкладені контексти
-        >>> with with_merge_strategy('merge'):
-        ...     # 'merge'
-        ...     with with_merge_strategy('newest'):
-        ...         # 'newest'
-        ...         result1 = g1 + g2
-        ...     # 'merge'
-        ...     result2 = g1 + g3
     """
     context = MergeContext(
         strategy=strategy,

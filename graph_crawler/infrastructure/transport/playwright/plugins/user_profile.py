@@ -33,29 +33,6 @@ class UserProfilePlugin(BaseDriverPlugin):
     """
     Плагін для роботи з профілями користувача Chrome/Chromium.
 
-    Дозволяє використовувати існуючий профіль браузера з cookies,
-    localStorage, історією для обходу anti-bot систем.
-
-    Конфігурація:
-        profile_path: Шлях до профілю користувача (обов'язково)
-        create_backup: Створювати backup перед використанням (default: True)
-        backup_path: Шлях для backup (default: profile_path + "_backup")
-        validate_profile: Перевіряти наявність профілю (default: True)
-        headless_warning: Попереджати про headless режим (default: True)
-        executable_path: Шлях до Chrome/Chromium executable (optional)
-
-    Приклад:
-        >>> plugin = UserProfilePlugin(UserProfilePlugin.config(
-        ...     profile_path="/home/user/.config/crawl-profile",
-        ...     create_backup=True,
-        ...     validate_profile=True
-        ... ))
-        >>> driver = PlaywrightDriver(config, plugins=[plugin])
-
-    Шляхи до профілів за замовчуванням:
-        Windows: %USERPROFILE%\\AppData\\Local\\Google\\Chrome\\User Data\\Default
-        macOS:   ~/Library/Application Support/Google/Chrome/Default
-        Linux:   ~/.config/google-chrome/Default
     """
 
     @property
@@ -86,7 +63,7 @@ class UserProfilePlugin(BaseDriverPlugin):
 
         if self.config.get("validate_profile", True):
             if not self._validate_profile(profile_path):
-                logger.error(f"Invalid profile path: {profile_path}")
+                logger.error("Invalid profile path: %s", profile_path)
                 self.enabled = False
                 return
 
@@ -94,9 +71,9 @@ class UserProfilePlugin(BaseDriverPlugin):
         if self.config.get("create_backup", True):
             backup_result = self._create_backup(profile_path)
             if backup_result:
-                logger.info(f"Profile backup: {backup_result}")
+                logger.info("Profile backup: %s", backup_result)
 
-        logger.info(f"✅ UserProfilePlugin initialized with profile: {profile_path}")
+        logger.info("[PROFILE] UserProfilePlugin initialized with profile: %s", profile_path)
 
     def _validate_profile(self, profile_path: str) -> bool:
         """
@@ -111,11 +88,11 @@ class UserProfilePlugin(BaseDriverPlugin):
         path = Path(profile_path)
 
         if not path.exists():
-            logger.error(f"Profile directory does not exist: {profile_path}")
+            logger.error("Profile directory does not exist: %s", profile_path)
             return False
 
         if not path.is_dir():
-            logger.error(f"Profile path is not a directory: {profile_path}")
+            logger.error("Profile path is not a directory: %s", profile_path)
             return False
 
         # Ключові файли Chrome/Chromium профілю
@@ -130,24 +107,21 @@ class UserProfilePlugin(BaseDriverPlugin):
             "Local Storage",
         ]
 
-        found_required = sum(
-            1 for f in required_indicators if (path / f).exists()
-        )
-        found_optional = sum(
-            1 for f in optional_indicators if (path / f).exists()
-        )
+        found_required = sum(1 for f in required_indicators if (path / f).exists())
+        found_optional = sum(1 for f in optional_indicators if (path / f).exists())
 
         if found_required == 0 and found_optional == 0:
             logger.warning(
-                f"Profile at {profile_path} doesn't look like a Chrome profile. "
-                "Make sure you're pointing to the correct directory (e.g., 'Default' folder)."
+                "Profile at %s doesn't look like a Chrome profile. "
+                "Make sure you're pointing to the correct directory (e.g., 'Default' folder).",
+                profile_path
             )
             # Не повертаємо False - можливо користувач знає що робить
             return True
 
         logger.debug(
-            f"Profile validation: {found_required}/{len(required_indicators)} required, "
-            f"{found_optional}/{len(optional_indicators)} optional files found"
+            "Profile validation: %s/%s required, %s/%s optional files found",
+            found_required, len(required_indicators), found_optional, len(optional_indicators)
         )
         return True
 
@@ -169,7 +143,7 @@ class UserProfilePlugin(BaseDriverPlugin):
             backup_dir = Path(backup_path)
 
             if backup_dir.exists():
-                logger.debug(f"Backup already exists: {backup_path}")
+                logger.debug("Backup already exists: %s", backup_path)
                 return backup_path
 
             # Копіюємо тільки необхідні файли (не весь cache)
@@ -202,11 +176,11 @@ class UserProfilePlugin(BaseDriverPlugin):
                 if src.exists() and src.is_dir():
                     shutil.copytree(src, backup_dir / dir_name, dirs_exist_ok=True)
 
-            logger.info(f"Profile backup created: {backup_path}")
+            logger.info("Profile backup created: %s", backup_path)
             return backup_path
 
         except Exception as e:
-            logger.warning(f"Failed to create backup: {e}")
+            logger.warning("Failed to create backup: %s", e)
             return None
 
     def _get_profile_size(self, profile_path: str) -> float:
@@ -215,11 +189,7 @@ class UserProfilePlugin(BaseDriverPlugin):
             path = Path(profile_path)
             if not path.exists():
                 return 0.0
-            total_size = sum(
-                f.stat().st_size
-                for f in path.rglob("*")
-                if f.is_file()
-            )
+            total_size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
             return total_size / (1024 * 1024)
         except Exception:
             return 0.0
@@ -238,7 +208,7 @@ class UserProfilePlugin(BaseDriverPlugin):
             headless = ctx.data.get("headless", True)
             if headless:
                 logger.warning(
-                    "⚠️ Using profile in headless mode may reduce effectiveness. "
+                    "[PROFILE] Using profile in headless mode may reduce effectiveness. "
                     "Consider using headless=False for better anti-bot bypass."
                 )
 
@@ -246,7 +216,7 @@ class UserProfilePlugin(BaseDriverPlugin):
         executable_path = self.config.get("executable_path")
         if executable_path:
             ctx.data["executable_path"] = executable_path
-            logger.debug(f"Using custom browser executable: {executable_path}")
+            logger.debug("Using custom browser executable: %s", executable_path)
 
         return ctx
 
@@ -273,7 +243,7 @@ class UserProfilePlugin(BaseDriverPlugin):
         if channel:
             ctx.data["channel"] = channel
 
-        logger.info(f"🔑 Profile configured for browser context: {profile_path}")
+        logger.info("[PROFILE] Profile configured for browser context: %s", profile_path)
 
         return ctx
 
@@ -321,35 +291,9 @@ class ProfilePoolPlugin(BaseDriverPlugin):
     """
     Плагін для ротації профілів (для PooledPlaywrightDriver).
 
-    Використовується коли потрібно розподілити запити між різними профілями
-    для зменшення ризику блокування.
-
-    Конфігурація:
-        profiles: Список шляхів до профілів (обов'язково)
-        rotation_strategy: Стратегія ротації:
-            - 'round_robin': По черзі (default)
-            - 'random': Випадково
-            - 'least_used': Найменш використаний
-        validate_profiles: Перевіряти наявність профілів (default: True)
-
-    Приклад:
-        >>> plugin = ProfilePoolPlugin(ProfilePoolPlugin.config(
-        ...     profiles=[
-        ...         "/home/user/.config/profile1",
-        ...         "/home/user/.config/profile2",
-        ...         "/home/user/.config/profile3",
-        ...     ],
-        ...     rotation_strategy='round_robin'
-        ... ))
-        >>> driver = PooledPlaywrightDriver(
-        ...     config,
-        ...     browsers=3,
-        ...     tabs_per_browser=1,
-        ...     plugins=[plugin]
-        ... )
     """
 
-    def __init__(self, config: Dict[str, Any] = None, priority: int = 10):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, priority: int = 10):
         super().__init__(config, priority)
         self._current_index = 0
         self._usage_count: Dict[str, int] = {}
@@ -386,7 +330,7 @@ class ProfilePoolPlugin(BaseDriverPlugin):
                 valid_profiles.append(profile)
                 self._usage_count[profile] = 0
             else:
-                logger.warning(f"Profile not found, skipping: {profile}")
+                logger.warning("Profile not found, skipping: %s", profile)
 
         if not valid_profiles:
             logger.error("ProfilePoolPlugin: No valid profiles found!")
@@ -397,8 +341,8 @@ class ProfilePoolPlugin(BaseDriverPlugin):
         self.config["profiles"] = valid_profiles
 
         logger.info(
-            f"✅ ProfilePoolPlugin initialized with {len(valid_profiles)} profiles "
-            f"(strategy: {self.config.get('rotation_strategy', 'round_robin')})"
+            "[PROFILE_POOL] ProfilePoolPlugin initialized with %s profiles (strategy: %s)",
+            len(valid_profiles), self.config.get('rotation_strategy', 'round_robin')
         )
 
     def _get_next_profile(self) -> str:
@@ -420,13 +364,14 @@ class ProfilePoolPlugin(BaseDriverPlugin):
 
         elif strategy == "random":
             import random
+
             profile = random.choice(profiles)
 
         elif strategy == "least_used":
             profile = min(profiles, key=lambda p: self._usage_count.get(p, 0))
 
         else:
-            logger.warning(f"Unknown rotation strategy: {strategy}, using first profile")
+            logger.warning("Unknown rotation strategy: %s, using first profile", strategy)
             profile = profiles[0]
 
         self._usage_count[profile] = self._usage_count.get(profile, 0) + 1
@@ -444,10 +389,10 @@ class ProfilePoolPlugin(BaseDriverPlugin):
             ctx.data["user_data_dir"] = profile
             ctx.data["profile_from_pool"] = True
 
-            logger.debug(f"🎲 Assigned profile from pool: {profile}")
+            logger.debug("[PROFILE_POOL] Assigned profile from pool: %s", profile)
 
         except Exception as e:
-            logger.error(f"Failed to assign profile: {e}")
+            logger.error("Failed to assign profile: %s", e)
 
         return ctx
 
@@ -476,6 +421,7 @@ class ProfilePoolPlugin(BaseDriverPlugin):
 
 
 # Допоміжні функції
+
 
 def get_default_chrome_profile_path() -> Optional[str]:
     """
@@ -536,11 +482,7 @@ def get_default_chromium_profile_path() -> Optional[str]:
     return None
 
 
-def create_profile_copy(
-    source_path: str,
-    dest_path: str,
-    essential_only: bool = True
-) -> bool:
+def create_profile_copy(source_path: str, dest_path: str, essential_only: bool = True) -> bool:
     """
     Створює копію профілю Chrome/Chromium.
 
@@ -557,11 +499,11 @@ def create_profile_copy(
         dest = Path(dest_path)
 
         if not source.exists():
-            logger.error(f"Source profile does not exist: {source_path}")
+            logger.error("Source profile does not exist: %s", source_path)
             return False
 
         if dest.exists():
-            logger.warning(f"Destination already exists: {dest_path}")
+            logger.warning("Destination already exists: %s", dest_path)
             return False
 
         if essential_only:
@@ -588,21 +530,21 @@ def create_profile_copy(
                 src_file = source / file_name
                 if src_file.exists():
                     shutil.copy2(src_file, dest / file_name)
-                    logger.debug(f"Copied: {file_name}")
+                    logger.debug("Copied: %s", file_name)
 
             for dir_name in essential_dirs:
                 src_dir = source / dir_name
                 if src_dir.exists() and src_dir.is_dir():
                     shutil.copytree(src_dir, dest / dir_name, dirs_exist_ok=True)
-                    logger.debug(f"Copied directory: {dir_name}")
+                    logger.debug("Copied directory: %s", dir_name)
 
         else:
             # Повна копія
             shutil.copytree(source, dest)
 
-        logger.info(f"Profile copied: {source_path} -> {dest_path}")
+        logger.info("Profile copied: %s -> %s", source_path, dest_path)
         return True
 
     except Exception as e:
-        logger.error(f"Failed to copy profile: {e}")
+        logger.error("Failed to copy profile: %s", e)
         return False

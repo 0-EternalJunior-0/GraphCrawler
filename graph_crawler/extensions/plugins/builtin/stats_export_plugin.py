@@ -1,9 +1,10 @@
-"""Плагін для експорту статистики після краулінгу."""
+"""Stats export plugin for post-crawl statistics."""
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from graph_crawler.extensions.plugins.node import (
     BaseNodePlugin,
@@ -16,42 +17,23 @@ logger = logging.getLogger(__name__)
 
 class StatsExportPlugin(BaseNodePlugin):
     """
-    Плагін для експорту статистики після краулінгу.
+    Plugin for exporting crawl statistics to JSON file.
 
-    Автоматично експортує статистику графа в JSON файл
-    після завершення краулінгу.
+    Exports graph statistics, page counts, and top pages by link count
+    after crawl completion.
 
-    Приклад:
-        plugin = StatsExportPlugin(config={
-            'export_path': './stats.json',
-            'enabled': True,
-            'pretty_print': True
-        })
+    Attributes:
+        export_path: Path to export JSON file (default: ./crawl_stats.json)
+        pretty_print: Whether to format JSON with indentation (default: True)
 
-        config = CrawlerConfig(
-            url="...",
-            node_plugins=[plugin]
-        )
-
-        client = GraphCrawlerClient()
-        graph = client.crawl(url="https://example.com", node_plugins=[plugin])
-        # Після краулінгу автоматично створюється stats.json
-
-    Формат експорту:
-        {
-            "graph_stats": {
-                "total_nodes": 47,
-                "scanned_nodes": 45,
-                "total_edges": 156,
-                ...
-            },
-            "pages_crawled": 45,
-            "start_url": "https://example.com",
-            "timestamp": "2025-11-22T12:34:56"
-        }
+    Example:
+        >>> plugin = StatsExportPlugin(config={
+        ...     "export_path": "./stats/crawl_report.json",
+        ...     "pretty_print": True
+        ... })
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.export_path = self.config.get("export_path", "./crawl_stats.json")
         self.pretty_print = self.config.get("pretty_print", True)
@@ -71,19 +53,17 @@ class StatsExportPlugin(BaseNodePlugin):
         graph = context.user_data.get("graph")
 
         # Додати додаткову інфо
-        from datetime import datetime
-
         export_data = {
             "graph_stats": stats,
             "pages_crawled": pages_crawled,
             "start_url": context.url,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         # Додати топ-10 сторінок за кількістю посилань (якщо граф доступний)
-        if graph and hasattr(graph, "nodes"):
+        if graph and hasattr(graph, "iter_nodes"):
             top_nodes = sorted(
-                graph.nodes.values(),
+                graph.iter_nodes(),
                 key=lambda n: len(n.extracted_links or []),
                 reverse=True,
             )[:10]
@@ -109,8 +89,8 @@ class StatsExportPlugin(BaseNodePlugin):
                 else:
                     json.dump(export_data, f, ensure_ascii=False)
 
-            logger.info(f" Stats exported to {self.export_path}")
+            logger.info("[STATS] Stats exported to %s", self.export_path)
         except Exception as e:
-            logger.error(f" Failed to export stats: {e}", exc_info=True)
+            logger.error("[STATS] Failed to export stats: %s", e, exc_info=True)
 
         return context

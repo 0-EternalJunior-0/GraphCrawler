@@ -51,14 +51,12 @@ class CaptchaSolverPlugin(BaseDriverPlugin):
         api_key = self.config.get("api_key")
 
         if not api_key:
-            logger.warning(
-                "CaptchaSolver: API key not provided - plugin will be disabled"
-            )
+            logger.warning("CaptchaSolver: API key not provided - plugin will be disabled")
             self.enabled = False
             return
 
         service = self.config.get("service", "2captcha")
-        logger.info(f"CaptchaSolver initialized with service: {service}")
+        logger.info("CaptchaSolver initialized with service: %s", service)
 
     async def on_captcha_detected(self, ctx: BrowserContext, **captcha_data) -> None:
         """
@@ -74,7 +72,7 @@ class CaptchaSolverPlugin(BaseDriverPlugin):
         captcha_data.get("site_key")
         page_url = captcha_data.get("page_url")
 
-        logger.info(f"Attempting to solve {captcha_type} on {page_url}")
+        logger.info("Attempting to solve %s on %s", captcha_type, page_url)
 
         try:
             # Тут була б логіка розв'язання через API
@@ -90,9 +88,9 @@ class CaptchaSolverPlugin(BaseDriverPlugin):
             ctx.data["captcha_solved"] = True
             ctx.data["captcha_token"] = "mock_token"
 
-            logger.info(f"CAPTCHA solved successfully: {captcha_type}")
+            logger.info("CAPTCHA solved successfully: %s", captcha_type)
 
         except Exception as e:
-            logger.error(f"Error solving CAPTCHA: {e}")
+            logger.error("Error solving CAPTCHA: %s", e)
             ctx.emit("captcha_solve_failed", error=str(e))
             ctx.errors.append(e)

@@ -28,7 +28,7 @@ class ReadabilityExtractor(BaseContentExtractor):
     def __init__(self):
         """Ініціалізує ReadabilityExtractor."""
         try:
-            from readability import Document
+            from readability import Document  # type: ignore[import-not-found]
 
             self._Document = Document
             self._available = True
@@ -86,5 +86,5 @@ class ReadabilityExtractor(BaseContentExtractor):
             )
 
         except Exception as e:
-            logger.error(f"Error extracting article with readability: {e}")
+            logger.error("Error extracting article with readability: %s", e)
             return None

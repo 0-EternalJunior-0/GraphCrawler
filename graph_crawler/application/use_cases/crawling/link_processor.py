@@ -11,7 +11,7 @@ Features:
 import logging
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from graph_crawler.domain.value_objects.models import FetchResponse
@@ -24,11 +24,12 @@ from graph_crawler.application.use_cases.crawling.scheduler import CrawlSchedule
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import EdgeRule, URLRule
+from graph_crawler.domain.value_objects.models import EdgeRule, Rule, SmartURLRule
 from graph_crawler.extensions.plugins.node import NodePluginManager
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
+
 
 class LinkProcessor:
     """
@@ -48,7 +49,7 @@ class LinkProcessor:
         scheduler: CrawlScheduler,
         domain_filter: DomainFilter,
         path_filter: PathFilter,
-        url_rules: Optional[list[URLRule]] = None,
+        url_rules: Optional[list[Rule]] = None,
         edge_rules: Optional[list[EdgeRule]] = None,
         custom_node_class: Optional[type] = None,
         plugin_manager: Optional[NodePluginManager] = None,
@@ -61,7 +62,7 @@ class LinkProcessor:
             scheduler: Scheduler для додавання нових нод у чергу
             domain_filter: Фільтр доменів
             path_filter: Фільтр шляхів
-            url_rules: Список URLRule
+            url_rules: Список URLRule або SmartURLRule (Rule = Union[URLRule, SmartURLRule])
             edge_rules: Список EdgeRule (Iteration 4)
             custom_node_class: Кастомний клас Node (опціонально)
             plugin_manager: Plugin manager для нових нод
@@ -84,24 +85,31 @@ class LinkProcessor:
         # Для стратегії FIRST_ENCOUNTER_ONLY використовуємо Bloom Filter замість set
         # Це запобігає memory leak при великих графах (100k+ сторінок)
         self._use_bloom_for_edges = True
+        self._created_edges: Any  # Union[BloomFilter, set]
         try:
             from graph_crawler.shared.utils.bloom_filter import BloomFilter
+
             self._created_edges = BloomFilter(capacity=1_000_000, error_rate=0.001)
             logger.debug("Using Bloom Filter for _created_edges (memory efficient)")
         except ImportError:
             # Fallback на set якщо Bloom Filter недоступний
-            self._created_edges: set = set()  # Set[(source_url, target_url)]
+            self._created_edges = set()  # Set[(source_url, target_url)]
             self._use_bloom_for_edges = False
             logger.debug("Bloom Filter not available, using set for _created_edges")
 
-        # Компілюємо regex для URLRule
-        self._compiled_rules = []
+        # Компілюємо regex для URLRule, зберігаємо SmartURLRule як є
+        self._compiled_rules: list[tuple[re.Pattern | None, Rule]] = []
         for rule in self.url_rules:
-            try:
-                compiled = re.compile(rule.pattern)
-                self._compiled_rules.append((compiled, rule))
-            except re.error as e:
-                logger.warning(f"Invalid regex pattern '{rule.pattern}': {e}")
+            if isinstance(rule, SmartURLRule):
+                # SmartURLRule використовує власний метод matches()
+                self._compiled_rules.append((None, rule))
+            else:
+                # URLRule - компілюємо regex
+                try:
+                    compiled = re.compile(rule.pattern)
+                    self._compiled_rules.append((compiled, rule))
+                except re.error as e:
+                    logger.warning("Invalid regex pattern '%s': %s", rule.pattern, e)
 
     def process_links(self, source_node: Node, links: list[str]) -> int:
         """
@@ -120,9 +128,7 @@ class LinkProcessor:
         """
         # КРИТИЧНА ПЕРЕВІРКА: чи може source_node створювати нові edges
         if not source_node.can_create_edges:
-            logger.debug(
-                f"Node cannot create edges, skipping links processing: {source_node.url}"
-            )
+            logger.debug("Node cannot create edges, skipping links processing: %s", source_node.url)
             return 0
 
         new_nodes_count = 0
@@ -157,9 +163,7 @@ class LinkProcessor:
 
         # КРИТИЧНА ПЕРЕВІРКА: чи може source_node створювати нові edges
         if not source_node.can_create_edges:
-            logger.debug(
-                f"Node cannot create edges, skipping links processing: {source_node.url}"
-            )
+            logger.debug("Node cannot create edges, skipping links processing: %s", source_node.url)
             return 0
 
         new_nodes_count = 0
@@ -168,9 +172,7 @@ class LinkProcessor:
             # Yield control кожні batch_size links
             if i > 0 and i % batch_size == 0:
                 await asyncio.sleep(0)  # Yield to event loop
-            count = await self._process_single_link_async(
-                source_node, link, fetch_response
-            )
+            count = await self._process_single_link_async(source_node, link, fetch_response)
             new_nodes_count += count
 
         return new_nodes_count
@@ -182,7 +184,7 @@ class LinkProcessor:
         fetch_response: Optional["FetchResponse"] = None,
     ) -> int:
         """
-        
+
         Використовує async версії graph.add_node_async() та graph.add_edge_async()
         для запобігання race conditions при batch mode.
 
@@ -196,7 +198,7 @@ class LinkProcessor:
         """
         # Валідація URL
         if not URLUtils.is_valid_url(link):
-            logger.debug(f"Invalid URL, skipping: {link}")
+            logger.debug("Invalid URL, skipping: %s", link)
             return 0
 
         # Нормалізація URL
@@ -205,10 +207,8 @@ class LinkProcessor:
         should_scan, can_create_edges = self._should_scan_url(link, source_node.url)
 
         if not should_scan:
-            logger.debug(f"URL filtered out: {link}")
+            logger.debug("URL filtered out: %s", link)
             return 0
-
-        # Перевіряємо scheduler + graph одночасно
         url_already_known = self.scheduler.has_url(link)
         url_known_in_graph, target_node = self.graph.get_url_status(link)
 
@@ -219,13 +219,12 @@ class LinkProcessor:
         # ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
         child_priority = None
         if source_node and source_node.user_data:
-            child_priorities = source_node.user_data.get('child_priorities', {})
+            child_priorities = source_node.user_data.get("child_priorities", {})
             if link in child_priorities:
                 child_priority = child_priorities[link]
-                logger.debug(f"Using ML plugin priority {child_priority} for {link}")
+                logger.debug("Using ML plugin priority %s for %s", child_priority, link)
 
         if not target_node and not url_already_known and not url_known_in_graph:
-            # Створюємо новий вузол (ЕТАП 1: URL_STAGE)
             target_node = self.custom_node_class(
                 url=link,
                 depth=source_node.depth + 1,
@@ -236,7 +235,7 @@ class LinkProcessor:
 
             # ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
             if child_priority is not None:
-                target_node.user_data['ml_priority'] = child_priority
+                target_node.user_data["ml_priority"] = child_priority
             await self.graph.add_node_async(target_node)
             new_node_created = 1
 
@@ -247,16 +246,15 @@ class LinkProcessor:
 
         # Edge вже був створений коли ноду вперше знайшли
         if (url_already_known or url_known_in_graph) and target_node is None:
-            logger.debug(f"URL already processed (evicted), skipping edge: {link}")
+            logger.debug("URL already processed (evicted), skipping edge: %s", link)
             return new_node_created
-
-        # Перевіряємо чи треба створювати edge
-        if self._should_create_edge(
+        if target_node is None:
+            logger.debug("Target node is None, skipping edge creation: %s", link)
+            return new_node_created
+        if target_node is not None and self._should_create_edge(
             source_node, target_node, link, is_new_node=is_new_node
         ):
-            edge = Edge(
-                source_node_id=source_node.node_id, target_node_id=target_node.node_id
-            )
+            edge = Edge(source_node_id=source_node.node_id, target_node_id=target_node.node_id)
 
             # Заповнюємо edge metadata
             self._populate_edge_metadata(edge, source_node, target_node, link)
@@ -267,10 +265,8 @@ class LinkProcessor:
                 edge.add_metadata("source_original_url", fetch_response.url)
                 edge.add_metadata("source_final_url", fetch_response.final_url)
             await self.graph.add_edge_async(edge)
-        else:
-            logger.debug(
-                f"Edge creation skipped: {source_node.url} -> {target_node.url}"
-            )
+        elif target_node is not None:
+            logger.debug("Edge creation skipped: %s -> %s", source_node.url, target_node.url)
 
         return new_node_created
 
@@ -282,7 +278,6 @@ class LinkProcessor:
     ) -> int:
         """
 
-        
         Обробляє одне посилання. Винесено для DRY між sync та async версіями.
 
         Підтримує обробку HTTP редіректів - якщо source_node була завантажена
@@ -298,7 +293,7 @@ class LinkProcessor:
         """
         # Валідація URL
         if not URLUtils.is_valid_url(link):
-            logger.debug(f"Invalid URL, skipping: {link}")
+            logger.debug("Invalid URL, skipping: %s", link)
             return 0
 
         # Нормалізація URL
@@ -307,7 +302,7 @@ class LinkProcessor:
         should_scan, can_create_edges = self._should_scan_url(link, source_node.url)
 
         if not should_scan:
-            logger.debug(f"URL filtered out: {link}")
+            logger.debug("URL filtered out: %s", link)
             return 0
 
         url_already_known = self.scheduler.has_url(link)
@@ -320,13 +315,12 @@ class LinkProcessor:
         # ML PLUGIN SUPPORT: Отримуємо пріоритет з child_priorities батьківської ноди
         child_priority = None
         if source_node and source_node.user_data:
-            child_priorities = source_node.user_data.get('child_priorities', {})
+            child_priorities = source_node.user_data.get("child_priorities", {})
             if link in child_priorities:
                 child_priority = child_priorities[link]
-                logger.debug(f"Using ML plugin priority {child_priority} for {link}")
+                logger.debug("Using ML plugin priority %s for %s", child_priority, link)
 
         if not target_node and not url_already_known and not url_known_in_graph:
-            # Створюємо новий вузол (ЕТАП 1: URL_STAGE)
             target_node = self.custom_node_class(
                 url=link,
                 depth=source_node.depth + 1,
@@ -337,7 +331,7 @@ class LinkProcessor:
 
             # ML PLUGIN: Встановлюємо пріоритет в user_data для Scheduler
             if child_priority is not None:
-                target_node.user_data['ml_priority'] = child_priority
+                target_node.user_data["ml_priority"] = child_priority
 
             self.graph.add_node(target_node)
             new_node_created = 1
@@ -348,17 +342,16 @@ class LinkProcessor:
                 self.scheduler.add_node(target_node, priority=child_priority)
 
         if (url_already_known or url_known_in_graph) and target_node is None:
-            logger.debug(f"URL already processed (evicted), skipping edge: {link}")
+            logger.debug("URL already processed (evicted), skipping edge: %s", link)
             return new_node_created
-
-        # Перевіряємо чи треба створювати edge
+        if target_node is None:
+            logger.debug("Target node is None, skipping edge creation: %s", link)
+            return new_node_created
         # Порядок: URLRule.create_edge → EdgeRule → Edge Creation Strategies
-        if self._should_create_edge(
+        if target_node is not None and self._should_create_edge(
             source_node, target_node, link, is_new_node=is_new_node
         ):
-            edge = Edge(
-                source_node_id=source_node.node_id, target_node_id=target_node.node_id
-            )
+            edge = Edge(source_node_id=source_node.node_id, target_node_id=target_node.node_id)
 
             # Заповнюємо edge metadata
             self._populate_edge_metadata(edge, source_node, target_node, link)
@@ -370,10 +363,8 @@ class LinkProcessor:
                 edge.add_metadata("source_final_url", fetch_response.final_url)
 
             self.graph.add_edge(edge)
-        else:
-            logger.debug(
-                f"Edge creation skipped: {source_node.url} -> {target_node.url}"
-            )
+        elif target_node is not None:
+            logger.debug("Edge creation skipped: %s -> %s", source_node.url, target_node.url)
 
         return new_node_created
 
@@ -381,23 +372,13 @@ class LinkProcessor:
         """
         Визначає should_scan та can_create_edges для URL.
 
-         Підтримка explicit decisions від плагінів!
-
-        НОВИЙ ПОРЯДОК ПЕРЕВІРКИ:
-        0. Explicit decisions від плагінів (source_node.user_data) - НАЙВИЩИЙ ПРІОРИТЕТ
-        1. URLRule (може перебити фільтри)
-        2. DomainFilter
-        3. PathFilter
-
         Args:
             url: URL для перевірки
             source_url: URL вузла-джерела
-
         Returns:
             Tuple[bool, bool]: (should_scan, can_create_edges)
                 - should_scan: Чи сканувати сторінку
                 - can_create_edges: Чи може створювати нові edges
-
         Example:
             >>> # Плагін може примусово дозволити URL:
             >>> source_node.user_data['explicit_scan_decisions'] = {'https://external.com': True}
@@ -410,16 +391,12 @@ class LinkProcessor:
         # Використовуємо load_from_disk=False для економії RAM
         source_node = self.graph.get_node_by_url(source_url, load_from_disk=False)
         if source_node:
-            explicit_decisions = source_node.user_data.get(
-                "explicit_scan_decisions", {}
-            )
+            explicit_decisions = source_node.user_data.get("explicit_scan_decisions", {})
             if url in explicit_decisions:
                 should_scan = explicit_decisions[url]
-                logger.debug(f"URL decision from plugin: {url} (scan={should_scan})")
-                # Якщо плагін заборонив - не скануємо
+                logger.debug("URL decision from plugin: %s (scan=%s)", url, should_scan)
                 if not should_scan:
                     return False, False
-                # Якщо плагін дозволив - повертаємо True (перебиває всі фільтри!)
                 return True, True
 
         #  КРОК 1: Перевіряємо URLRule ПЕРШИМИ (другий пріоритет)
@@ -429,13 +406,9 @@ class LinkProcessor:
             # URLRule знайдено
             should_scan = matched_rule.should_scan
             can_create_edges = matched_rule.should_follow_links
-
-            # Якщо should_scan явно False - виключаємо URL
             if should_scan is False:
-                logger.debug(f"URL excluded by rule: {url}")
+                logger.debug("URL excluded by rule: %s", url)
                 return False, False
-
-            # Якщо should_scan явно True - дозволяємо (перебиває фільтри!)
             if should_scan is True:
                 # can_create_edges може бути None - тоді True
                 if can_create_edges is None:
@@ -451,13 +424,13 @@ class LinkProcessor:
         #  КРОК 2: URLRule не перебив - перевіряємо DomainFilter
         domain_allowed = self.domain_filter.is_allowed(url, source_url)
         if not domain_allowed:
-            logger.debug(f"Domain not allowed: {url}")
+            logger.debug("Domain not allowed: %s", url)
             return False, False
 
         #  КРОК 3: Перевіряємо PathFilter
         path_allowed = self.path_filter.is_allowed(url, source_url)
         if not path_allowed:
-            logger.debug(f"Path not allowed: {url}")
+            logger.debug("Path not allowed: %s", url)
             return False, False
 
         # Фільтри дозволяють - звичайна поведінка
@@ -468,15 +441,17 @@ class LinkProcessor:
 
         return True, can_create_edges
 
-    def _match_url_rule(self, url: str) -> Optional[URLRule]:
+    def _match_url_rule(self, url: str) -> Optional[Rule]:
         """
         Знаходить перше правило що матчить URL.
+
+        Підтримує як URLRule (regex по всьому URL) так і SmartURLRule (з scope).
 
         Args:
             url: URL для перевірки
 
         Returns:
-            Перший URLRule що матчить або None
+            Перший URLRule або SmartURLRule що матчить, або None
 
         Example:
             >>> rule = self._match_url_rule('https://work.ua/job/123')
@@ -484,9 +459,18 @@ class LinkProcessor:
             >>>     print(f"Matched: {rule.pattern}")
         """
         for compiled_pattern, rule in self._compiled_rules:
-            if compiled_pattern.search(url):
-                logger.debug(f"URLRule matched: {rule.pattern} for {url}")
-                return rule
+            if isinstance(rule, SmartURLRule):
+                # SmartURLRule використовує власний метод matches() з урахуванням scope
+                if rule.matches(url):
+                    logger.debug(
+                        f"SmartURLRule matched: {rule.pattern} (scope={rule.scope.value}) for {url}"
+                    )
+                    return rule
+            else:
+                # URLRule - використовуємо скомпільований regex
+                if compiled_pattern and compiled_pattern.search(url):
+                    logger.debug("URLRule matched: %s for %s", rule.pattern, url)
+                    return rule
         return None
 
     def _should_create_edge(
@@ -499,20 +483,13 @@ class LinkProcessor:
         """
         Визначає чи треба створювати edge між source та target nodes.
 
-        Порядок перевірки:
-        1. URLRule.create_edge для target URL (НАЙВИЩИЙ ПРІОРИТЕТ)
-        2. EdgeRule правила
-        3. Edge Creation Strategies
-
         Args:
             source_node: Source node
             target_node: Target node
             target_url: URL target node (для перевірки URLRule)
             is_new_node: Чи була target_node щойно створена (для NEW_ONLY стратегії)
-
         Returns:
             bool: True якщо треба створювати edge, False інакше
-
         Example:
             >>> if self._should_create_edge(source, target, target_url, is_new_node=True):
             >>>     edge = Edge(source_node_id=source.node_id, target_node_id=target.node_id)
@@ -522,12 +499,10 @@ class LinkProcessor:
         matched_rule = self._match_url_rule(target_url)
         if matched_rule and matched_rule.create_edge is not None:
             if matched_rule.create_edge is False:
-                logger.debug(
-                    f"Edge skipped by URLRule: {source_node.url} -> {target_url}"
-                )
+                logger.debug("Edge skipped by URLRule: %s -> %s", source_node.url, target_url)
                 return False
             # create_edge=True - дозволяємо (перебиває EdgeRule та Strategies!)
-            logger.debug(f"Edge allowed by URLRule: {source_node.url} -> {target_url}")
+            logger.debug("Edge allowed by URLRule: %s -> %s", source_node.url, target_url)
             return True
 
         # КРОК 2: Перевіряємо EdgeRule
@@ -598,9 +573,7 @@ class LinkProcessor:
             return True
 
         # Unknown strategy - default to True
-        logger.warning(
-            f"Unknown edge_strategy: {self.edge_strategy}, defaulting to ALL"
-        )
+        logger.warning("Unknown edge_strategy: %s, defaulting to ALL", self.edge_strategy)
         return True
 
     def _populate_edge_metadata(
@@ -623,6 +596,7 @@ class LinkProcessor:
         """
         # Timestamp створення (використовуємо timezone-aware datetime)
         from datetime import timezone
+
         edge.add_metadata("created_at", datetime.now(timezone.utc).isoformat())
 
         # Різниця глибини
@@ -633,12 +607,10 @@ class LinkProcessor:
         edge.add_metadata("target_scanned", target_node.scanned)
 
         # Визначаємо типи посилання
-        link_types = self._determine_link_types(
-            source_node, target_node, target_url, depth_diff
-        )
+        link_types = self._determine_link_types(source_node, target_node, target_url, depth_diff)
         edge.add_metadata("link_type", link_types)
 
-        logger.debug(f"Edge metadata populated: {link_types}, depth_diff={depth_diff}")
+        logger.debug("Edge metadata populated: %s, depth_diff=%s", link_types, depth_diff)
 
     def _determine_link_types(
         self, source_node: Node, target_node: Node, target_url: str, depth_diff: int
@@ -646,23 +618,11 @@ class LinkProcessor:
         """
         OPTIMIZATION-003: Оптимізоване визначення типів посилання.
 
-        Використовує пряму побудову списку замість list comprehension з tuple.
-
-        Можливі типи (комбінації):
-        - internal: той самий домен
-        - external: інший домен
-        - same_depth: та сама глибина (depth_diff == 0)
-        - deeper: більша глибина (depth_diff > 0)
-        - back: менша глибина (depth_diff < 0, посилання назад)
-        - to_scanned: target вже відсканований
-        - to_unscanned: target ще не відсканований
-
         Args:
             source_node: Вузол-джерело
             target_node: Цільовий вузол
             target_url: URL цільового вузла
             depth_diff: Різниця глибини
-
         Returns:
             Список типів посилання
         """

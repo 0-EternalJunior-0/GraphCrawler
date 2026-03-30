@@ -34,7 +34,7 @@ def measure_time(verbose: bool = True):
             elapsed = time.time() - start_time
 
             if verbose:
-                logger.info(f"⏱ {func.__name__} виконано за {elapsed:.3f}s")
+                logger.info(" %s виконано за %.3fs", func.__name__, elapsed)
 
             return result
 

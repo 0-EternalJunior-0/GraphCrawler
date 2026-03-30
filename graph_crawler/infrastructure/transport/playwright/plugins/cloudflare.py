@@ -53,9 +53,7 @@ class CloudflareDetector:
         return server.lower().startswith("cloudflare")
 
     @staticmethod
-    def is_iuam_challenge(
-        html: str, status_code: Optional[int], headers: Dict[str, str]
-    ) -> bool:
+    def is_iuam_challenge(html: str, status_code: Optional[int], headers: Dict[str, str]) -> bool:
         """
         Перевіряє на IUAM (I'm Under Attack Mode) challenge.
 
@@ -86,7 +84,7 @@ class CloudflareDetector:
 
             return True
         except Exception as e:
-            logger.debug(f"Error checking IUAM challenge: {e}")
+            logger.debug("Error checking IUAM challenge: %s", e)
             return False
 
     @staticmethod
@@ -107,7 +105,7 @@ class CloudflareDetector:
                 )
             )
         except Exception as e:
-            logger.debug(f"Error checking IUAM v2 challenge: {e}")
+            logger.debug("Error checking IUAM v2 challenge: %s", e)
             return False
 
     @staticmethod
@@ -131,9 +129,7 @@ class CloudflareDetector:
                 return False
 
             # Перевіряємо captcha trace
-            if not re.search(
-                r"/cdn-cgi/images/trace/(captcha|managed)/", html, re.M | re.S
-            ):
+            if not re.search(r"/cdn-cgi/images/trace/(captcha|managed)/", html, re.M | re.S):
                 return False
 
             # Перевіряємо challenge форму
@@ -146,7 +142,7 @@ class CloudflareDetector:
 
             return True
         except Exception as e:
-            logger.debug(f"Error checking captcha challenge: {e}")
+            logger.debug("Error checking captcha challenge: %s", e)
             return False
 
     @staticmethod
@@ -167,7 +163,7 @@ class CloudflareDetector:
                 )
             )
         except Exception as e:
-            logger.debug(f"Error checking captcha v2 challenge: {e}")
+            logger.debug("Error checking captcha v2 challenge: %s", e)
             return False
 
     @staticmethod
@@ -199,13 +195,11 @@ class CloudflareDetector:
 
             return False
         except Exception as e:
-            logger.debug(f"Error checking turnstile challenge: {e}")
+            logger.debug("Error checking turnstile challenge: %s", e)
             return False
 
     @staticmethod
-    def is_firewall_blocked(
-        html: str, status_code: Optional[int], headers: Dict[str, str]
-    ) -> bool:
+    def is_firewall_blocked(html: str, status_code: Optional[int], headers: Dict[str, str]) -> bool:
         """
         Перевіряє на Firewall 1020 блокування.
 
@@ -222,12 +216,10 @@ class CloudflareDetector:
                 return False
 
             return bool(
-                re.search(
-                    r'<span class="cf-error-code">1020</span>', html, re.M | re.DOTALL
-                )
+                re.search(r'<span class="cf-error-code">1020</span>', html, re.M | re.DOTALL)
             )
         except Exception as e:
-            logger.debug(f"Error checking firewall blocked: {e}")
+            logger.debug("Error checking firewall blocked: %s", e)
             return False
 
     @staticmethod
@@ -273,25 +265,6 @@ class CloudflarePlugin(BaseDriverPlugin):
     """
     Плагін для обходу Cloudflare захисту.
 
-    Використовує логіку детектування на основі cloudscraper для надійного
-    виявлення справжніх Cloudflare challenge сторінок (не просто CDN).
-
-    Конфігурація:
-        wait_timeout: Максимальний час очікування challenge (default: 30s)
-        check_interval: Інтервал перевірки (default: 1s)
-        handle_turnstile: Чи намагатись обійти Turnstile (default: True)
-
-    Події:
-        - cloudflare_detected: Виявлено Cloudflare challenge
-        - cloudflare_passed: Challenge пройдено
-        - cloudflare_failed: Не вдалося обійти
-        - cloudflare_blocked: Заблоковано Firewall 1020
-
-    Приклад:
-        plugin = CloudflarePlugin(CloudflarePlugin.config(
-            wait_timeout=60,
-            check_interval=2
-        ))
     """
 
     @property
@@ -318,12 +291,12 @@ class CloudflarePlugin(BaseDriverPlugin):
                     response_headers = await ctx.response.all_headers()
                     headers = dict(response_headers)
                 except Exception as e:
-                    logger.debug(f"Error getting response headers: {e}")
+                    logger.debug("Error getting response headers: %s", e)
                     headers = ctx.response_headers or {}
 
             return html, status_code, headers
         except Exception as e:
-            logger.debug(f"Error getting response info: {e}")
+            logger.debug("Error getting response info: %s", e)
             return "", None, {}
 
     async def _detect_cloudflare(self, page, ctx: BrowserContext) -> ChallengeType:
@@ -337,7 +310,7 @@ class CloudflarePlugin(BaseDriverPlugin):
             html, status_code, headers = await self._get_response_info(page, ctx)
             return CloudflareDetector.detect_challenge_type(html, status_code, headers)
         except Exception as e:
-            logger.debug(f"Error detecting Cloudflare: {e}")
+            logger.debug("Error detecting Cloudflare: %s", e)
             return ChallengeType.NONE
 
     async def _wait_for_cloudflare(
@@ -358,7 +331,8 @@ class CloudflarePlugin(BaseDriverPlugin):
         check_interval = self.config.get("check_interval", 1)
 
         logger.info(
-            f"⏳ Waiting for Cloudflare {challenge_type.value} challenge to complete (max {wait_timeout}s)..."
+            "[CF] Waiting for Cloudflare %s challenge to complete (max %ss)...",
+            challenge_type.value, wait_timeout
         )
 
         elapsed = 0
@@ -370,19 +344,19 @@ class CloudflarePlugin(BaseDriverPlugin):
             current_type = await self._detect_cloudflare(page, ctx)
 
             if current_type == ChallengeType.NONE:
-                logger.info(f"Cloudflare challenge passed after {elapsed}s")
+                logger.info("[CF] Cloudflare challenge passed after %ss", elapsed)
                 return True
 
             # Якщо тип змінився на блокування - виходимо
             if current_type == ChallengeType.FIREWALL_1020:
-                logger.warning(" Cloudflare Firewall 1020 block detected")
+                logger.warning("[CF] Cloudflare Firewall 1020 block detected")
                 return False
 
             # Логуємо прогрес кожні 5 секунд
             if elapsed % 5 == 0:
-                logger.debug(f"⏳ Still waiting... ({elapsed}s/{wait_timeout}s)")
+                logger.debug("[CF] Still waiting... (%ss/%ss)", elapsed, wait_timeout)
 
-        logger.warning(f"⏰ Cloudflare challenge timeout after {wait_timeout}s")
+        logger.warning("[CF] Cloudflare challenge timeout after %ss", wait_timeout)
         return False
 
     async def on_navigation_completed(self, ctx: BrowserContext) -> BrowserContext:
@@ -410,16 +384,12 @@ class CloudflarePlugin(BaseDriverPlugin):
             ctx.data["cloudflare_challenge_type"] = challenge_type.value
 
             # Логуємо та емітимо подію
-            logger.warning(f" Cloudflare {challenge_type.value} detected on {ctx.url}")
-            ctx.emit(
-                "cloudflare_detected", url=ctx.url, challenge_type=challenge_type.value
-            )
+            logger.warning("[CF] Cloudflare %s detected on %s", challenge_type.value, ctx.url)
+            ctx.emit("cloudflare_detected", url=ctx.url, challenge_type=challenge_type.value)
 
             # Обробка Firewall 1020
             if challenge_type == ChallengeType.FIREWALL_1020:
-                logger.error(
-                    f" Cloudflare Firewall has blocked access to {ctx.url} (Error 1020)"
-                )
+                logger.error("[CF] Cloudflare Firewall has blocked access to %s (Error 1020)", ctx.url)
                 ctx.emit("cloudflare_blocked", url=ctx.url, error_code=1020)
                 ctx.data["cloudflare_blocked"] = True
                 return ctx
@@ -441,7 +411,7 @@ class CloudflarePlugin(BaseDriverPlugin):
                 ctx.data["cloudflare_failed"] = True
 
         except Exception as e:
-            logger.error(f"Error in Cloudflare detection: {e}")
+            logger.error("Error in Cloudflare detection: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -470,14 +440,10 @@ class CloudflarePlugin(BaseDriverPlugin):
                 return ctx
 
             # Late detection
-            logger.warning(
-                f" Late Cloudflare {challenge_type.value} detection on {ctx.url}"
-            )
+            logger.warning("[CF] Late Cloudflare %s detection on %s", challenge_type.value, ctx.url)
             ctx.data["cloudflare_detected"] = True
             ctx.data["cloudflare_challenge_type"] = challenge_type.value
-            ctx.emit(
-                "cloudflare_detected", url=ctx.url, challenge_type=challenge_type.value
-            )
+            ctx.emit("cloudflare_detected", url=ctx.url, challenge_type=challenge_type.value)
 
             if challenge_type == ChallengeType.FIREWALL_1020:
                 ctx.emit("cloudflare_blocked", url=ctx.url, error_code=1020)
@@ -495,7 +461,7 @@ class CloudflarePlugin(BaseDriverPlugin):
                 ctx.data["cloudflare_failed"] = True
 
         except Exception as e:
-            logger.error(f"Error in Cloudflare content check: {e}")
+            logger.error("Error in Cloudflare content check: %s", e)
             ctx.errors.append(e)
 
         return ctx

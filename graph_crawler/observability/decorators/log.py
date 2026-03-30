@@ -48,7 +48,7 @@ def log_execution(
 
             except Exception as e:
                 # Лог помилки
-                logger.error(f"{func_name} failed with error: {e}")
+                logger.error("%s failed with error: %s", func_name, e)
                 raise
 
         return wrapper

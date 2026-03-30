@@ -21,9 +21,9 @@ except ImportError:
     AIOFILES_AVAILABLE = False
 
 # Import from shared layer (Clean Architecture fix)
-from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.domain.value_objects.models import GraphMetadata
 from graph_crawler.infrastructure.persistence.naming_strategy import GraphNamingStrategy
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
@@ -36,54 +36,23 @@ class GraphRepository:
     """
     Репозиторій для збереження GraphDTO з ізоляцією Domain Layer.
 
-    Використовує GraphDTO для ізоляції Domain Layer.
-
-    Логіка іменування винесена в GraphNamingStrategy (Strategy Pattern).
-    Це покращує:
-    - Single Responsibility - кожен клас має одну відповідальність
-    - Тестованість - можна тестувати окремо збереження та іменування
-    - Гнучкість - можна змінити схему іменування без зміни репозиторію
-
-    Дозволяє зберігати множинні графи з унікальними іменами
-    та завантажувати їх пізніше для порівняння або інкрементального сканування.
-
-    Структура збереження:
-    storage_dir/
-        graphs/
-            scan_name_2025-01-15.json
-            scan_name_2025-01-20.json
-        metadata/
-            scan_name.meta.json
-
-    Examples:
-        >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>>
-        >>> repo = GraphRepository('/data/graphs')
-        >>> # Серіалізація Domain → DTO → Repository
-        >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> repo.save_graph(graph_dto, name='mysite_v1')
-        >>>
-        >>> # Десеріалізація Repository → DTO → Domain
-        >>> graph_dto = repo.load_graph('mysite_v1')
-        >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>>
-        >>> graphs = repo.list_graphs()
     """
 
     def __init__(
         self,
-        storage_dir: str = "./graphs_storage",
+        storage_dir: Optional[str] = None,
         naming_strategy: Optional[GraphNamingStrategy] = None,
     ):
         """
         Ініціалізує репозиторій графів.
 
         Args:
-            storage_dir: Директорія для збереження графів
+            storage_dir: Директорія для збереження графів (default: ./crawler_data/graphs)
             naming_strategy: Стратегія іменування (опціонально, за замовчуванням timestamp)
         """
-        self.storage_dir = Path(storage_dir)
+        from graph_crawler.shared.constants import DEFAULT_GRAPHS_DIR
+
+        self.storage_dir = Path(storage_dir or DEFAULT_GRAPHS_DIR)
         self.graphs_dir = self.storage_dir / "graphs"
         self.metadata_dir = self.storage_dir / "metadata"
 
@@ -94,7 +63,7 @@ class GraphRepository:
         self.graphs_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"GraphRepository initialized at: {self.storage_dir}")
+        logger.info("GraphRepository initialized at: %s", self.storage_dir)
 
     def save_graph(
         self,
@@ -106,20 +75,15 @@ class GraphRepository:
         """
         Зберігає GraphDTO з унікальним ім'ям.
 
-        Приймає GraphDTO.
-
         Args:
             graph_dto: GraphDTO для збереження
             name: Ім'я графа (без дати, додається автоматично)
             description: Опис графа
             metadata: Додаткові метадані
-
         Returns:
             Повне ім'я збереженого графа (з датою)
-
         Raises:
             SaveError: Якщо не вдалося зберегти граф
-
         Examples:
             >>> from graph_crawler.application.dto.mappers import GraphMapper
             >>> graph_dto = GraphMapper.to_dto(graph)
@@ -154,22 +118,17 @@ class GraphRepository:
                 metadata=metadata or {},
             )
 
-            graph_file = self.graphs_dir / self.naming_strategy.format_graph_filename(
-                full_name
-            )
+            graph_file = self.graphs_dir / self.naming_strategy.format_graph_filename(full_name)
             # Використовуємо default=str для datetime та інших non-serializable типів
             with open(graph_file, "w", encoding="utf-8") as f:
                 json.dump(graph_data, f, ensure_ascii=False, indent=2, default=str)
 
             # Зберігаємо метадані (через model_dump)
-            meta_file = (
-                self.metadata_dir
-                / self.naming_strategy.format_metadata_filename(full_name)
-            )
+            meta_file = self.metadata_dir / self.naming_strategy.format_metadata_filename(full_name)
             with open(meta_file, "w", encoding="utf-8") as f:
                 json.dump(graph_meta.model_dump(), f, ensure_ascii=False, indent=2)
 
-            logger.info(f"Graph saved: {full_name} ({graph_stats.total_nodes} nodes)")
+            logger.info("Graph saved: %s (%s nodes)", full_name, graph_stats.total_nodes)
             return full_name
 
         except (IOError, OSError) as e:
@@ -185,18 +144,13 @@ class GraphRepository:
         """
         Завантажує GraphDTO за ім'ям.
 
-        Повертає GraphDTO.
-
         Args:
             name: Ім'я графа (без дати) або повне ім'я (з датою)
             latest: Якщо True - завантажує останню версію графа
-
         Returns:
             GraphDTO або None якщо не знайдено
-
         Raises:
             LoadError: Якщо не вдалося завантажити граф
-
         Examples:
             >>> graph_dto = repo.load_graph('royal_road_scan')  # Остання версія
             >>> graph_dto = repo.load_graph('royal_road_scan_2025-01-15_14-30-00')  # Конкретна версія
@@ -206,9 +160,7 @@ class GraphRepository:
             >>> graph = GraphMapper.to_domain(graph_dto, context=context)
         """
         try:
-            graph_file = self.graphs_dir / self.naming_strategy.format_graph_filename(
-                name
-            )
+            graph_file = self.graphs_dir / self.naming_strategy.format_graph_filename(name)
 
             if graph_file.exists():
                 # Це повне ім'я, завантажуємо напряму
@@ -219,15 +171,12 @@ class GraphRepository:
                 versions = self.naming_strategy.find_versions(name, all_graph_files)
 
                 if not versions:
-                    logger.warning(f"No graphs found with name: {name}")
+                    logger.warning("No graphs found with name: %s", name)
                     return None
 
                 # Беремо останню версію
                 full_name = versions[0] if latest else versions[-1]
-                graph_file = (
-                    self.graphs_dir
-                    / self.naming_strategy.format_graph_filename(full_name)
-                )
+                graph_file = self.graphs_dir / self.naming_strategy.format_graph_filename(full_name)
 
             # Читаємо граф
             with open(graph_file, "r", encoding="utf-8") as f:
@@ -236,7 +185,7 @@ class GraphRepository:
             # Десеріалізуємо GraphDTO через Pydantic model_validate()
             graph_dto = GraphDTO.model_validate(data)
 
-            logger.info(f"Graph loaded: {full_name} ({len(graph_dto.nodes)} nodes)")
+            logger.info("Graph loaded: %s (%s nodes)", full_name, len(graph_dto.nodes))
             return graph_dto
 
         except (IOError, OSError) as e:
@@ -275,14 +224,14 @@ class GraphRepository:
                     meta = GraphMetadata.model_validate(meta_data)
                     graphs.append(meta)
                 except Exception as e:
-                    logger.warning(f"Failed to read metadata {meta_file}: {e}")
+                    logger.warning("Failed to read metadata %s: %s", meta_file, e)
 
             # Сортуємо за датою створення (новіші першими)
             graphs.sort(key=lambda x: x.created_at, reverse=True)
             return graphs
 
         except Exception as e:
-            logger.error(f"Failed to list graphs: {e}")
+            logger.error("Failed to list graphs: %s", e)
             return []
 
     def delete_graph(self, name: str) -> bool:
@@ -311,14 +260,14 @@ class GraphRepository:
                 deleted = True
 
             if deleted:
-                logger.info(f"Graph deleted: {name}")
+                logger.info("Graph deleted: %s", name)
             else:
-                logger.warning(f"Graph not found: {name}")
+                logger.warning("Graph not found: %s", name)
 
             return deleted
 
         except Exception as e:
-            logger.error(f"Failed to delete graph '{name}': {e}")
+            logger.error("Failed to delete graph '%s': %s", name, e)
             return False
 
     def graph_exists(self, name: str) -> bool:
@@ -362,10 +311,8 @@ class GraphRepository:
             return GraphMetadata.model_validate(meta_data)
 
         except Exception as e:
-            logger.error(f"Failed to read metadata for '{name}': {e}")
+            logger.error("Failed to read metadata for '%s': %s", name, e)
             return None
-
-    # ============= ASYNC МЕТОДИ (неблокуючі) =============
 
     async def save_graph_async(
         self,
@@ -388,8 +335,7 @@ class GraphRepository:
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            _repo_executor,
-            partial(self.save_graph, graph_dto, name, description, metadata)
+            _repo_executor, partial(self.save_graph, graph_dto, name, description, metadata)
         )
 
     async def load_graph_async(self, name: str, latest: bool = True) -> Optional[GraphDTO]:
@@ -404,10 +350,7 @@ class GraphRepository:
             GraphDTO або None якщо не знайдено
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            _repo_executor,
-            partial(self.load_graph, name, latest)
-        )
+        return await loop.run_in_executor(_repo_executor, partial(self.load_graph, name, latest))
 
     async def delete_graph_async(self, name: str) -> bool:
         """
@@ -420,10 +363,7 @@ class GraphRepository:
             True якщо успішно видалено
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            _repo_executor,
-            partial(self.delete_graph, name)
-        )
+        return await loop.run_in_executor(_repo_executor, partial(self.delete_graph, name))
 
     async def get_metadata_async(self, name: str) -> Optional[GraphMetadata]:
         """
@@ -436,10 +376,7 @@ class GraphRepository:
             GraphMetadata модель або None
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            _repo_executor,
-            partial(self.get_metadata, name)
-        )
+        return await loop.run_in_executor(_repo_executor, partial(self.get_metadata, name))
 
     @staticmethod
     def _sync_write_file(file_path: Path, content: str) -> None:

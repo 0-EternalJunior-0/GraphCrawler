@@ -1,24 +1,6 @@
 """GraphContext - Об'єднаний контекст для роботи з графом.
 
 Об'єднує DependencyRegistry та MergeContext в єдиний інтерфейс
-для зручної роботи з графом.
-
-Приклад:
-    >>> ctx = GraphContext(
-    ...     plugin_manager=my_pm,
-    ...     default_merge_strategy='merge',
-    ... )
-    >>>
-    >>> # Встановлюємо як глобальний контекст
-    >>> set_graph_context(ctx)
-    >>>
-    >>> # Тепер всі операції використовують цей контекст
-    >>> graph_dto = await storage.load_graph()
-    >>> graph = GraphMapper.to_domain(graph_dto, context=ctx.to_dict())
-    >>>
-    >>> # Локальна зміна стратегії
-    >>> with ctx.merge_strategy('newest'):
-    ...     result = graph1 + graph2
 """
 
 import logging
@@ -49,6 +31,7 @@ class GraphContext:
         default_merge_strategy: Дефолтна стратегія merge
         custom_merge_fn: Кастомна функція для 'custom' стратегії
     """
+
     plugin_manager: Optional[Any] = None
     tree_parser: Optional[Any] = None
     hash_strategy: Optional[Any] = None
@@ -68,18 +51,18 @@ class GraphContext:
         defaults = DependencyRegistry.get_context()
 
         if self.plugin_manager is None:
-            self.plugin_manager = defaults.get('plugin_manager')
+            self.plugin_manager = defaults.get("plugin_manager")
         if self.tree_parser is None:
-            self.tree_parser = defaults.get('tree_parser')
+            self.tree_parser = defaults.get("tree_parser")
         if self.hash_strategy is None:
-            self.hash_strategy = defaults.get('hash_strategy')
+            self.hash_strategy = defaults.get("hash_strategy")
         if self.node_class is None:
-            self.node_class = defaults.get('node_class')
+            self.node_class = defaults.get("node_class")
         if self.edge_class is None:
-            self.edge_class = defaults.get('edge_class')
+            self.edge_class = defaults.get("edge_class")
         if self.default_merge_strategy == "last":
             # Тільки якщо не було явно встановлено
-            registry_strategy = defaults.get('default_merge_strategy')
+            registry_strategy = defaults.get("default_merge_strategy")
             if registry_strategy:
                 self.default_merge_strategy = registry_strategy
 
@@ -95,12 +78,12 @@ class GraphContext:
             >>> graph = GraphMapper.to_domain(graph_dto, context=ctx.to_dict())
         """
         return {
-            'plugin_manager': self.plugin_manager,
-            'tree_parser': self.tree_parser,
-            'hash_strategy': self.hash_strategy,
-            'node_class': self.node_class,
-            'edge_class': self.edge_class,
-            'default_merge_strategy': self.get_current_strategy(),
+            "plugin_manager": self.plugin_manager,
+            "tree_parser": self.tree_parser,
+            "hash_strategy": self.hash_strategy,
+            "node_class": self.node_class,
+            "edge_class": self.edge_class,
+            "default_merge_strategy": self.get_current_strategy(),
         }
 
     def get_current_strategy(self) -> str:
@@ -123,7 +106,7 @@ class GraphContext:
         Returns:
             Callable або None
         """
-        if self.get_current_strategy() == 'custom':
+        if self.get_current_strategy() == "custom":
             return self.custom_merge_fn
         return None
 
@@ -145,17 +128,12 @@ class GraphContext:
             ...     result = graph1 + graph2  # Використає 'merge'
             ... # Повернеться до 'last'
         """
-        valid_strategies = ['first', 'last', 'merge', 'newest', 'oldest', 'custom']
+        valid_strategies = ["first", "last", "merge", "newest", "oldest", "custom"]
         if strategy not in valid_strategies:
-            raise ValueError(
-                f"Invalid merge strategy: {strategy}. "
-                f"Valid: {valid_strategies}"
-            )
+            raise ValueError(f"Invalid merge strategy: {strategy}. Valid: {valid_strategies}")
 
-        if strategy == 'custom' and custom_fn is None and self.custom_merge_fn is None:
-            raise ValueError(
-                "custom_fn is required for 'custom' strategy"
-            )
+        if strategy == "custom" and custom_fn is None and self.custom_merge_fn is None:
+            raise ValueError("custom_fn is required for 'custom' strategy")
 
         # Зберігаємо custom_fn якщо передано
         old_custom_fn = self.custom_merge_fn
@@ -164,8 +142,7 @@ class GraphContext:
 
         self._strategy_stack.append(strategy)
         logger.debug(
-            f"GraphContext strategy pushed: {strategy} "
-            f"(depth={len(self._strategy_stack)})"
+            f"GraphContext strategy pushed: {strategy} (depth={len(self._strategy_stack)})"
         )
 
         try:
@@ -174,11 +151,10 @@ class GraphContext:
             self._strategy_stack.pop()
             self.custom_merge_fn = old_custom_fn
             logger.debug(
-                f"GraphContext strategy popped: {strategy} "
-                f"(depth={len(self._strategy_stack)})"
+                f"GraphContext strategy popped: {strategy} (depth={len(self._strategy_stack)})"
             )
 
-    def with_plugin_manager(self, plugin_manager: Any) -> 'GraphContext':
+    def with_plugin_manager(self, plugin_manager: Any) -> "GraphContext":
         """
         Створює копію контексту з новим plugin_manager.
 
@@ -203,7 +179,7 @@ class GraphContext:
             custom_merge_fn=self.custom_merge_fn,
         )
 
-    def with_tree_parser(self, tree_parser: Any) -> 'GraphContext':
+    def with_tree_parser(self, tree_parser: Any) -> "GraphContext":
         """Створює копію контексту з новим tree_parser."""
         return GraphContext(
             plugin_manager=self.plugin_manager,
@@ -215,7 +191,7 @@ class GraphContext:
             custom_merge_fn=self.custom_merge_fn,
         )
 
-    def with_node_class(self, node_class: Type) -> 'GraphContext':
+    def with_node_class(self, node_class: Type) -> "GraphContext":
         """Створює копію контексту з новим node_class."""
         return GraphContext(
             plugin_manager=self.plugin_manager,
@@ -227,7 +203,7 @@ class GraphContext:
             custom_merge_fn=self.custom_merge_fn,
         )
 
-    def with_merge_strategy_default(self, strategy: str) -> 'GraphContext':
+    def with_merge_strategy_default(self, strategy: str) -> "GraphContext":
         """Створює копію контексту з новою дефолтною стратегією."""
         return GraphContext(
             plugin_manager=self.plugin_manager,
@@ -239,8 +215,6 @@ class GraphContext:
             custom_merge_fn=self.custom_merge_fn,
         )
 
-
-# ==================== GLOBAL CONTEXT ====================
 
 _global_context: Optional[GraphContext] = None
 _global_lock = threading.Lock()

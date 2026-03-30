@@ -30,9 +30,7 @@ class JsonLdParser:
         return isinstance(source, str) and "application/ld+json" in source.lower()
 
     def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
+        self, source: Union[str, Any], options: StructuredDataOptions
     ) -> List[Dict[str, Any]]:
         """
         Парсить JSON-LD блоки з HTML.
@@ -50,10 +48,10 @@ class JsonLdParser:
         results = []
         blocks = JSONLD_PATTERN.findall(source)
 
-        for i, block in enumerate(blocks[:options.max_jsonld_blocks]):
+        for i, block in enumerate(blocks[: options.max_jsonld_blocks]):
             # Ліміт на розмір
             if len(block) > options.max_jsonld_size:
-                logger.warning(f"JSON-LD block {i} exceeds size limit, skipping")
+                logger.warning("JSON-LD block %s exceeds size limit, skipping", i)
                 continue
 
             try:
@@ -68,10 +66,10 @@ class JsonLdParser:
                 if self._check_depth(data, options.max_nesting_depth):
                     results.append(data)
                 else:
-                    logger.warning(f"JSON-LD block {i} exceeds nesting depth limit")
+                    logger.warning("JSON-LD block %s exceeds nesting depth limit", i)
 
             except json.JSONDecodeError as e:
-                logger.warning(f"Invalid JSON in block {i}: {e}")
+                logger.warning("Invalid JSON in block %s: %s", i, e)
                 continue
 
         return results

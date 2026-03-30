@@ -28,6 +28,7 @@ try:
     AIOFILES_AVAILABLE = True
 except ImportError:
     AIOFILES_AVAILABLE = False
+    aiofiles = None  # type: ignore
 
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
@@ -58,7 +59,7 @@ class CheckpointManager:
 
     def __init__(
         self,
-        checkpoint_dir: str = "./checkpoints",
+        checkpoint_dir: Optional[str] = None,
         checkpoint_interval: int = 100,
         max_checkpoints: int = 5,
     ):
@@ -66,11 +67,13 @@ class CheckpointManager:
         Ініціалізує CheckpointManager.
 
         Args:
-            checkpoint_dir: Директорія для збереження checkpoint'ів
+            checkpoint_dir: Директорія для збереження checkpoint'ів (default: ./crawler_data/checkpoints)
             checkpoint_interval: Через скільки сторінок робити checkpoint
             max_checkpoints: Скільки останніх checkpoint'ів зберігати
         """
-        self.checkpoint_dir = Path(checkpoint_dir)
+        from graph_crawler.shared.constants import DEFAULT_CHECKPOINTS_DIR
+
+        self.checkpoint_dir = Path(checkpoint_dir or DEFAULT_CHECKPOINTS_DIR)
         self.checkpoint_interval = checkpoint_interval
         self.max_checkpoints = max_checkpoints
         self.pages_since_last_checkpoint = 0
@@ -137,7 +140,7 @@ class CheckpointManager:
         json_content = json.dumps(checkpoint_data, indent=2, ensure_ascii=False)
 
         try:
-            if AIOFILES_AVAILABLE:
+            if AIOFILES_AVAILABLE and aiofiles is not None:
                 async with aiofiles.open(checkpoint_file, "w", encoding="utf-8") as f:
                     await f.write(json_content)
             else:
@@ -145,7 +148,7 @@ class CheckpointManager:
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
                     _checkpoint_executor,
-                    partial(self._sync_write_file, checkpoint_file, json_content)
+                    partial(self._sync_write_file, checkpoint_file, json_content),
                 )
 
             logger.info(
@@ -162,7 +165,7 @@ class CheckpointManager:
             return str(checkpoint_file)
 
         except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}", exc_info=True)
+            logger.error("Failed to save checkpoint: %s", e, exc_info=True)
             raise
 
     async def load_latest_checkpoint(self) -> Optional[Dict[str, Any]]:
@@ -194,7 +197,7 @@ class CheckpointManager:
             Словник з даними checkpoint або None при помилці
         """
         try:
-            if AIOFILES_AVAILABLE:
+            if AIOFILES_AVAILABLE and aiofiles is not None:
                 async with aiofiles.open(checkpoint_path, "r", encoding="utf-8") as f:
                     content = await f.read()
                 checkpoint_data = json.loads(content)
@@ -202,8 +205,7 @@ class CheckpointManager:
                 # Використовуємо executor для неблокуючого читання
                 loop = asyncio.get_event_loop()
                 checkpoint_data = await loop.run_in_executor(
-                    _checkpoint_executor,
-                    partial(self._sync_read_json_file, checkpoint_path)
+                    _checkpoint_executor, partial(self._sync_read_json_file, checkpoint_path)
                 )
 
             logger.info(
@@ -214,9 +216,7 @@ class CheckpointManager:
             return checkpoint_data
 
         except Exception as e:
-            logger.error(
-                f"Failed to load checkpoint {checkpoint_path}: {e}", exc_info=True
-            )
+            logger.error("Failed to load checkpoint %s: %s", checkpoint_path, e, exc_info=True)
             return None
 
     def restore_from_checkpoint(
@@ -242,7 +242,7 @@ class CheckpointManager:
                 node = Node.model_validate(node_data)
                 graph.add_node(node)
             except Exception as e:
-                logger.warning(f"Failed to restore node {node_data.get('url')}: {e}")
+                logger.warning("Failed to restore node %s: %s", node_data.get('url'), e)
 
         # Відновлюємо edges
         for edge_data in checkpoint_data["graph"]["edges"]:
@@ -250,7 +250,7 @@ class CheckpointManager:
                 edge = Edge.model_validate(edge_data)
                 graph.add_edge(edge)
             except Exception as e:
-                logger.warning(f"Failed to restore edge: {e}")
+                logger.warning("Failed to restore edge: %s", e)
 
         # Відновлюємо чергу та seen URLs
         queue_urls = checkpoint_data["queue_urls"]
@@ -258,7 +258,7 @@ class CheckpointManager:
 
         logger.info(
             f"Graph restored: {len(graph.nodes)} nodes, "
-            f"{len(graph.edges)} edges, {len(queue_urls)} URLs in queue"
+            f"{sum(1 for _ in graph.iter_edges())} edges, {len(queue_urls)} URLs in queue"
         )
 
         return graph, queue_urls, seen_urls
@@ -289,16 +289,16 @@ class CheckpointManager:
 
         for checkpoint_file in checkpoints_to_delete:
             try:
-                if AIOFILES_AVAILABLE:
+                if AIOFILES_AVAILABLE and aiofiles is not None:
                     await aiofiles.os.remove(checkpoint_file)
                 else:
                     checkpoint_file.unlink()
-                logger.debug(f"Deleted old checkpoint: {checkpoint_file.name}")
+                logger.debug("Deleted old checkpoint: %s", checkpoint_file.name)
             except Exception as e:
-                logger.warning(f"Failed to delete checkpoint {checkpoint_file}: {e}")
+                logger.warning("Failed to delete checkpoint %s: %s", checkpoint_file, e)
 
         if checkpoints_to_delete:
-            logger.info(f"Cleaned up {len(checkpoints_to_delete)} old checkpoint(s)")
+            logger.info("Cleaned up %s old checkpoint(s)", len(checkpoints_to_delete))
 
     def list_checkpoints(self) -> List[Dict[str, Any]]:
         """
@@ -327,7 +327,7 @@ class CheckpointManager:
                     }
                 )
             except Exception as e:
-                logger.warning(f"Failed to read checkpoint {checkpoint_file}: {e}")
+                logger.warning("Failed to read checkpoint %s: %s", checkpoint_file, e)
 
         return result
 
@@ -343,20 +343,18 @@ class CheckpointManager:
 
         for checkpoint_file in checkpoints:
             try:
-                if AIOFILES_AVAILABLE:
+                if AIOFILES_AVAILABLE and aiofiles is not None:
                     await aiofiles.os.remove(checkpoint_file)
                 else:
                     checkpoint_file.unlink()
                 deleted_count += 1
             except Exception as e:
-                logger.warning(f"Failed to delete checkpoint {checkpoint_file}: {e}")
+                logger.warning("Failed to delete checkpoint %s: %s", checkpoint_file, e)
 
         if deleted_count > 0:
-            logger.info(f"Deleted {deleted_count} checkpoint(s)")
+            logger.info("Deleted %s checkpoint(s)", deleted_count)
 
         return deleted_count
-
-    # ==================== DEPRECATED: Sync методи для зворотньої сумісності ====================
 
     def save_checkpoint_sync(
         self,

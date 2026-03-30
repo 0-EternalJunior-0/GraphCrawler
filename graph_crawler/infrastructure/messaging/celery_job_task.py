@@ -1,37 +1,6 @@
 """Celery Task для Kubernetes: crawl_job
 
 Цей task призначений для роботи з RemoteControl.
-Воркери зберігають результати в MongoDB, не повертають локально.
-
-Архітектура:
-```
-RemoteControl.submit()
-
-
-    Redis Queue
-
-
-
-   Celery Worker
-
-   crawl_job_task()
-
-
-   MongoDB              Результати
-   (nodes + edges)
-
-
-   Redis                Progress
-   (progress updates)
-
-```
-
-Features:
-- Fire-and-forget: результати в MongoDB, не повертаються
-- Real-time progress: оновлення в Redis
-- Cancellation support: перевірка gc:cancel:{job_id}
-- Pause/Resume: перевірка gc:pause:{job_id}
-- Batch processing: 24x швидше через crawl_batch
 """
 
 import asyncio
@@ -66,22 +35,6 @@ def crawl_job_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Kubernetes-optimized crawl job task.
 
-    Зберігає результати в MongoDB, оновлює progress в Redis.
-    НЕ повертає граф локально - для великих задач це неможливо.
-
-    Args:
-        task_data: Dict з параметрами:
-            - job_id: Унікальний ID job
-            - url: Початковий URL
-            - max_pages: Максимум сторінок
-            - max_depth: Максимальна глибина
-            - nodes_collection: Назва колекції для nodes
-            - edges_collection: Назва колекції для edges
-            - progress_key: Redis key для progress
-            - driver_type: Тип драйвера (async, playwright)
-            - timeout: Максимальний час (секунди)
-            - url_rules: Правила фільтрації
-
     Returns:
         Dict з summary (не повний граф!):
             - job_id: ID job
@@ -91,7 +44,7 @@ def crawl_job_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
             - elapsed_time: Час виконання
     """
     job_id = task_data.get("job_id")
-    logger.info(f" Starting crawl job: {job_id}")
+    logger.info(" Starting crawl job: %s", job_id)
 
     # Run async crawl
     result = asyncio.run(_async_crawl_job(task_data))
@@ -106,7 +59,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
     Виконує краулінг та зберігає результати безпосередньо в MongoDB.
     Оновлює progress в Redis для моніторингу.
     """
-    import redis.asyncio as aioredis
+    import redis.asyncio as aioredis  # type: ignore[import-not-found]
     from motor.motor_asyncio import AsyncIOMotorClient
 
     from graph_crawler.application.use_cases.crawling.spider import GraphSpider
@@ -136,9 +89,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
     # Get connection URLs from environment with fallback to constants
     default_redis_url = f"redis://{DEFAULT_REDIS_HOST}:{DEFAULT_REDIS_PORT}/{DEFAULT_REDIS_DB}"
     redis_url = os.environ.get("CELERY_BROKER_URL", default_redis_url)
-    mongodb_url = os.environ.get(
-        "MONGODB_URL", "mongodb://localhost:27017/graph_crawler"
-    )
+    mongodb_url = os.environ.get("MONGODB_URL", "mongodb://localhost:27017/graph_crawler")
     database_name = os.environ.get("MONGODB_DATABASE", "graph_crawler")
 
     # Connect to Redis and MongoDB
@@ -162,8 +113,6 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
             {"job_id": job_id},
             {"$set": {"status": "running", "started_at": start_time}},
         )
-
-        # Create config
         config = CrawlerConfig(
             url=url,
             max_depth=max_depth,
@@ -185,8 +134,6 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                 ]
             },
         )
-
-        # Create driver
         if driver_type == "playwright":
             from graph_crawler.infrastructure.transport.playwright.driver import (
                 PlaywrightDriver,
@@ -199,8 +146,6 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
             )
 
             driver = AsyncDriver(config.get_driver_params())
-
-        # Create spider with memory storage (we'll save to MongoDB manually)
         storage = MemoryStorage()
         spider = GraphSpider(config, driver, storage)
 
@@ -212,14 +157,12 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
 
         batch_size = task_data.get("batch_size", DEFAULT_BATCH_SIZE)
 
-        logger.info(
-            f"Starting crawl: {url}, max_pages={max_pages}, max_depth={max_depth}"
-        )
+        logger.info("Starting crawl: %s, max_pages=%s, max_depth=%s", url, max_pages, max_depth)
 
         while urls_to_crawl and pages_crawled < max_pages:
             # Check for cancellation
             if await redis_client.exists(f"gc:cancel:{job_id}"):
-                logger.info(f"Job {job_id} cancelled by user")
+                logger.info("Job %s cancelled by user", job_id)
                 status = "cancelled"
                 break
 
@@ -238,7 +181,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
             # Check timeout
             elapsed = time.time() - start_time
             if elapsed > timeout:
-                logger.warning(f"Job {job_id} timeout after {elapsed:.0f}s")
+                logger.warning("Job %s timeout after %.0fs", job_id, elapsed)
                 status = "timeout"
                 break
 
@@ -262,15 +205,11 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
 
                 for response in responses:
                     if response.error:
-                        logger.debug(
-                            f"Fetch error for {response.url}: {response.error}"
-                        )
+                        logger.debug("Fetch error for %s: %s", response.url, response.error)
                         continue
 
                     current_url = response.url
                     depth = depth_map.get(current_url, 0)
-
-                    # Create node
                     node = Node(
                         url=current_url,
                         depth=depth,
@@ -283,9 +222,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                         try:
                             links = node.process_html(response.html)
                         except Exception as e:
-                            logger.debug(
-                                f"Error processing HTML for {current_url}: {e}"
-                            )
+                            logger.debug("Error processing HTML for %s: %s", current_url, e)
 
                     node.response_status = response.status_code
                     node.scanned = True
@@ -306,11 +243,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                             continue
 
                         normalized_url = URLUtils.normalize_url(link_url)
-
-                        # Create edge
-                        edge = Edge(
-                            source_node_id=node.node_id, target_node_id=normalized_url
-                        )
+                        edge = Edge(source_node_id=node.node_id, target_node_id=normalized_url)
                         pending_edges.append(edge.model_dump())
                         edges_created += 1
 
@@ -319,7 +252,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                             urls_to_crawl.append((normalized_url, depth + 1))
 
             except Exception as e:
-                logger.error(f"Error processing batch: {e}")
+                logger.error("Error processing batch: %s", e)
                 continue
 
             # Save to MongoDB in batches
@@ -356,7 +289,7 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
             status = "completed"
 
     except Exception as e:
-        logger.error(f"Crawl job {job_id} failed: {e}")
+        logger.error("Crawl job %s failed: %s", job_id, e)
         status = "failed"
         error_message = str(e)
 
@@ -377,8 +310,10 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                         "elapsed_time": elapsed_time,
                     },
                 )
-            except:
-                pass
+            except (ConnectionError, TimeoutError) as e:
+                logger.warning("Redis update failed: %s", e)
+            except Exception:
+                pass  # Fallback - не блокуємо завершення задачі
 
         # Update MongoDB job status
         if mongo_client:
@@ -394,8 +329,10 @@ async def _async_crawl_job(task_data: Dict[str, Any]) -> Dict[str, Any]:
                     update_doc["error"] = error_message
 
                 await db.jobs.update_one({"job_id": job_id}, {"$set": update_doc})
-            except:
-                pass
+            except (ConnectionError, TimeoutError) as e:
+                logger.warning("MongoDB update failed: %s", e)
+            except Exception:
+                pass  # Fallback - не блокуємо завершення задачі
             finally:
                 mongo_client.close()
 
@@ -436,21 +373,19 @@ async def _save_batch_to_mongodb(
         # Save nodes
         if nodes:
             operations = [
-                UpdateOne({"node_id": n["node_id"]}, {"$set": n}, upsert=True)
-                for n in nodes
+                UpdateOne({"node_id": n["node_id"]}, {"$set": n}, upsert=True) for n in nodes
             ]
             await db[nodes_collection].bulk_write(operations, ordered=False)
 
         # Save edges
         if edges:
             operations = [
-                UpdateOne({"edge_id": e["edge_id"]}, {"$set": e}, upsert=True)
-                for e in edges
+                UpdateOne({"edge_id": e["edge_id"]}, {"$set": e}, upsert=True) for e in edges
             ]
             await db[edges_collection].bulk_write(operations, ordered=False)
 
     except Exception as e:
-        logger.error(f"Failed to save batch to MongoDB: {e}")
+        logger.error("Failed to save batch to MongoDB: %s", e)
         raise
 
 

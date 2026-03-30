@@ -18,6 +18,7 @@ from graph_crawler.shared.constants import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
     DEFAULT_RETRY_EXPONENTIAL_BASE,
+    HTTP_FORBIDDEN,
     HTTP_RETRYABLE_STATUS_CODES,
     HTTP_SERVICE_UNAVAILABLE,
     HTTP_TOO_MANY_REQUESTS,
@@ -41,7 +42,7 @@ class RetryMiddleware(BaseMiddleware):
     - Metrics: скільки разів retry спрацював Неблокуючий async sleep через asyncio.sleep().
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self.attempt_counter: Dict[str, int] = {}  # URL -> кількість спроб
 
@@ -79,6 +80,12 @@ class RetryMiddleware(BaseMiddleware):
         if status_code == HTTP_TOO_MANY_REQUESTS:
             # Rate Limit - довгий backoff
             multiplier = 3.0
+        elif status_code == HTTP_FORBIDDEN:
+            # 403 Forbidden (anti-bot) - збільшений backoff
+            multiplier = 2.5
+            logger.warning(
+                f"HTTP 403 Forbidden detected - applying extended backoff (x{multiplier})"
+            )
         elif status_code == HTTP_SERVICE_UNAVAILABLE:
             # Service Unavailable - короткий backoff
             multiplier = 0.5
@@ -120,9 +127,7 @@ class RetryMiddleware(BaseMiddleware):
         max_retries = self.config.get("max_retries", DEFAULT_MAX_RETRIES)
         retry_delay = self.config.get("retry_delay", DEFAULT_RETRY_DELAY)
         exponential_backoff = self.config.get("exponential_backoff", True)
-        retry_on_status = self.config.get(
-            "retry_on_status", HTTP_RETRYABLE_STATUS_CODES
-        )
+        retry_on_status = self.config.get("retry_on_status", HTTP_RETRYABLE_STATUS_CODES)
         enable_jitter = self.config.get("enable_jitter", True)
         jitter_factor = self.config.get("jitter_factor", 0.1)
 
@@ -139,9 +144,7 @@ class RetryMiddleware(BaseMiddleware):
                 self.total_retries += 1
 
                 if status_code:
-                    self.retry_by_status[status_code] = (
-                        self.retry_by_status.get(status_code, 0) + 1
-                    )
+                    self.retry_by_status[status_code] = self.retry_by_status.get(status_code, 0) + 1
 
                 # Розраховуємо затримку з exponential backoff та jitter
                 if exponential_backoff:
@@ -186,7 +189,7 @@ class RetryMiddleware(BaseMiddleware):
 
                 context.should_retry = True
             else:
-                logger.error(f"Max retries ({max_retries}) exceeded for {url}")
+                logger.error("Max retries (%s) exceeded for %s", max_retries, url)
 
                 if self.event_bus:
                     from graph_crawler.domain.events.events import (
@@ -201,9 +204,7 @@ class RetryMiddleware(BaseMiddleware):
                                 "url": url,
                                 "total_attempts": max_retries,
                                 "error": (
-                                    str(context.error)
-                                    if context.error
-                                    else f"status {status_code}"
+                                    str(context.error) if context.error else f"status {status_code}"
                                 ),
                                 "status_code": status_code,
                             },
@@ -218,9 +219,7 @@ class RetryMiddleware(BaseMiddleware):
                 # Це був успішний retry
                 attempts_made = self.attempt_counter[url]
                 self.successful_retries += 1
-                logger.info(
-                    f"Successful retry for {url} after {attempts_made} attempts"
-                )
+                logger.info("Successful retry for %s after %s attempts", url, attempts_made)
 
                 if self.event_bus:
                     from graph_crawler.domain.events.events import (

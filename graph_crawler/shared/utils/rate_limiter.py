@@ -40,45 +40,24 @@ class RateLimiter:
     """
     Rate Limiter використовуючи бібліотеку 'ratelimit'.
 
-    Для простих глобальних rate limits.
-
     Args:
         calls: Кількість викликів
         period: Період в секундах
         raise_on_limit: Викидати exception при досягненні ліміту
-
-    Example:
-        >>> # Глобальний rate limiter (10 запитів на секунду)
-        >>> limiter = RateLimiter(calls=10, period=1)
-        >>>
-        >>> @limiter.limit
-        ... def fetch_page(url):
-        ...     return requests.get(url)
-        >>>
-        >>> # Викидає exception при досягненні ліміту
-        >>> limiter_strict = RateLimiter(calls=10, period=1, raise_on_limit=True)
-        >>>
-        >>> @limiter_strict.limit
-        ... def fetch_strict(url):
-        ...     return requests.get(url)
     """
 
     def __init__(self, calls: int = 10, period: int = 1, raise_on_limit: bool = False):
         """Ініціалізує RateLimiter"""
         if not _check_ratelimit_availability():
             raise ImportError(
-                "ratelimit бібліотека не встановлена. "
-                "Встановіть: pip install ratelimit"
+                "ratelimit бібліотека не встановлена. Встановіть: pip install ratelimit"
             )
 
         self.calls = calls
         self.period = period
         self.raise_on_limit = raise_on_limit
 
-        logger.info(
-            f" RateLimiter: {calls} calls/{period}s "
-            f"(raise_on_limit={raise_on_limit})"
-        )
+        logger.info(" RateLimiter: %s calls/%ss (raise_on_limit=%s)", calls, period, raise_on_limit)
 
     def limit(self, func: Callable) -> Callable:
         """
@@ -121,9 +100,7 @@ class RateLimiter:
         return self.limit(func)
 
 
-def rate_limit(
-    calls: int = 10, period: int = 1, raise_on_limit: bool = False
-) -> Callable:
+def rate_limit(calls: int = 10, period: int = 1, raise_on_limit: bool = False) -> Callable:
     """
     Декоратор для швидкого rate limiting.
 

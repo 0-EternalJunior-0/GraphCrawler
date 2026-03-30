@@ -20,7 +20,9 @@ from graph_crawler.shared.constants import (
 logger = logging.getLogger(__name__)
 
 
-def check_proxy_health(proxy_info: ProxyInfo, health_check_url: str, timeout: int, event_bus=None) -> bool:
+def check_proxy_health(
+    proxy_info: ProxyInfo, health_check_url: str, timeout: int, event_bus=None
+) -> bool:
     """Perform a single health-check for the given proxy.
 
     Returns ``True`` if the proxy is considered alive.
@@ -108,7 +110,9 @@ def initial_health_check(proxies: List[ProxyInfo], config: dict, event_bus=None)
         check_proxy_health(proxy_info, health_check_url, timeout, event_bus)
 
 
-def recheck_dead_proxies(proxies: List[ProxyInfo], config: dict, last_recheck_time: float, event_bus=None) -> float:
+def recheck_dead_proxies(
+    proxies: List[ProxyInfo], config: dict, last_recheck_time: float, event_bus=None
+) -> float:
     """Re-check dead proxies according to configured interval.
 
     Returns updated ``last_recheck_time``.
@@ -133,7 +137,12 @@ def recheck_dead_proxies(proxies: List[ProxyInfo], config: dict, last_recheck_ti
         )
 
     for proxy_info in dead_proxies:
-        check_proxy_health(proxy_info, health_check_url=DEFAULT_PROXY_HEALTH_CHECK_URL, timeout=recheck_interval, event_bus=event_bus)
+        check_proxy_health(
+            proxy_info,
+            health_check_url=DEFAULT_PROXY_HEALTH_CHECK_URL,
+            timeout=recheck_interval,
+            event_bus=event_bus,
+        )
 
     return current_time
 

@@ -15,17 +15,18 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Dict, Optional, Union
-
 from urllib.parse import urlparse
 
 try:
     import httpx
+
     HTTPX_AVAILABLE = True
 except ImportError:
     HTTPX_AVAILABLE = False
 
 try:
     import aiohttp
+
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
@@ -43,27 +44,6 @@ class SessionManager:
     """
     Управління сесіями та cookies для HTTP crawling.
 
-    Функціонал:
-    - Збереження cookies між запитами
-    - Automatic cookie refresh (перезавантаження застарілих cookies)
-    - Session persistence (save/load на диск)
-    - Multi-domain cookies (окрема сесія для кожного домену)
-    - Session expiration handling
-
-    Використання:
-        manager = SessionManager(storage_path="./sessions")
-
-        # Отримати сесію для домену
-        session = manager.get_session("example.com")
-
-        # Зберегти cookies після логіну
-        manager.save_session("example.com")
-
-        # Завантажити збережені cookies
-        manager.load_session("example.com")
-
-        # Очистити застарілі сесії
-        manager.cleanup_expired_sessions(max_age_days=7)
     """
 
     def __init__(
@@ -88,7 +68,7 @@ class SessionManager:
         self.default_headers = default_headers or {}
         self.session_timeout_hours = session_timeout_hours
 
-        logger.info(f"SessionManager initialized with storage_path={storage_path}")
+        logger.info("SessionManager initialized with storage_path=%s", storage_path)
 
     def _extract_domain(self, url: str) -> str:
         """
@@ -122,7 +102,7 @@ class SessionManager:
         # Додаємо дефолтні headers
         session.headers.update(self.default_headers)
 
-        logger.debug(f"Created new session for domain: {domain}")
+        logger.debug("Created new session for domain: %s", domain)
         return session
 
     def get_session(self, url_or_domain: str) -> requests.Session:
@@ -148,7 +128,7 @@ class SessionManager:
                 "last_used": datetime.now().isoformat(),
                 "request_count": 0,
             }
-            logger.info(f"New session created for domain: {domain}")
+            logger.info("New session created for domain: %s", domain)
         else:
             # Оновлюємо метадані
             self.session_metadata[domain]["last_used"] = datetime.now().isoformat()
@@ -175,7 +155,7 @@ class SessionManager:
         domain = self._extract_domain(url_or_domain)
 
         if domain not in self.sessions:
-            logger.warning(f"Session for domain {domain} does not exist, cannot save")
+            logger.warning("Session for domain %s does not exist, cannot save", domain)
             return False
 
         try:
@@ -198,13 +178,11 @@ class SessionManager:
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(session_data, f, indent=2, ensure_ascii=False)
 
-            logger.info(
-                f"Session saved for domain: {domain} ({len(cookies_dict)} cookies)"
-            )
+            logger.info("Session saved for domain: %s (%s cookies)", domain, len(cookies_dict))
             return True
 
         except Exception as e:
-            logger.error(f"Error saving session for {domain}: {e}")
+            logger.error("Error saving session for %s: %s", domain, e)
             return False
 
     def load_session(self, url_or_domain: str) -> bool:
@@ -221,7 +199,7 @@ class SessionManager:
         file_path = self._get_session_file_path(domain)
 
         if not file_path.exists():
-            logger.debug(f"Session file not found for domain: {domain}")
+            logger.debug("Session file not found for domain: %s", domain)
             return False
 
         try:
@@ -255,11 +233,11 @@ class SessionManager:
             # Завантажуємо метадані
             self.session_metadata[domain] = session_data.get("metadata", {})
 
-            logger.info(f"Session loaded for domain: {domain} ({len(cookies)} cookies)")
+            logger.info("Session loaded for domain: %s (%s cookies)", domain, len(cookies))
             return True
 
         except Exception as e:
-            logger.error(f"Error loading session for {domain}: {e}")
+            logger.error("Error loading session for %s: %s", domain, e)
             return False
 
     def has_session(self, url_or_domain: str) -> bool:
@@ -307,10 +285,10 @@ class SessionManager:
         if file_path.exists():
             try:
                 file_path.unlink()
-                logger.info(f"Session deleted for domain: {domain}")
+                logger.info("Session deleted for domain: %s", domain)
                 return True
             except Exception as e:
-                logger.error(f"Error deleting session file for {domain}: {e}")
+                logger.error("Error deleting session file for %s: %s", domain, e)
                 return False
 
         return True
@@ -337,19 +315,19 @@ class SessionManager:
                     if mtime < cutoff_time:
                         file_path.unlink()
                         deleted_count += 1
-                        logger.debug(f"Deleted expired session file: {file_path.name}")
+                        logger.debug("Deleted expired session file: %s", file_path.name)
 
                 except Exception as e:
-                    logger.error(f"Error processing file {file_path}: {e}")
+                    logger.error("Error processing file %s: %s", file_path, e)
                     continue
 
             if deleted_count > 0:
-                logger.info(f"Cleaned up {deleted_count} expired session files")
+                logger.info("Cleaned up %s expired session files", deleted_count)
 
             return deleted_count
 
         except Exception as e:
-            logger.error(f"Error during session cleanup: {e}")
+            logger.error("Error during session cleanup: %s", e)
             return deleted_count
 
     def get_all_domains(self) -> list:
@@ -391,9 +369,9 @@ class SessionManager:
         for domain, session in self.sessions.items():
             try:
                 session.close()
-                logger.debug(f"Closed session for domain: {domain}")
+                logger.debug("Closed session for domain: %s", domain)
             except Exception as e:
-                logger.error(f"Error closing session for {domain}: {e}")
+                logger.error("Error closing session for %s: %s", domain, e)
 
         self.sessions.clear()
         self.session_metadata.clear()
@@ -407,8 +385,6 @@ class SessionManager:
         """Context manager exit - закриває всі сесії."""
         self.close_all()
         return False
-
-    # ============= ASYNC МЕТОДИ з httpx/aiohttp =============
 
     async def get_async_client(self, url_or_domain: str) -> "httpx.AsyncClient":
         """
@@ -427,13 +403,12 @@ class SessionManager:
         """
         if not HTTPX_AVAILABLE:
             raise ImportError(
-                "httpx is required for async operations. "
-                "Install with: pip install httpx"
+                "httpx is required for async operations. Install with: pip install httpx"
             )
 
         domain = self._extract_domain(url_or_domain)
 
-        if not hasattr(self, '_async_clients'):
+        if not hasattr(self, "_async_clients"):
             self._async_clients: Dict[str, httpx.AsyncClient] = {}
 
         if domain not in self._async_clients:
@@ -458,7 +433,7 @@ class SessionManager:
                     "client_type": "httpx",
                 }
 
-            logger.info(f"New async client (httpx) created for domain: {domain}")
+            logger.info("New async client (httpx) created for domain: %s", domain)
         else:
             # Оновлюємо метадані
             self.session_metadata[domain]["last_used"] = datetime.now().isoformat()
@@ -466,9 +441,7 @@ class SessionManager:
 
         return self._async_clients[domain]
 
-    async def _load_cookies_to_async_client(
-        self, client: "httpx.AsyncClient", domain: str
-    ) -> None:
+    async def _load_cookies_to_async_client(self, client: "httpx.AsyncClient", domain: str) -> None:
         """Завантажує збережені cookies в async client."""
         file_path = self._get_session_file_path(domain)
 
@@ -478,18 +451,17 @@ class SessionManager:
         try:
             loop = asyncio.get_event_loop()
             session_data = await loop.run_in_executor(
-                _session_executor,
-                partial(self._sync_read_json_file, file_path)
+                _session_executor, partial(self._sync_read_json_file, file_path)
             )
 
             cookies = session_data.get("cookies", {})
             for key, value in cookies.items():
                 client.cookies.set(key, value, domain=domain)
 
-            logger.debug(f"Loaded {len(cookies)} cookies to async client for {domain}")
+            logger.debug("Loaded %s cookies to async client for %s", len(cookies), domain)
 
         except Exception as e:
-            logger.warning(f"Failed to load cookies for async client: {e}")
+            logger.warning("Failed to load cookies for async client: %s", e)
 
     async def save_async_client_cookies(self, url_or_domain: str) -> bool:
         """
@@ -503,8 +475,8 @@ class SessionManager:
         """
         domain = self._extract_domain(url_or_domain)
 
-        if not hasattr(self, '_async_clients') or domain not in self._async_clients:
-            logger.warning(f"No async client for domain {domain}")
+        if not hasattr(self, "_async_clients") or domain not in self._async_clients:
+            logger.warning("No async client for domain %s", domain)
             return False
 
         try:
@@ -526,35 +498,34 @@ class SessionManager:
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
-                _session_executor,
-                partial(self._sync_write_json_file, file_path, session_data)
+                _session_executor, partial(self._sync_write_json_file, file_path, session_data)
             )
 
-            logger.info(f"Async client cookies saved for domain: {domain}")
+            logger.info("Async client cookies saved for domain: %s", domain)
             return True
 
         except Exception as e:
-            logger.error(f"Error saving async client cookies for {domain}: {e}")
+            logger.error("Error saving async client cookies for %s: %s", domain, e)
             return False
 
     async def close_async_client(self, url_or_domain: str) -> None:
         """Закриває async client для домену."""
         domain = self._extract_domain(url_or_domain)
 
-        if hasattr(self, '_async_clients') and domain in self._async_clients:
+        if hasattr(self, "_async_clients") and domain in self._async_clients:
             await self._async_clients[domain].aclose()
             del self._async_clients[domain]
-            logger.debug(f"Closed async client for domain: {domain}")
+            logger.debug("Closed async client for domain: %s", domain)
 
     async def close_all_async(self) -> None:
         """Закриває всі async clients."""
-        if hasattr(self, '_async_clients'):
+        if hasattr(self, "_async_clients"):
             for domain, client in list(self._async_clients.items()):
                 try:
                     await client.aclose()
-                    logger.debug(f"Closed async client for domain: {domain}")
+                    logger.debug("Closed async client for domain: %s", domain)
                 except Exception as e:
-                    logger.error(f"Error closing async client for {domain}: {e}")
+                    logger.error("Error closing async client for %s: %s", domain, e)
 
             self._async_clients.clear()
             logger.info("All async clients closed")

@@ -1,28 +1,32 @@
 """Parquet Exporter - Clean Architecture з DTO.
 
-
-
 Exports graph to Parquet format (for big data processing with Spark/Dask).
 """
 
 import logging
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from graph_crawler.application.dto import GraphDTO
 from graph_crawler.application.services.exporters.base_exporter import BaseExporter
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
 
+# Type alias for Parquet compression options
+ParquetCompressionType = Literal["snappy", "gzip", "brotli", "lz4", "zstd", None]
+
 try:
     import pandas as pd
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    import pyarrow as pa  # type: ignore[import-not-found]
+    import pyarrow.parquet as pq  # type: ignore[import-not-found]
 
     PYARROW_AVAILABLE = True
 except ImportError:
     PYARROW_AVAILABLE = False
+    pd = None  # type: ignore
+    pa = None  # type: ignore
+    pq = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +34,6 @@ logger = logging.getLogger(__name__)
 class ParquetExporter(BaseExporter):
     """
     Export graph to Parquet format через DTO.
-
-
-
-    Features:
-    - Columnar storage (efficient for big data)
-    - Compression (snappy, gzip, brotli)
-    - Compatible з Spark, Dask, Pandas
-    - Partition support для великих datasets
-
-    Requirements:
-        pip install pandas pyarrow
 
     Example:
         >>> from graph_crawler.application.services.exporters import ParquetExporter
@@ -57,7 +50,7 @@ class ParquetExporter(BaseExporter):
     def __init__(
         self,
         event_bus: Optional["EventBus"] = None,
-        compression: str = "snappy",
+        compression: ParquetCompressionType = "snappy",
         **kwargs,
     ):
         """
@@ -83,14 +76,12 @@ class ParquetExporter(BaseExporter):
     def export(
         self,
         graph_dto: GraphDTO,
-        output_path: str,
+        output_path: str = "",
         partition_by: Optional[str] = None,
         **options,
     ) -> bool:
         """
         Export graph to Parquet files through DTO.
-
-
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -127,12 +118,12 @@ class ParquetExporter(BaseExporter):
             # Export nodes
             nodes_file = f"{output_path}_nodes.parquet"
             self._export_nodes(graph_dto, nodes_file, partition_by)
-            logger.info(f"Exported {len(graph_dto.nodes)} nodes to {nodes_file}")
+            logger.info("Exported %s nodes to %s", len(graph_dto.nodes), nodes_file)
 
             # Export edges
             edges_file = f"{output_path}_edges.parquet"
             self._export_edges(graph_dto, edges_file)
-            logger.info(f"Exported {len(graph_dto.edges)} edges to {edges_file}")
+            logger.info("Exported %s edges to %s", len(graph_dto.edges), edges_file)
 
             duration = time.time() - start_time
 
@@ -195,6 +186,9 @@ class ParquetExporter(BaseExporter):
 
             nodes_data.append(node_dict)
 
+        if pd is None or pa is None or pq is None:
+            raise ImportError("pandas and pyarrow are required for Parquet export")
+
         df = pd.DataFrame(nodes_data)
 
         # Write Parquet
@@ -205,13 +199,13 @@ class ParquetExporter(BaseExporter):
                 table,
                 root_path=file_path.replace(".parquet", ""),
                 partition_cols=[partition_by],
-                compression=self.compression,
+                compression=self.compression,  # type: ignore[arg-type]
             )
         else:
             # Single file write
             df.to_parquet(
                 file_path,
-                compression=self.compression,
+                compression=self.compression,  # type: ignore[arg-type]
                 index=False,
             )
 
@@ -241,9 +235,12 @@ class ParquetExporter(BaseExporter):
                 }
             )
 
+        if pd is None:
+            raise ImportError("pandas is required for Parquet export")
+
         df = pd.DataFrame(edges_data)
         df.to_parquet(
             file_path,
-            compression=self.compression,
+            compression=self.compression,  # type: ignore[arg-type]
             index=False,
         )

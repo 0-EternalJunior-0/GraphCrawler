@@ -200,30 +200,20 @@ class DriverConfig(BaseModel):
 
     # TCP Connector settings (для AsyncDriver)
     connector_limit: int = Field(
-        default=200,
-        description="Загальний ліміт з'єднань у TCP connector"
+        default=200, description="Загальний ліміт з'єднань у TCP connector"
     )
-    connector_limit_per_host: int = Field(
-        default=50,
-        description="Ліміт з'єднань на один хост"
-    )
-    dns_cache_ttl: int = Field(
-        default=300,
-        description="TTL для DNS кешування (секунди)"
-    )
+    connector_limit_per_host: int = Field(default=50, description="Ліміт з'єднань на один хост")
+    dns_cache_ttl: int = Field(default=300, description="TTL для DNS кешування (секунди)")
     keepalive_timeout: int = Field(
-        default=30,
-        description="Час утримання з'єднання alive (секунди)"
+        default=30, description="Час утримання з'єднання alive (секунди)"
     )
 
     # Python 3.14 Free-threading auto-optimization
     auto_optimize_for_free_threading: bool = Field(
-        default=True,
-        description="Автоматично збільшувати ліміти при free-threading mode"
+        default=True, description="Автоматично збільшувати ліміти при free-threading mode"
     )
     free_threading_concurrent_multiplier: int = Field(
-        default=3,
-        description="Множник concurrency при free-threading"
+        default=3, description="Множник concurrency при free-threading"
     )
 
 
@@ -295,9 +285,7 @@ class CeleryConfig(BaseModel):
     """
 
     enabled: bool = False
-    broker_url: str = (
-        f"redis://{DEFAULT_REDIS_HOST}:{DEFAULT_REDIS_PORT}/{DEFAULT_REDIS_DB}"
-    )
+    broker_url: str = f"redis://{DEFAULT_REDIS_HOST}:{DEFAULT_REDIS_PORT}/{DEFAULT_REDIS_DB}"
     backend_url: str = f"redis://{DEFAULT_REDIS_HOST}:{DEFAULT_REDIS_PORT}/1"
     workers: int = Field(default=100, ge=1, le=1000)
 
@@ -326,8 +314,10 @@ class CrawlerConfig(BaseSettings):
 
     url_rules мають ВИЩИЙ ПРІОРИТЕТ за allowed_domains.
 
-    ВАЖЛИВО: max_pages не має жорсткого ліміту, але система виведе попередження при 20,000+ сторінок.
-    Для великих проектів (100k+ сторінок) рекомендується використовувати PostgreSQL/MongoDB storage.
+    ВАЖЛИВО: max_pages не має жорсткого ліміту, але система виведе
+    попередження при 20,000+ сторінок.
+    Для великих проектів (100k+ сторінок) рекомендується
+    використовувати PostgreSQL/MongoDB storage.
     """
 
     # Основні параметри
@@ -346,13 +336,17 @@ class CrawlerConfig(BaseSettings):
     )
 
     # Smart Scheduling - система контролю URL
-    url_rules: List[Any] = Field(default_factory=list)  # List[URLRule]
+    # Підтримує як URLRule так і SmartURLRule (Rule = Union[URLRule, SmartURLRule])
+    url_rules: List[Any] = Field(default_factory=list)  # List[Rule]
 
     # Edge Creation Strategy
     # Контролює які edges створюються (економія пам'яті, зменшення noise)
     edge_strategy: str = Field(
         default="all",
-        description="Стратегія створення edges: 'all', 'new_only', 'max_in_degree', 'same_depth_only', 'deeper_only', 'first_encounter_only'",
+        description=(
+            "Стратегія створення edges: 'all', 'new_only', 'max_in_degree', "
+            "'same_depth_only', 'deeper_only', 'first_encounter_only'"
+        ),
     )
     max_in_degree_threshold: int = Field(
         default=100,
@@ -377,15 +371,13 @@ class CrawlerConfig(BaseSettings):
     excluded_paths: List[str] = Field(
         default_factory=list, description="URL патерни для виключення"
     )
-    included_paths: List[str] = Field(
-        default_factory=list, description="URL патерни для включення"
-    )
+    included_paths: List[str] = Field(default_factory=list, description="URL патерни для включення")
 
     # Follow links control
     # Коли False - сканує ТІЛЬКИ seed_urls/base_graph вузли, не переходить за посиланнями
     follow_links: bool = Field(
         default=True,
-        description="Чи переходити за знайденими посиланнями. False = сканувати тільки вказані URL"
+        description="Чи переходити за знайденими посиланнями. False = сканувати тільки вказані URL",
     )
 
     # Multiprocessing settings
@@ -393,9 +385,7 @@ class CrawlerConfig(BaseSettings):
     # Ліміт 32: базується на оптимальному балансі CPU/Memory для multiprocessing
     # Для більшої кількості воркерів використовуйте mode='celery'
     workers: int = Field(default=1, ge=1, le=32)
-    mode: str = Field(
-        default="sequential"
-    )  # 'sequential', 'multiprocessing', або 'celery'
+    mode: str = Field(default="sequential")  # 'sequential', 'multiprocessing', або 'celery'
 
     # Incremental Crawling settings
     # Дозволяє сканувати тільки змінені сторінки, порівнюючи з попереднім графом
@@ -409,29 +399,22 @@ class CrawlerConfig(BaseSettings):
         default="last",
         description="Стратегія merge: 'first', 'last', 'merge', 'newest', 'oldest', 'custom'",
     )
-    
-    # ============ LOW-MEMORY MODE ============
     # Для великих краулінгів (10k+ сторінок) на серверах з обмеженою RAM
     low_memory_mode: bool = Field(
-        default=False,
-        description="Активувати eviction scanned нод на диск для економії RAM"
+        default=False, description="Активувати eviction scanned нод на диск для економії RAM"
     )
     evict_threshold: int = Field(
         default=500,
         ge=100,
-        description="Максимальна кількість нод в RAM перед eviction (default: 500)"
+        description="Максимальна кількість нод в RAM перед eviction (default: 500)",
     )
     evict_batch_size: int = Field(
-        default=100,
-        ge=10,
-        description="Кількість нод для eviction за один раз (default: 100)"
+        default=100, ge=10, description="Кількість нод для eviction за один раз (default: 100)"
     )
     eviction_storage_path: Optional[str] = Field(
         default=None,
-        description="Директорія для eviction storage (обов'язково для low_memory_mode)"
+        description="Директорія для eviction storage (обов'язково для low_memory_mode)",
     )
-    
-    # ============ EVICTION STRATEGY (Professional Configuration) ============
     # Стратегії eviction для різних сценаріїв використання
     eviction_strategy: str = Field(
         default="balanced",
@@ -447,7 +430,7 @@ class CrawlerConfig(BaseSettings):
             "  - 'memory_adaptive': Динамічно адаптується до реального RAM usage. "
             "    Використовує psutil для моніторингу. Рекомендовано для production.\n"
             "  - 'custom': Використовує eviction_trigger_multiplier та eviction_target_multiplier."
-        )
+        ),
     )
     eviction_trigger_multiplier: float = Field(
         default=1.5,
@@ -457,7 +440,7 @@ class CrawlerConfig(BaseSettings):
             "Множник для trigger eviction (тільки для strategy='custom'). "
             "Eviction спрацьовує коли nodes > threshold * multiplier. "
             "Приклад: threshold=500, multiplier=1.5 → eviction при 750+ нод."
-        )
+        ),
     )
     eviction_target_multiplier: float = Field(
         default=1.0,
@@ -467,7 +450,7 @@ class CrawlerConfig(BaseSettings):
             "Множник для target size після eviction (тільки для strategy='custom'). "
             "Target = threshold * multiplier. "
             "Приклад: threshold=500, multiplier=0.8 → evict до 400 нод."
-        )
+        ),
     )
     eviction_memory_threshold_percent: float = Field(
         default=75.0,
@@ -476,7 +459,59 @@ class CrawlerConfig(BaseSettings):
         description=(
             "Поріг RAM usage у відсотках для 'memory_adaptive' стратегії. "
             "Eviction спрацьовує коли RAM usage > цього порогу."
-        )
+        ),
+    )
+
+    # URL Deduplication налаштування
+    # Для SEO аудиту рекомендується вимкнути (url_deduplication_enabled=False)
+    # Для збору даних - увімкнути для економії трафіку
+    url_deduplication_enabled: bool = Field(
+        default=True,
+        description=(
+            "Увімкнути дедуплікацію URL для уникнення повторних запитів до еквівалентних URL. "
+            "http://www.example.com/ == https://example.com (якщо увімкнено). "
+            "Для SEO аудиту - вимкніть (False), для збору даних - залиште увімкненим (True)."
+        ),
+    )
+    normalize_protocol: bool = Field(
+        default=True,
+        description="Нормалізувати протокол: http → https",
+    )
+    normalize_www: bool = Field(
+        default=True,
+        description="Нормалізувати www: www.example.com → example.com",
+    )
+    normalize_trailing_slash: bool = Field(
+        default=True,
+        description="Нормалізувати trailing slash: /path/ → /path",
+    )
+    normalize_query_params: bool = Field(
+        default=False,
+        description="Сортувати query параметри для консистентності: ?b=2&a=1 → ?a=1&b=2",
+    )
+
+    # HTTP Cache налаштування (ETag, If-Modified-Since)
+    http_cache_enabled: bool = Field(
+        default=True,
+        description=(
+            "Увімкнути HTTP кешування з підтримкою ETag та If-Modified-Since. "
+            "Економить до 99% трафіку для незмінених сторінок (304 Not Modified)."
+        ),
+    )
+    http_cache_max_size: int = Field(
+        default=10000,
+        ge=100,
+        le=1000000,
+        description="Максимальний розмір HTTP кешу в записах (LRU eviction)",
+    )
+    http_cache_store_content: bool = Field(
+        default=False,
+        description="Зберігати HTML контент в кеші (збільшує RAM usage)",
+    )
+    http_cache_max_age: int = Field(
+        default=3600,
+        ge=60,
+        description="Максимальний час життя кешу в секундах (default: 1 година)",
     )
 
     # Logging
@@ -485,9 +520,7 @@ class CrawlerConfig(BaseSettings):
 
     @field_validator("allowed_domains", mode="before")
     @classmethod
-    def convert_enum_to_strings(
-        cls, v: Optional[List[Union[str, Any]]]
-    ) -> Optional[List[str]]:
+    def convert_enum_to_strings(cls, v: Optional[List[Union[str, Any]]]) -> Optional[List[str]]:
         """
         Конвертує enum значення в строки.
 
@@ -503,7 +536,6 @@ class CrawlerConfig(BaseSettings):
         # Конвертуємо enum значення в строки
         result = []
         for item in v:
-            # Якщо це enum (AllowedDomains)
             if hasattr(item, "value"):
                 result.append(item.value)
             else:
@@ -598,7 +630,7 @@ class CrawlerConfig(BaseSettings):
     def validate_eviction_strategy(cls, v: str) -> str:
         """
         Валідація стратегії eviction для low-memory mode.
-        
+
         Доступні стратегії:
         - aggressive: 1.2x trigger, 0.8x target (максимальна економія RAM)
         - balanced: 1.5x trigger, 1.0x target (оптимальний баланс)
@@ -709,6 +741,8 @@ class CrawlerConfig(BaseSettings):
             >>> config.is_wildcard_allowed()
             True
         """
+        if self.allowed_domains is None:
+            return False
         return "*" in self.allowed_domains
 
     def has_special_patterns(self) -> bool:
@@ -731,6 +765,8 @@ class CrawlerConfig(BaseSettings):
         )
 
         special_patterns = AllowedDomains.get_special_patterns()
+        if self.allowed_domains is None:
+            return False
         return any(domain in special_patterns for domain in self.allowed_domains)
 
     def get_driver_params(self) -> dict:

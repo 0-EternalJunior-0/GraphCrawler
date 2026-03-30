@@ -23,12 +23,10 @@ class RdfaParser:
 
     def can_parse(self, source: Union[str, Any]) -> bool:
         """Перевіряє чи джерело є parser adapter."""
-        return hasattr(source, 'find_all')
+        return hasattr(source, "find_all")
 
     def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
+        self, source: Union[str, Any], options: StructuredDataOptions
     ) -> List[Dict[str, Any]]:
         """
         Парсить RDFa елементи.
@@ -40,26 +38,28 @@ class RdfaParser:
         Returns:
             Список RDFa об'єктів
         """
-        if not hasattr(source, 'find_all'):
+        if not hasattr(source, "find_all"):
             raise ParserError(self.name, "Source must be parser adapter")
 
         results = []
 
         try:
             # Шукаємо елементи з typeof (RDFa root)
-            type_elems = source.find_all('[typeof]')
+            type_elems = source.find_all("[typeof]")
 
-            for elem in type_elems[:options.max_microdata_items]:
+            for elem in type_elems[: options.max_microdata_items]:
                 item = self._extract_rdfa_item(elem, options, depth=0)
                 if item:
                     results.append(item)
 
         except Exception as e:
-            logger.warning(f"Error parsing RDFa: {e}")
+            logger.warning("Error parsing RDFa: %s", e)
 
         return results
 
-    def _extract_rdfa_item(self, elem: Any, options: StructuredDataOptions, depth: int = 0) -> Dict[str, Any]:
+    def _extract_rdfa_item(
+        self, elem: Any, options: StructuredDataOptions, depth: int = 0
+    ) -> Dict[str, Any]:
         """Витягує RDFa item з елемента."""
         if depth > options.max_nesting_depth:
             return {}
@@ -67,29 +67,29 @@ class RdfaParser:
         item = {}
 
         # Тип
-        typeof = elem.get_attribute('typeof')
+        typeof = elem.get_attribute("typeof")
         if typeof:
             # Нормалізація
-            if options.normalize_types and '/' in typeof:
-                item['@type'] = typeof.split('/')[-1]
+            if options.normalize_types and "/" in typeof:
+                item["@type"] = typeof.split("/")[-1]
             else:
-                item['@type'] = typeof
+                item["@type"] = typeof
 
         # Vocab
-        vocab = elem.get_attribute('vocab')
+        vocab = elem.get_attribute("vocab")
         if vocab:
-            item['@context'] = vocab
+            item["@context"] = vocab
 
         # Властивості (property атрибут)
         try:
-            props = elem.find_all('[property]')
+            props = elem.find_all("[property]")
             for prop_elem in props:
-                prop_name = prop_elem.get_attribute('property')
+                prop_name = prop_elem.get_attribute("property")
                 if not prop_name:
                     continue
 
                 # Вкладений typeof
-                if prop_elem.get_attribute('typeof') is not None:
+                if prop_elem.get_attribute("typeof") is not None:
                     if options.include_nested:
                         value = self._extract_rdfa_item(prop_elem, options, depth + 1)
                     else:
@@ -97,11 +97,11 @@ class RdfaParser:
                 else:
                     # Значення: content атрибут має пріоритет
                     value = (
-                        prop_elem.get_attribute('content') or
-                        prop_elem.get_attribute('href') or
-                        prop_elem.get_attribute('src') or
-                        prop_elem.text() or
-                        ''
+                        prop_elem.get_attribute("content")
+                        or prop_elem.get_attribute("href")
+                        or prop_elem.get_attribute("src")
+                        or prop_elem.text()
+                        or ""
                     )
                     value = self._sanitize_value(str(value))
 
@@ -109,7 +109,7 @@ class RdfaParser:
                     item[prop_name] = value
 
         except Exception as e:
-            logger.warning(f"Error extracting RDFa properties: {e}")
+            logger.warning("Error extracting RDFa properties: %s", e)
 
         return item
 

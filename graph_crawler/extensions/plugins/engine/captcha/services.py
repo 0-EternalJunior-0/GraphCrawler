@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Optional
 
 import aiohttp
 import requests
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class BaseCaptchaSolver(ABC):
     """Базовий клас для CAPTCHA solvers."""
 
-    def __init__(self, api_key: str, config: Dict[str, Any] = None):
+    def __init__(self, api_key: str, config: Optional[Dict[str, Any]] = None):
         self.api_key = api_key
         self.config = config or {}
         self.solve_timeout = self.config.get("solve_timeout", 120)
@@ -66,32 +66,38 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
         params = {"key": self.api_key, "json": 1}
 
         if captcha_info.captcha_type == CaptchaType.RECAPTCHA_V2:
-            params.update({
-                "method": "userrecaptcha",
-                "googlekey": captcha_info.site_key,
-                "pageurl": captcha_info.page_url,
-            })
+            params.update(
+                {
+                    "method": "userrecaptcha",
+                    "googlekey": captcha_info.site_key,
+                    "pageurl": captcha_info.page_url,
+                }
+            )
             if captcha_info.data_s:
                 params["data-s"] = captcha_info.data_s
 
         elif captcha_info.captcha_type == CaptchaType.RECAPTCHA_V3:
-            params.update({
-                "method": "userrecaptcha",
-                "version": "v3",
-                "googlekey": captcha_info.site_key,
-                "pageurl": captcha_info.page_url,
-                "action": captcha_info.action or "submit",
-                "min_score": self.min_score,
-            })
+            params.update(
+                {
+                    "method": "userrecaptcha",
+                    "version": "v3",
+                    "googlekey": captcha_info.site_key,
+                    "pageurl": captcha_info.page_url,
+                    "action": captcha_info.action or "submit",
+                    "min_score": self.min_score,
+                }
+            )
 
         elif captcha_info.captcha_type == CaptchaType.HCAPTCHA:
-            params.update({
-                "method": "hcaptcha",
-                "sitekey": captcha_info.site_key,
-                "pageurl": captcha_info.page_url,
-            })
+            params.update(
+                {
+                    "method": "hcaptcha",
+                    "sitekey": captcha_info.site_key,
+                    "pageurl": captcha_info.page_url,
+                }
+            )
         else:
-            logger.warning(f"Unsupported CAPTCHA type: {captcha_info.captcha_type}")
+            logger.warning("Unsupported CAPTCHA type: %s", captcha_info.captcha_type)
             return None
 
         return params
@@ -107,7 +113,7 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
             result = response.json()
 
             if result.get("status") != 1:
-                logger.error(f"2captcha error: {result.get('request')}")
+                logger.error("2captcha error: %s", result.get('request'))
                 return None
 
             captcha_id = result.get("request")
@@ -146,12 +152,12 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
                         service=self.SERVICE_NAME,
                     )
                 elif check_result.get("request") != "CAPCHA_NOT_READY":
-                    logger.error(f"2captcha error: {check_result.get('request')}")
+                    logger.error("2captcha error: %s", check_result.get('request'))
                     return None
 
             return None
         except Exception as e:
-            logger.error(f"2captcha API error: {e}")
+            logger.error("2captcha API error: %s", e)
             return None
 
     async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
@@ -168,7 +174,7 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
                     result = await response.json()
 
                 if result.get("status") != 1:
-                    logger.error(f"2captcha error: {result.get('request')}")
+                    logger.error("2captcha error: %s", result.get('request'))
                     return None
 
                 captcha_id = result.get("request")
@@ -207,12 +213,12 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
                             service=self.SERVICE_NAME,
                         )
                     elif check_result.get("request") != "CAPCHA_NOT_READY":
-                        logger.error(f"2captcha error: {check_result.get('request')}")
+                        logger.error("2captcha error: %s", check_result.get('request'))
                         return None
 
                 return None
         except Exception as e:
-            logger.error(f"2captcha API error: {e}")
+            logger.error("2captcha API error: %s", e)
             return None
 
     def check_balance(self) -> Optional[float]:
@@ -223,7 +229,7 @@ class TwoCaptchaSolver(BaseCaptchaSolver):
             )
             return float(response.text)
         except Exception as e:
-            logger.debug(f"Error getting 2captcha balance: {e}")
+            logger.debug("Error getting 2captcha balance: %s", e)
             return None
 
 
@@ -278,7 +284,7 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
             result = response.json()
 
             if result.get("errorId", 0) != 0:
-                logger.error(f"AntiCaptcha error: {result.get('errorDescription')}")
+                logger.error("AntiCaptcha error: %s", result.get('errorDescription'))
                 return None
 
             task_id = result.get("taskId")
@@ -312,7 +318,7 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
 
             return None
         except Exception as e:
-            logger.error(f"AntiCaptcha API error: {e}")
+            logger.error("AntiCaptcha API error: %s", e)
             return None
 
     async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
@@ -331,7 +337,7 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
                     result = await response.json()
 
                 if result.get("errorId", 0) != 0:
-                    logger.error(f"AntiCaptcha error: {result.get('errorDescription')}")
+                    logger.error("AntiCaptcha error: %s", result.get('errorDescription'))
                     return None
 
                 task_id = result.get("taskId")
@@ -365,7 +371,7 @@ class AntiCaptchaSolver(BaseCaptchaSolver):
 
                 return None
         except Exception as e:
-            logger.error(f"AntiCaptcha API error: {e}")
+            logger.error("AntiCaptcha API error: %s", e)
             return None
 
     def check_balance(self) -> Optional[float]:
@@ -450,7 +456,7 @@ class CapSolverSolver(BaseCaptchaSolver):
 
             return None
         except Exception as e:
-            logger.error(f"CapSolver API error: {e}")
+            logger.error("CapSolver API error: %s", e)
             return None
 
     async def solve_async(self, captcha_info: CaptchaInfo) -> Optional[CaptchaSolution]:
@@ -499,7 +505,7 @@ class CapSolverSolver(BaseCaptchaSolver):
 
                 return None
         except Exception as e:
-            logger.error(f"CapSolver API error: {e}")
+            logger.error("CapSolver API error: %s", e)
             return None
 
     def check_balance(self) -> Optional[float]:
@@ -511,13 +517,11 @@ class CapSolverSolver(BaseCaptchaSolver):
             )
             return response.json().get("balance", 0.0)
         except Exception as e:
-            logger.debug(f"Error getting CapSolver balance: {e}")
+            logger.debug("Error getting CapSolver balance: %s", e)
             return None
 
 
-def create_solver(
-    service: str, api_key: str, config: Dict[str, Any] = None
-) -> BaseCaptchaSolver:
+def create_solver(service: str, api_key: str, config: Optional[Dict[str, Any]] = None) -> BaseCaptchaSolver:
     """Створює solver за назвою сервісу."""
     solvers = {
         CaptchaService.TWO_CAPTCHA: TwoCaptchaSolver,

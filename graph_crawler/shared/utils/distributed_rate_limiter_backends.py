@@ -172,7 +172,7 @@ class RedisSlidingWindowBackend(RateLimiterBackend):
     # Internal helpers
     def _initialize_redis(self) -> None:
         try:
-            import redis
+            import redis  # type: ignore[import-not-found]
 
             self._redis = redis.from_url(
                 self.redis_url,

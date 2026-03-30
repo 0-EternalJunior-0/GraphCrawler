@@ -9,7 +9,6 @@
 Якщо можливо - використовуйте async драйвери!
 Sync драйвери блокують event loop.
 
-
 """
 
 import logging
@@ -29,13 +28,6 @@ logger = logging.getLogger(__name__)
 class BaseSyncDriver(EventPublisherMixin, ABC):
     """
     Базовий клас для sync драйверів (Template Method pattern).
-
-     WARNING: Sync драйвери блокують виконання!
-    Використовуйте async драйвери де можливо.
-
-    Підкласи повинні реалізувати:
-    - _do_fetch(url) - специфічна sync логіка
-    - _do_close() - закриття ресурсів (опціонально)
 
     Example:
         >>> class LegacySeleniumDriver(BaseSyncDriver):
@@ -102,9 +94,7 @@ class BaseSyncDriver(EventPublisherMixin, ABC):
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Створюємо словник future -> index
-            future_to_idx = {
-                executor.submit(self.fetch, url): i for i, url in enumerate(urls)
-            }
+            future_to_idx = {executor.submit(self.fetch, url): i for i, url in enumerate(urls)}
 
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
@@ -141,13 +131,9 @@ class BaseSyncDriver(EventPublisherMixin, ABC):
     # Event helpers (копія з async для консистентності)
 
     def _publish_fetch_started(self, url: str) -> None:
-        self.publish_event(
-            EventType.FETCH_STARTED, data={"url": url, "driver": self.driver_name}
-        )
+        self.publish_event(EventType.FETCH_STARTED, data={"url": url, "driver": self.driver_name})
 
-    def _publish_fetch_success(
-        self, url: str, status_code: Optional[int], duration: float
-    ) -> None:
+    def _publish_fetch_success(self, url: str, status_code: Optional[int], duration: float) -> None:
         self.publish_event(
             EventType.FETCH_SUCCESS,
             data={
@@ -164,7 +150,7 @@ class BaseSyncDriver(EventPublisherMixin, ABC):
         duration = time.time() - start_time
         error_msg = f"{type(exception).__name__}: {exception}"
 
-        logger.error(f"Fetch error for {url}: {error_msg}")
+        logger.error("Fetch error for %s: %s", url, error_msg)
 
         self.publish_event(
             EventType.FETCH_ERROR,
@@ -180,6 +166,4 @@ class BaseSyncDriver(EventPublisherMixin, ABC):
         return self._create_error_response(url, error_msg)
 
     def _create_error_response(self, url: str, error: str) -> FetchResponse:
-        return FetchResponse(
-            url=url, html=None, status_code=None, headers={}, error=error
-        )
+        return FetchResponse(url=url, html=None, status_code=None, headers={}, error=error)

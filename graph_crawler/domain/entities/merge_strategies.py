@@ -49,25 +49,10 @@ class NodeMerger:
     """
     Об'єднує два вузли (Node) з однаковими URL за заданою стратегією.
 
-    Використовується в GraphOperations.union() для вирішення конфліктів
-    коли два графи містять вузли з однаковими URL. Оптимізовано - dict mapping замість if-elif ланцюга
-
     Args:
         strategy: Стратегія merge (MergeStrategy enum або string)
         custom_merge_fn: Користувацька функція для strategy='custom'
                         Signature: fn(node1: Node, node2: Node) -> Node
-
-    Example:
-        >>> merger = NodeMerger(strategy='merge')
-        >>> merged_node = merger.merge(node1, node2)
-        >>>
-        >>> # Користувацька стратегія
-        >>> def my_merge(n1, n2):
-        ...     # Власна логіка
-        ...     return n1 if n1.scanned else n2
-        >>>
-        >>> merger = NodeMerger(strategy='custom', custom_merge_fn=my_merge)
-        >>> merged = merger.merge(node1, node2)
     """
 
     _STRATEGY_MAP = {
@@ -107,7 +92,7 @@ class NodeMerger:
         if self.strategy == MergeStrategy.CUSTOM and not custom_merge_fn:
             raise ValueError("custom_merge_fn required for CUSTOM strategy")
 
-        logger.debug(f"NodeMerger initialized with strategy: {self.strategy.value}")
+        logger.debug("NodeMerger initialized with strategy: %s", self.strategy.value)
 
     def merge(self, node1: "Node", node2: "Node") -> "Node":
         """
@@ -125,10 +110,7 @@ class NodeMerger:
         """
         # Перевірка URL
         if node1.url != node2.url:
-            raise ValueError(
-                f"Cannot merge nodes with different URLs: "
-                f"{node1.url} != {node2.url}"
-            )
+            raise ValueError(f"Cannot merge nodes with different URLs: {node1.url} != {node2.url}")
 
         if self.strategy == MergeStrategy.CUSTOM:
             return self.custom_merge_fn(node1, node2)
@@ -139,8 +121,6 @@ class NodeMerger:
 
         return getattr(self, method_name)(node1, node2)
 
-    # ==================== ПРИВАТНІ МЕТОДИ СТРАТЕГІЙ ====================
-
     def _merge_first(self, node1: "Node", node2: "Node") -> "Node":
         """
         Стратегія FIRST: залишити node1, ігнорувати node2.
@@ -148,7 +128,7 @@ class NodeMerger:
         Найпростіша стратегія - повертає перший вузол без змін.
         Використовується коли потрібно зберегти оригінальні дані.
         """
-        logger.debug(f"FIRST strategy: keeping node1 for {node1.url}")
+        logger.debug("FIRST strategy: keeping node1 for %s", node1.url)
         return node1
 
     def _merge_last(self, node1: "Node", node2: "Node") -> "Node":
@@ -158,20 +138,22 @@ class NodeMerger:
         Перезаписує дані першого вузла даними з другого.
         Дефолтна стратегія - найчастіше потрібно оновити дані.
         """
-        logger.debug(f"LAST strategy: using node2 for {node2.url}")
+        logger.debug("LAST strategy: using node2 for %s", node2.url)
         return node2
 
     # Критичні поля metadata, які НЕ повинні перезаписуватись іншими вузлами
     # Ці поля специфічні для кожного URL і не повинні "перемішуватись"
-    PROTECTED_METADATA_FIELDS = frozenset({
-        'canonical_url',  # Канонічний URL сторінки
-        'title',          # Заголовок сторінки
-        'h1',             # H1 заголовок
-        'description',    # Мета-опис
-        'og:url',         # OpenGraph URL
-        'og:title',       # OpenGraph заголовок
-        'twitter:url',    # Twitter URL
-    })
+    PROTECTED_METADATA_FIELDS = frozenset(
+        {
+            "canonical_url",  # Канонічний URL сторінки
+            "title",  # Заголовок сторінки
+            "h1",  # H1 заголовок
+            "description",  # Мета-опис
+            "og:url",  # OpenGraph URL
+            "og:title",  # OpenGraph заголовок
+            "twitter:url",  # Twitter URL
+        }
+    )
 
     def _merge_intelligent(self, node1: "Node", node2: "Node") -> "Node":
         """
@@ -192,7 +174,7 @@ class NodeMerger:
 
         Це найрозумніша стратегія - рекомендується для більшості випадків.
         """
-        logger.debug(f"MERGE strategy: intelligently merging {node1.url}")
+        logger.debug("MERGE strategy: intelligently merging %s", node1.url)
 
         # ВИПРАВЛЕННЯ: Зберігаємо оригінальний тип ноди!
         # Використовуємо тип node1 (або node2 якщо він більш специфічний)
@@ -207,6 +189,7 @@ class NodeMerger:
         # ВИПРАВЛЕННЯ v4.0.11: Захист критичних metadata полів
         # Об'єднуємо metadata БЕЗ перезапису критичних полів якщо вони вже заповнені
         import copy as copy_module
+
         merged_metadata = copy_module.deepcopy(node1.metadata) if node1.metadata else {}
 
         for key, value in node2.metadata.items():
@@ -256,9 +239,10 @@ class NodeMerger:
         # ВИПРАВЛЕННЯ: Копіюємо кастомні атрибути з node2 (новіші дані)
         # Отримуємо всі атрибути які є в node2 але не в базовому Node
         from graph_crawler.domain.entities.node import Node
-        base_fields = set(Node.model_fields.keys())
 
-        for field_name in type(node2).model_fields.keys():
+        base_fields = set(Node.model_fields)
+
+        for field_name in type(node2).model_fields:
             if field_name not in base_fields:
                 # Це кастомний атрибут - копіюємо з node2
                 if hasattr(merged, field_name):
@@ -271,6 +255,7 @@ class NodeMerger:
 
         try:
             from graph_crawler.domain.value_objects.lifecycle import NodeLifecycle
+
             if node2.lifecycle_stage == NodeLifecycle.HTML_STAGE:
                 merged.lifecycle_stage = NodeLifecycle.HTML_STAGE
         except (ImportError, AttributeError):
@@ -294,10 +279,10 @@ class NodeMerger:
         Корисно коли потрібні найсвіжіші дані.
         """
         if node2.created_at > node1.created_at:
-            logger.debug(f"NEWEST strategy: node2 is newer for {node2.url}")
+            logger.debug("NEWEST strategy: node2 is newer for %s", node2.url)
             return node2
         else:
-            logger.debug(f"NEWEST strategy: node1 is newer for {node1.url}")
+            logger.debug("NEWEST strategy: node1 is newer for %s", node1.url)
             return node1
 
     def _merge_oldest(self, node1: "Node", node2: "Node") -> "Node":
@@ -307,14 +292,11 @@ class NodeMerger:
         Корисно коли потрібні оригінальні дані.
         """
         if node2.created_at < node1.created_at:
-            logger.debug(f"OLDEST strategy: node2 is older for {node2.url}")
+            logger.debug("OLDEST strategy: node2 is older for %s", node2.url)
             return node2
         else:
-            logger.debug(f"OLDEST strategy: node1 is older for {node1.url}")
+            logger.debug("OLDEST strategy: node1 is older for %s", node1.url)
             return node1
-
-
-# ==================== УТИЛІТНІ ФУНКЦІЇ ====================
 
 
 def merge_nodes(

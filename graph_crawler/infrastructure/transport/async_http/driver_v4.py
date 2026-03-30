@@ -2,7 +2,6 @@
 
 Всі параметри беруться з конфігу - НІЧОГО захардкодженого!
 
-
 - Всі параметри конфігуровані через DriverConfig або dict
 - Python 3.14 free-threading auto-detection
 - Adaptive optimization (опціонально)
@@ -27,6 +26,7 @@ from graph_crawler.infrastructure.transport.core.mixins import (
     RetryMixin,
 )
 from graph_crawler.shared.constants import (
+    DEFAULT_BROWSER_HEADERS,
     DEFAULT_CONNECTOR_LIMIT,
     DEFAULT_CONNECTOR_LIMIT_PER_HOST,
     DEFAULT_DNS_CACHE_TTL,
@@ -44,10 +44,9 @@ from graph_crawler.shared.constants import (
 logger = logging.getLogger(__name__)
 
 
-# ============ PYTHON 3.14 FREE-THREADING DETECTION ============
 def is_free_threading_enabled() -> bool:
     """Detect Python 3.14+ free-threading mode (GIL disabled)."""
-    if hasattr(sys, '_is_gil_enabled'):
+    if hasattr(sys, "_is_gil_enabled"):
         return not sys._is_gil_enabled()
     return False
 
@@ -56,41 +55,10 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
     """
     Async HTTP драйвер на основі aiohttp.
 
-    Всі параметри конфігуровані - нічого захардкодженого!
-
-    Config options:
-        # Basic
-        timeout: int = 30              # Request timeout
-        user_agent: str = "..."        # User-Agent header
-        max_retries: int = 3           # Retry count
-        retry_delay: float = 1.0       # Delay between retries
-
-        # Concurrency
-        max_concurrent_requests: int = 100
-
-        # TCP Connector
-        connector_limit: int = 200           # Total connection limit
-        connector_limit_per_host: int = 50   # Per-host limit
-        dns_cache_ttl: int = 300             # DNS cache TTL (seconds)
-        keepalive_timeout: int = 30          # Keepalive timeout
-
-        # Python 3.14 optimization
-        auto_optimize_for_free_threading: bool = True
-        free_threading_concurrent_multiplier: int = 3
-
     Example:
         >>> # Default config
         >>> async with AsyncDriver() as driver:
         ...     response = await driver.fetch('https://example.com')
-
-        >>> # Custom config
-        >>> config = {
-        ...     'max_concurrent_requests': 200,
-        ...     'connector_limit': 500,
-        ...     'dns_cache_ttl': 600,
-        ... }
-        >>> async with AsyncDriver(config=config) as driver:
-        ...     results = await driver.fetch_many(urls)
     """
 
     driver_name = "aiohttp"
@@ -115,9 +83,6 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         # Session management
         self._session: Optional[aiohttp.ClientSession] = None
         self._connector: Optional[aiohttp.TCPConnector] = None
-
-        # ========== READ CONFIG (all with defaults from constants) ==========
-
         # Basic settings
         self._timeout = self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
         self._user_agent = self.config.get("user_agent", DEFAULT_USER_AGENT)
@@ -130,30 +95,18 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         )
 
         # TCP Connector settings
-        self._connector_limit = self.config.get(
-            "connector_limit", DEFAULT_CONNECTOR_LIMIT
-        )
+        self._connector_limit = self.config.get("connector_limit", DEFAULT_CONNECTOR_LIMIT)
         self._connector_limit_per_host = self.config.get(
             "connector_limit_per_host", DEFAULT_CONNECTOR_LIMIT_PER_HOST
         )
-        self._dns_cache_ttl = self.config.get(
-            "dns_cache_ttl", DEFAULT_DNS_CACHE_TTL
-        )
-        self._keepalive_timeout = self.config.get(
-            "keepalive_timeout", DEFAULT_KEEPALIVE_TIMEOUT
-        )
+        self._dns_cache_ttl = self.config.get("dns_cache_ttl", DEFAULT_DNS_CACHE_TTL)
+        self._keepalive_timeout = self.config.get("keepalive_timeout", DEFAULT_KEEPALIVE_TIMEOUT)
 
         # Python 3.14 free-threading optimization
-        self._auto_optimize = self.config.get(
-            "auto_optimize_for_free_threading", True
-        )
+        self._auto_optimize = self.config.get("auto_optimize_for_free_threading", True)
         self._ft_multiplier = self.config.get(
-            "free_threading_concurrent_multiplier",
-            FREE_THREADING_CONCURRENT_MULTIPLIER
+            "free_threading_concurrent_multiplier", FREE_THREADING_CONCURRENT_MULTIPLIER
         )
-
-        # ========== APPLY FREE-THREADING OPTIMIZATIONS (if enabled) ==========
-
         self._free_threading = is_free_threading_enabled()
 
         if self._free_threading and self._auto_optimize:
@@ -181,14 +134,11 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
             f"free_threading={self._free_threading}"
         )
 
-    # ==================== Session Management ====================
-
     async def _get_session(self) -> aiohttp.ClientSession:
         """
         Створює або повертає існуючу aiohttp session.
 
         Всі параметри з конфігу!
-
 
         """
         if not self._session or self._session.closed:
@@ -199,6 +149,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
             if ssl_verify:
                 # Створюємо secure SSL context
                 import ssl
+
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = True
                 ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -209,9 +160,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
                     ssl_context.load_verify_locations(ssl_ca_bundle)
             else:
                 # Disabled verification (тільки для тестування!)
-                logger.warning(
-                    "⚠️ SSL verification DISABLED! Use only for testing."
-                )
+                logger.warning(" SSL verification DISABLED! Use only for testing.")
                 ssl_context = False
 
             self._connector = aiohttp.TCPConnector(
@@ -233,13 +182,14 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
 
             self._session = aiohttp.ClientSession(
                 connector=self._connector,
-                headers={"User-Agent": self._user_agent},
+                headers={
+                    "User-Agent": self._user_agent,
+                    **DEFAULT_BROWSER_HEADERS,
+                },
                 timeout=timeout,
                 raise_for_status=False,
             )
         return self._session
-
-    # ==================== Core Fetch ====================
 
     async def _do_fetch(self, url: str) -> FetchResponse:
         """Core fetch з retry support."""
@@ -268,42 +218,30 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
             self._plugin_manager.setup_event_subscriptions(ctx)
 
         try:
-            ctx = await self._execute_plugin_stage(
-                AsyncHTTPStage.PREPARING_REQUEST, ctx
-            )
+            ctx = await self._execute_plugin_stage(AsyncHTTPStage.PREPARING_REQUEST, ctx)
             if ctx.cancelled:
                 return self._cancelled_response(ctx)
 
-            ctx = await self._execute_plugin_stage(
-                AsyncHTTPStage.SENDING_REQUEST, ctx
-            )
+            ctx = await self._execute_plugin_stage(AsyncHTTPStage.SENDING_REQUEST, ctx)
             if ctx.cancelled:
                 return self._cancelled_response(ctx)
 
-            async with session.get(
-                url, headers=ctx.headers or {}, params=ctx.params
-            ) as response:
+            async with session.get(url, headers=ctx.headers or {}, params=ctx.params) as response:
                 ctx.response = response
                 ctx.status_code = response.status
                 # Конвертуємо всі header values в string (проблема з Cython в Python 3.14)
                 ctx.response_headers = {k: str(v) for k, v in response.headers.items()}
 
-                ctx = await self._execute_plugin_stage(
-                    AsyncHTTPStage.RESPONSE_RECEIVED, ctx
-                )
+                ctx = await self._execute_plugin_stage(AsyncHTTPStage.RESPONSE_RECEIVED, ctx)
 
                 try:
                     ctx.html = await response.text()
                 except UnicodeDecodeError:
                     ctx.html = None
 
-                ctx = await self._execute_plugin_stage(
-                    AsyncHTTPStage.PROCESSING_RESPONSE, ctx
-                )
+                ctx = await self._execute_plugin_stage(AsyncHTTPStage.PROCESSING_RESPONSE, ctx)
 
-            ctx = await self._execute_plugin_stage(
-                AsyncHTTPStage.REQUEST_COMPLETED, ctx
-            )
+            ctx = await self._execute_plugin_stage(AsyncHTTPStage.REQUEST_COMPLETED, ctx)
 
             return FetchResponse(
                 url=url,
@@ -315,9 +253,7 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
 
         except Exception as e:
             ctx.error = str(e)
-            ctx = await self._execute_plugin_stage(
-                AsyncHTTPStage.REQUEST_FAILED, ctx
-            )
+            ctx = await self._execute_plugin_stage(AsyncHTTPStage.REQUEST_FAILED, ctx)
             if ctx.data.get("should_retry", False):
                 raise
             raise
@@ -341,8 +277,6 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
             error=f"Cancelled: {reason}",
         )
 
-    # ==================== Batch Fetching ====================
-
     async def fetch_many(self, urls: List[str]) -> List[FetchResponse]:
         """
         Паралельне завантаження з контролем concurrency.
@@ -365,16 +299,12 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 processed.append(
-                    self._create_error_response(
-                        urls[i], f"{type(result).__name__}: {result}"
-                    )
+                    self._create_error_response(urls[i], f"{type(result).__name__}: {result}")
                 )
             else:
                 processed.append(result)
 
         return processed
-
-    # ==================== Fast Path (no plugins) ====================
 
     async def fetch_fast(self, url: str) -> FetchResponse:
         """
@@ -440,8 +370,6 @@ class AsyncDriver(BaseAsyncDriver, PluginSupportMixin, RetryMixin):
                 processed.append(result)
 
         return processed
-
-    # ==================== Resource Management ====================
 
     async def _do_close(self) -> None:
         """Close session and connector."""

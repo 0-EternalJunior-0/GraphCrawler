@@ -28,14 +28,12 @@ class NewspaperExtractor(BaseContentExtractor):
     def __init__(self):
         """Ініціалізує NewspaperExtractor."""
         try:
-            import newspaper
+            import newspaper  # type: ignore[import-not-found]
 
             self._newspaper = newspaper
             self._available = True
         except ImportError:
-            logger.warning(
-                "newspaper3k is not installed. Install with: pip install newspaper3k"
-            )
+            logger.warning("newspaper3k is not installed. Install with: pip install newspaper3k")
             self._newspaper = None
             self._available = False
 
@@ -74,7 +72,7 @@ class NewspaperExtractor(BaseContentExtractor):
                 article.nlp()
                 summary = article.summary
             except Exception as e:
-                logger.debug(f"Could not extract summary: {e}")
+                logger.debug("Could not extract summary: %s", e)
 
             return ExtractedArticle(
                 title=article.title or None,
@@ -90,5 +88,5 @@ class NewspaperExtractor(BaseContentExtractor):
             )
 
         except Exception as e:
-            logger.error(f"Error extracting article with newspaper3k: {e}")
+            logger.error("Error extracting article with newspaper3k: %s", e)
             return None

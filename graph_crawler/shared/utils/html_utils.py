@@ -19,9 +19,7 @@ class HTMLUtils:
     """Допоміжні функції для парсингу HTML."""
 
     @staticmethod
-    def sanitize_text(
-        text: Optional[str], max_length: int = MAX_TEXT_LENGTH
-    ) -> Optional[str]:
+    def sanitize_text(text: Optional[str], max_length: int = MAX_TEXT_LENGTH) -> Optional[str]:
         """
         Санітизує текст: видаляє HTML entities, обмежує довжину, видаляє небезпечні символи.
 
@@ -63,7 +61,7 @@ class HTMLUtils:
             return BeautifulSoup(html, "html.parser")
 
     @staticmethod
-    def extract_links(html: str, base_url: str = None) -> List[str]:
+    def extract_links(html: str, base_url: Optional[str] = None) -> List[str]:
         """
         Витягує всі посилання з HTML.
 
@@ -151,12 +149,12 @@ class HTMLUtils:
     # CSS селектори (class-level constants)
     _H1_MAIN_SELECTOR = (
         'main h1, article h1, [role="main"] h1, '
-        '#main-content h1, #main h1, .main-content h1, .content h1'
+        "#main-content h1, #main h1, .main-content h1, .content h1"
     )
     _H1_EXCLUDE_SELECTOR = (
-        'h1:not(dialog h1):not(nav h1):not(aside h1):not(header h1):not(footer h1)'
+        "h1:not(dialog h1):not(nav h1):not(aside h1):not(header h1):not(footer h1)"
         ':not([role="dialog"] h1):not([role="navigation"] h1)'
-        ':not(.modal h1):not(.popup h1):not(.cookie h1)'
+        ":not(.modal h1):not(.popup h1):not(.cookie h1)"
     )
 
     @staticmethod

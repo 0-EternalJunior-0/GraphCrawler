@@ -1,7 +1,5 @@
 """SQL Exporter - Clean Architecture з DTO.
 
-
-
 Exports graph to SQL databases (PostgreSQL, MySQL, SQLite).
 """
 
@@ -16,12 +14,27 @@ from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.events.events import EventType
 
 try:
-    from sqlalchemy import Column, Integer, MetaData, String, Table, Text, create_engine
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import (  # type: ignore[import-not-found]
+        Column,
+        Integer,
+        MetaData,
+        String,
+        Table,
+        Text,
+        create_engine,
+    )
+    from sqlalchemy.orm import sessionmaker  # type: ignore[import-not-found]
 
     SQLALCHEMY_AVAILABLE = True
 except ImportError:
     SQLALCHEMY_AVAILABLE = False
+    create_engine = None  # type: ignore
+    MetaData = None  # type: ignore
+    Table = None  # type: ignore
+    Column = None  # type: ignore
+    Integer = None  # type: ignore
+    String = None  # type: ignore
+    Text = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -30,42 +43,9 @@ class SQLExporter(BaseExporter):
     """
     Export graph to SQL database через DTO.
 
-
-
-    Supports:
-    - PostgreSQL
-    - MySQL
-    - SQLite
-
-    Creates two tables:
-    - graph_nodes: містить node information
-    - graph_edges: містить edge connections
-
-    Requirements:
-        pip install sqlalchemy
-
-        # For PostgreSQL:
-        pip install psycopg2-binary
-
-        # For MySQL:
-        pip install pymysql
-
-    Example:
-        >>> from graph_crawler.application.services.exporters import SQLExporter
-        >>> from graph_crawler.application.dto import GraphDTO
-        >>>
-        >>> # SQLite
-        >>> exporter = SQLExporter('sqlite:///graph.db')
-        >>> exporter.export(graph_dto, table_prefix='my_crawl')
-        >>>
-        >>> # PostgreSQL
-        >>> exporter = SQLExporter('postgresql://user:pass@localhost/dbname')
-        >>> exporter.export(graph_dto, table_prefix='crawl_20250124')
     """
 
-    def __init__(
-        self, connection_string: str, event_bus: Optional["EventBus"] = None, **kwargs
-    ):
+    def __init__(self, connection_string: str, event_bus: Optional["EventBus"] = None, **kwargs):
         """
         Initialize SQL exporter.
 
@@ -80,25 +60,23 @@ class SQLExporter(BaseExporter):
         super().__init__(event_bus=event_bus, **kwargs)
         if not SQLALCHEMY_AVAILABLE:
             raise ImportError(
-                "sqlalchemy is required for SQLExporter. "
-                "Install with: pip install sqlalchemy"
+                "sqlalchemy is required for SQLExporter. Install with: pip install sqlalchemy"
             )
 
         self.connection_string = connection_string
-        self.engine = create_engine(connection_string)
-        self.metadata = MetaData()
+        self.engine = create_engine(connection_string)  # type: ignore[misc]
+        self.metadata = MetaData()  # type: ignore[misc]
 
     def export(
         self,
         graph_dto: GraphDTO,
+        output_path: str = "",
         table_prefix: str = "graph",
         drop_existing: bool = False,
         **options,
     ) -> bool:
         """
         Export graph to SQL database through DTO.
-
-
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -157,8 +135,7 @@ class SQLExporter(BaseExporter):
             )
 
             logger.info(
-                f"Exported graph to SQL: {len(graph_dto.nodes)} nodes, "
-                f"{len(graph_dto.edges)} edges"
+                f"Exported graph to SQL: {len(graph_dto.nodes)} nodes, {len(graph_dto.edges)} edges"
             )
             return True
 
@@ -178,7 +155,7 @@ class SQLExporter(BaseExporter):
 
             raise
 
-    def _create_nodes_table(self, table_prefix: str) -> "Table":
+    def _create_nodes_table(self, table_prefix: str):
         """
         Create nodes table schema.
 
@@ -188,6 +165,9 @@ class SQLExporter(BaseExporter):
         Returns:
             Table: SQLAlchemy Table object
         """
+        if Table is None or Column is None or Integer is None or String is None or Text is None:
+            raise ImportError("sqlalchemy is required for SQL export")
+
         return Table(
             f"{table_prefix}_nodes",
             self.metadata,
@@ -202,7 +182,7 @@ class SQLExporter(BaseExporter):
             Column("metadata_json", Text),  # JSON string для додаткових metadata
         )
 
-    def _create_edges_table(self, table_prefix: str) -> "Table":
+    def _create_edges_table(self, table_prefix: str):
         """
         Create edges table schema.
 
@@ -212,6 +192,9 @@ class SQLExporter(BaseExporter):
         Returns:
             Table: SQLAlchemy Table object
         """
+        if Table is None or Column is None or Integer is None or String is None or Text is None:
+            raise ImportError("sqlalchemy is required for SQL export")
+
         return Table(
             f"{table_prefix}_edges",
             self.metadata,
@@ -225,7 +208,7 @@ class SQLExporter(BaseExporter):
             Column("metadata_json", Text),
         )
 
-    def _insert_nodes(self, graph_dto: GraphDTO, table: "Table"):
+    def _insert_nodes(self, graph_dto: GraphDTO, table):
         """
         Insert nodes into database from GraphDTO.
 
@@ -256,7 +239,7 @@ class SQLExporter(BaseExporter):
                 )
             conn.commit()
 
-    def _insert_edges(self, graph_dto: GraphDTO, table: "Table"):
+    def _insert_edges(self, graph_dto: GraphDTO, table):
         """
         Insert edges into database from GraphDTO.
 

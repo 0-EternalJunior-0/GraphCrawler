@@ -43,7 +43,7 @@ class MemoryJobStorage:
             "result": None,
             "error": None,
         }
-        logger.debug(f"Created job {job_id} in memory")
+        logger.debug("Created job %s in memory", job_id)
 
     async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Отримує job за ID."""

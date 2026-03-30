@@ -6,12 +6,11 @@ DLQ Listener - підписується на події помилок та ін
 import logging
 from typing import Optional
 
-from graph_crawler.domain.entities.error_handler import ErrorHandler
-
 from graph_crawler.application.use_cases.crawling.dead_letter_queue import (
     DeadLetterQueue,
 )
 from graph_crawler.domain.events import CrawlerEvent, EventBus, EventType
+from graph_crawler.shared.error_handling.error_handler import ErrorHandler
 
 logger = logging.getLogger(__name__)
 
@@ -20,31 +19,6 @@ class DLQListener:
     """
     Event listener що інтегрує DeadLetterQueue та ErrorHandler з EventBus.
 
-    Підписується на події:
-    - NODE_FAILED: коли node не вдалось завантажити
-    - ERROR_OCCURRED: коли виникає будь-яка помилка
-    - RETRY_ATTEMPTED: коли робиться retry спроба
-
-    Автоматично додає failed URLs в DLQ та обробляє через ErrorHandler.
-
-    Example:
-        >>> from graph_crawler.domain.events import EventBus
-        >>> from graph_crawler.application.use_cases.crawling.dead_letter_queue import DeadLetterQueue
-        >>> from graph_crawler.domain.entities.error_handler import ErrorHandler
-        >>> from graph_crawler.observability.listeners.dlq_listener import DLQListener
-        >>>
-        >>> event_bus = EventBus()
-        >>> dlq = DeadLetterQueue(max_retries=3)
-        >>> error_handler = ErrorHandler(dead_letter_queue=dlq)
-        >>>
-        >>> # Створюємо та підписуємо listener
-        >>> dlq_listener = DLQListener(
-        ...     event_bus=event_bus,
-        ...     dead_letter_queue=dlq,
-        ...     error_handler=error_handler
-        ... )
-        >>>
-        >>> # Тепер всі події помилок автоматично обробляються
     """
 
     def __init__(
@@ -76,9 +50,7 @@ class DLQListener:
         self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error_occurred)
         self.event_bus.subscribe(EventType.RETRY_ATTEMPTED, self._on_retry_attempted)
 
-        logger.debug(
-            "Subscribed to NODE_FAILED, ERROR_OCCURRED, RETRY_ATTEMPTED events"
-        )
+        logger.debug("Subscribed to NODE_FAILED, ERROR_OCCURRED, RETRY_ATTEMPTED events")
 
     def _on_node_failed(self, event: CrawlerEvent) -> None:
         """
@@ -93,7 +65,7 @@ class DLQListener:
         depth = event.data.get("depth", 0)
         source_url = event.data.get("source_url")
 
-        logger.info(f"DLQListener: NODE_FAILED event for {url}")
+        logger.info("DLQListener: NODE_FAILED event for %s", url)
 
         # Додаємо в DLQ
         self.dlq.add_failed_url(
@@ -120,7 +92,7 @@ class DLQListener:
                 },
             )
         except Exception as e:
-            logger.error(f"Error in ErrorHandler: {e}", exc_info=True)
+            logger.error("Error in ErrorHandler: %s", e, exc_info=True)
 
     def _on_error_occurred(self, event: CrawlerEvent) -> None:
         """
@@ -137,7 +109,7 @@ class DLQListener:
             logger.debug("ERROR_OCCURRED event without URL, skipping DLQ")
             return
 
-        logger.info(f"DLQListener: ERROR_OCCURRED event for {url}")
+        logger.info("DLQListener: ERROR_OCCURRED event for %s", url)
 
         # Обробляємо через ErrorHandler
         try:
@@ -155,7 +127,7 @@ class DLQListener:
                 context={"event_type": "ERROR_OCCURRED", **event.data},
             )
         except Exception as e:
-            logger.error(f"Error in ErrorHandler: {e}", exc_info=True)
+            logger.error("Error in ErrorHandler: %s", e, exc_info=True)
 
     def _on_retry_attempted(self, event: CrawlerEvent) -> None:
         """
@@ -167,7 +139,7 @@ class DLQListener:
         url = event.data.get("url", "unknown")
         attempt = event.data.get("attempt", 0)
 
-        logger.info(f"DLQListener: RETRY_ATTEMPTED event for {url} (attempt {attempt})")
+        logger.info("DLQListener: RETRY_ATTEMPTED event for %s (attempt %s)", url, attempt)
 
         # Просто логуємо, реальна retry логіка в DLQ
         if url in self.dlq.failed_urls:

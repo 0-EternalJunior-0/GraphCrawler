@@ -17,28 +17,11 @@ class AutoStorage(BaseStorage):
     """
     Автоматично вибирає storage базуючись на розмірі графа.
 
-    Стратегія масштабування (пороги конфігуруються):
-    - < memory_threshold (default: 1000) → MemoryStorage (швидко, RAM)
-    - memory_threshold - json_threshold (1000-DEFAULT_JSON_THRESHOLD) → JSONStorage (файли)
-    - > json_threshold (>DEFAULT_JSON_THRESHOLD) → PostgreSQL/MongoDB/SQLite (БД)
-
-    Приклад використання:
-        storage = AutoStorage(
-            memory_threshold=1000,
-            json_threshold=DEFAULT_JSON_THRESHOLD,
-            db_config={
-                'type': 'postgresql',  # або 'mongodb'
-                'host': 'localhost',
-                'database': 'graph_crawler'
-            }
-        )
-
-    Якщо db_config не вказано або БД не доступна - fallback на SQLite.
     """
 
     def __init__(
         self,
-        storage_dir: str = "./tmp/graph_crawler",
+        storage_dir: Optional[str] = None,
         memory_threshold: int = 1000,
         json_threshold: int = DEFAULT_JSON_THRESHOLD,
         db_config: Optional[Dict[str, Any]] = None,
@@ -48,13 +31,15 @@ class AutoStorage(BaseStorage):
         Ініціалізує AutoStorage.
 
         Args:
-            storage_dir: Директорія для JSON/SQLite storage
+            storage_dir: Директорія для JSON/SQLite storage (default: ./crawler_data)
             memory_threshold: Поріг для переходу Memory → JSON (default: 1000)
             json_threshold: Поріг для переходу JSON → DB (default: DEFAULT_JSON_THRESHOLD)
             db_config: Конфігурація для PostgreSQL/MongoDB
             event_bus: EventBus для публікації подій (опціонально,)
         """
-        self.storage_dir = storage_dir
+        from graph_crawler.shared.constants import DEFAULT_DATA_DIR
+
+        self.storage_dir = storage_dir or DEFAULT_DATA_DIR
         self.memory_threshold = memory_threshold
         self.json_threshold = json_threshold
         self.db_config = db_config
@@ -81,13 +66,32 @@ class AutoStorage(BaseStorage):
         Returns:
             True якщо успішно
         """
-        self.node_count = len(graph.nodes)
+        from graph_crawler.application.dto.mappers.graph_mapper import GraphMapper
 
-        # Перевіряємо чи потрібно оновити storage та передаємо граф
+        self.node_count = len(graph.nodes)
         self._check_and_upgrade(graph)
 
-        # Зберігаємо в поточне storage
-        return self.current_storage.save_graph(graph)
+        # Конвертуємо Graph в GraphDTO для збереження
+        graph_dto = GraphMapper.to_dto(graph)
+
+        # Зберігаємо в поточне storage (потрібен async виклик)
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, self.current_storage.save_graph(graph_dto)
+                    )
+                    return future.result()
+            else:
+                return loop.run_until_complete(self.current_storage.save_graph(graph_dto))
+        except RuntimeError:
+            # Немає event loop - створюємо новий
+            return asyncio.run(self.current_storage.save_graph(graph_dto))
 
     def _check_and_upgrade(self, graph: Graph):
         """
@@ -97,8 +101,6 @@ class AutoStorage(BaseStorage):
             graph: Граф який потрібно зберегти (використовується для міграції)
         """
         current_type = type(self.current_storage).__name__
-
-        # Якщо перевищили json_threshold - переходимо на БД
         if self.node_count > self.json_threshold:
             if current_type in ["MemoryStorage", "JSONStorage"]:
                 logger.info(
@@ -106,8 +108,6 @@ class AutoStorage(BaseStorage):
                     f"Upgrading to database storage..."
                 )
                 self._upgrade_to_database(graph)
-
-        # Якщо перевищили memory_threshold - переходимо на JSON
         elif self.node_count > self.memory_threshold:
             if current_type == "MemoryStorage":
                 logger.info(
@@ -123,22 +123,26 @@ class AutoStorage(BaseStorage):
         Args:
             graph: Граф для міграції
         """
+        import asyncio
+
+        from graph_crawler.application.dto.mappers.graph_mapper import GraphMapper
+
         try:
-            # Створюємо JSON storage
             new_storage = JSONStorage(self.storage_dir)
 
-            # Зберігаємо граф
-            new_storage.save_graph(graph)
+            # Конвертуємо Graph в GraphDTO
+            graph_dto = GraphMapper.to_dto(graph)
+
+            # Зберігаємо граф (async виклик)
+            asyncio.run(new_storage.save_graph(graph_dto))
 
             # Очищаємо старе storage
-            self.current_storage.clear()
+            asyncio.run(self.current_storage.clear())
 
             # Переключаємо
             self.current_storage = new_storage
 
-            logger.info(
-                f"Successfully upgraded to JSONStorage: {len(graph.nodes)} nodes migrated"
-            )
+            logger.info("Successfully upgraded to JSONStorage: %s nodes migrated", len(graph.nodes))
 
             # Подія про оновлення storage
             if self.event_bus:
@@ -157,16 +161,18 @@ class AutoStorage(BaseStorage):
                 )
 
         except Exception as e:
-            logger.error(f"Failed to upgrade to JSONStorage: {e}")
+            logger.error("Failed to upgrade to JSONStorage: %s", e)
             raise
 
     def _upgrade_to_database(self, graph: Graph):
         """Міграція з JSONStorage → PostgreSQL/MongoDB/SQLite."""
+        import asyncio
+
+        from graph_crawler.application.dto.mappers.graph_mapper import GraphMapper
+
         try:
             # Вибираємо тип БД
             db_type = self._get_database_type()
-
-            # Створюємо відповідне storage
             if db_type == "postgresql":
                 new_storage = self._create_postgresql_storage()
             elif db_type == "mongodb":
@@ -174,15 +180,16 @@ class AutoStorage(BaseStorage):
             else:
                 # Fallback на SQLite
                 new_storage = SQLiteStorage(self.storage_dir)
-                logger.info(
-                    "Using SQLite as fallback (no PostgreSQL/MongoDB configured)"
-                )
+                logger.info("Using SQLite as fallback (no PostgreSQL/MongoDB configured)")
 
-            # Зберігаємо граф (граф передається напряму, не потрібно завантажувати)
-            new_storage.save_graph(graph)
+            # Конвертуємо Graph в GraphDTO
+            graph_dto = GraphMapper.to_dto(graph)
+
+            # Зберігаємо граф (async виклик)
+            asyncio.run(new_storage.save_graph(graph_dto))
 
             # Очищаємо старе storage
-            self.current_storage.clear()
+            asyncio.run(self.current_storage.clear())
 
             # Переключаємо
             self.current_storage = new_storage
@@ -192,30 +199,17 @@ class AutoStorage(BaseStorage):
             )
 
         except Exception as e:
-            logger.error(f"Failed to upgrade to database: {e}")
+            logger.error("Failed to upgrade to database: %s", e)
             # Fallback на SQLite
             try:
                 logger.info("Attempting fallback to SQLite...")
                 new_storage = SQLiteStorage(self.storage_dir)
-                new_storage.save_graph(graph)
+                graph_dto = GraphMapper.to_dto(graph)
+                asyncio.run(new_storage.save_graph(graph_dto))
                 self.current_storage = new_storage
                 logger.info("Fallback to SQLite successful")
             except Exception as fallback_error:
-                logger.error(f"Fallback to SQLite also failed: {fallback_error}")
-                raise
-
-        except Exception as e:
-            logger.error(f"Failed to upgrade to database: {e}")
-            # Fallback на SQLite
-            try:
-                logger.info("Attempting fallback to SQLite...")
-                graph = self.current_storage.load_graph()
-                new_storage = SQLiteStorage(self.storage_dir)
-                new_storage.save_graph(graph)
-                self.current_storage = new_storage
-                logger.info("Fallback to SQLite successful")
-            except Exception as fallback_error:
-                logger.error(f"Fallback to SQLite also failed: {fallback_error}")
+                logger.error("Fallback to SQLite also failed: %s", fallback_error)
                 raise
 
     def _get_database_type(self) -> str:
@@ -236,9 +230,7 @@ class AutoStorage(BaseStorage):
         elif db_type in ["mongodb", "mongo"]:
             return "mongodb"
         else:
-            logger.warning(
-                f"Unknown database type: {db_type}, using SQLite as fallback"
-            )
+            logger.warning("Unknown database type: %s, using SQLite as fallback", db_type)
             return "sqlite"
 
     def _create_postgresql_storage(self):
@@ -259,7 +251,7 @@ class AutoStorage(BaseStorage):
             logger.info("Falling back to SQLite")
             return SQLiteStorage(self.storage_dir)
         except Exception as e:
-            logger.warning(f"Failed to create PostgreSQL storage: {e}")
+            logger.warning("Failed to create PostgreSQL storage: %s", e)
             logger.info("Falling back to SQLite")
             return SQLiteStorage(self.storage_dir)
 
@@ -275,11 +267,11 @@ class AutoStorage(BaseStorage):
 
             return MongoDBStorage(self.db_config)
         except ImportError as e:
-            logger.warning(f"MongoDB not available: {e}. Install: pip install pymongo")
+            logger.warning("MongoDB not available: %s. Install: pip install pymongo", e)
             logger.info("Falling back to SQLite")
             return SQLiteStorage(self.storage_dir)
         except Exception as e:
-            logger.warning(f"Failed to create MongoDB storage: {e}")
+            logger.warning("Failed to create MongoDB storage: %s", e)
             logger.info("Falling back to SQLite")
             return SQLiteStorage(self.storage_dir)
 
@@ -307,18 +299,12 @@ class AutoStorage(BaseStorage):
         self.node_count += len(nodes)
 
         # Для save_partial потрібно завантажити існуючий граф для міграції
-        if (
-            self.node_count > self.json_threshold
-            or self.node_count > self.memory_threshold
-        ):
+        if self.node_count > self.json_threshold or self.node_count > self.memory_threshold:
             current_type = type(self.current_storage).__name__
             needs_upgrade = (
                 self.node_count > self.json_threshold
                 and current_type in ["MemoryStorage", "JSONStorage"]
-            ) or (
-                self.node_count > self.memory_threshold
-                and current_type == "MemoryStorage"
-            )
+            ) or (self.node_count > self.memory_threshold and current_type == "MemoryStorage")
 
             if needs_upgrade:
                 # Завантажуємо існуючий граф для міграції

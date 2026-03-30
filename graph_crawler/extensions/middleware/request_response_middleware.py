@@ -11,7 +11,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from graph_crawler.extensions.middleware.base import (
@@ -27,56 +27,9 @@ class RequestMiddleware(BaseMiddleware):
     """
     Middleware для модифікації HTTP запитів.
 
-    Конфігурація:
-        headers: Додаткові headers для всіх запитів (dict)
-            Приклад: {"X-Custom-Header": "value"}
-
-        cookies: Cookies для додавання до запитів (dict)
-            Приклад: {"session_id": "abc123"}
-
-        remove_headers: Список headers для видалення (list)
-            Приклад: ["X-Forwarded-For", "Via"]
-
-        query_params: Query параметри для додавання до URL (dict)
-            Приклад: {"utm_source": "package_crawler"}
-
-        normalize_headers: Нормалізувати headers (default: True)
-            - Видаляє headers що видають bot
-            - Додає стандартні browser headers
-
-        custom_transform: Custom функція для трансформації request
-            Callable[[MiddlewareContext], MiddlewareContext]
-
-        log_requests: Логувати всі запити (default: False)
-
-        max_url_length: Максимальна довжина URL (default: 2048)
-
-    Приклади конфігурації:
-
-    1. Додати custom headers:
-        config = {
-            "headers": {
-                "X-API-Key": "secret_key",
-                "X-Custom-Header": "value"
-            }
-        }
-
-    2. Додати query параметри до всіх URL:
-        config = {
-            "query_params": {
-                "utm_source": "bot",
-                "key": "api_key"
-            }
-        }
-
-    3. З логуванням:
-        config = {
-            "log_requests": True,
-            "normalize_headers": True
-        }
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.request_count = 0
         self.transformed_count = 0
@@ -121,9 +74,7 @@ class RequestMiddleware(BaseMiddleware):
             normalized.pop(header, None)
 
         if "Accept" not in normalized:
-            normalized["Accept"] = (
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-            )
+            normalized["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
         if "Accept-Language" not in normalized:
             normalized["Accept-Language"] = "en-US,en;q=0.9"
@@ -183,13 +134,13 @@ class RequestMiddleware(BaseMiddleware):
         max_length = self.config.get("max_url_length", 2048)
 
         if len(url) > max_length:
-            logger.warning(f"URL too long ({len(url)} > {max_length}): {url[:100]}...")
+            logger.warning("URL too long (%s > %s): %s...", len(url), max_length, url)
             return False
 
         parsed = urlparse(url)
 
         if not parsed.scheme or not parsed.netloc:
-            logger.warning(f"Invalid URL structure: {url}")
+            logger.warning("Invalid URL structure: %s", url)
             return False
 
         return True
@@ -242,8 +193,7 @@ class RequestMiddleware(BaseMiddleware):
         # Логування
         if self.config.get("log_requests"):
             logger.info(
-                f"Request #{self.request_count}: {context.url} "
-                f"(headers: {len(context.headers)})"
+                f"Request #{self.request_count}: {context.url} (headers: {len(context.headers)})"
             )
 
         context.metadata["request_middleware"] = {
@@ -265,9 +215,7 @@ class RequestMiddleware(BaseMiddleware):
             "request_count": self.request_count,
             "transformed_count": self.transformed_count,
             "transformation_rate": (
-                self.transformed_count / self.request_count
-                if self.request_count > 0
-                else 0.0
+                self.transformed_count / self.request_count if self.request_count > 0 else 0.0
             ),
         }
 
@@ -276,53 +224,9 @@ class ResponseMiddleware(BaseMiddleware):
     """
     Middleware для обробки HTTP відповідей.
 
-    Конфігурація:
-        filter_status_codes: Список статус кодів для фільтрації (list)
-            Приклад: [404, 500] - пропустити ці статуси
-
-        min_content_length: Мінімальна довжина контенту (int)
-            Відповіді коротші цього будуть відхилені
-
-        max_content_length: Максимальна довжина контенту (int)
-            Відповіді довші цього будуть обрізані
-
-        extract_cookies: Зберігати cookies з відповіді (default: True)
-
-        follow_redirects: Автоматично слідувати за редіректами (default: True)
-
-        max_redirects: Максимум редіректів (default: 10)
-
-        custom_transform: Custom функція для трансформації response
-            Callable[[MiddlewareContext], MiddlewareContext]
-
-        log_responses: Логувати всі відповіді (default: False)
-
-        validate_html: Перевіряти валідність HTML (default: False)
-
-        save_failed_responses: Зберігати відповіді з помилками (default: False)
-
-    Приклади конфігурації:
-
-    1. Фільтрувати помилки:
-        config = {
-            "filter_status_codes": [404, 500, 503],
-            "min_content_length": 100
-        }
-
-    2. З логуванням:
-        config = {
-            "log_responses": True,
-            "extract_cookies": True
-        }
-
-    3. Обмеження розміру:
-        config = {
-            "max_content_length": 1024 * 1024,  # 1MB
-            "validate_html": True
-        }
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.response_count = 0
         self.filtered_count = 0
@@ -357,7 +261,7 @@ class ResponseMiddleware(BaseMiddleware):
         # Фільтрувати за статус кодом
         filter_codes = self.config.get("filter_status_codes", [])
         if context.status_code in filter_codes:
-            logger.debug(f"Filtering response with status code {context.status_code}")
+            logger.debug("Filtering response with status code %s", context.status_code)
             return True
 
         # Фільтрувати за довжиною контенту
@@ -366,15 +270,15 @@ class ResponseMiddleware(BaseMiddleware):
 
             min_length = self.config.get("min_content_length")
             if min_length and content_length < min_length:
-                logger.debug(f"Content too short ({content_length} < {min_length})")
+                logger.debug("Content too short (%s < %s)", content_length, min_length)
                 return True
 
             max_length = self.config.get("max_content_length")
             if max_length and content_length > max_length:
-                logger.debug(f"Content too long ({content_length} > {max_length})")
+                logger.debug("Content too long (%s > %s)", content_length, max_length)
                 # Обрізаємо замість фільтрації
                 context.html = context.html[:max_length]
-                logger.info(f"Content truncated to {max_length} bytes")
+                logger.info("Content truncated to %s bytes", max_length)
 
         return False
 
@@ -465,7 +369,7 @@ class ResponseMiddleware(BaseMiddleware):
         # Валідація HTML
         if self.config.get("validate_html") and context.html:
             if not self._validate_html(context.html):
-                logger.warning(f"Invalid HTML response from {context.url}")
+                logger.warning("Invalid HTML response from %s", context.url)
                 context.metadata["html_valid"] = False
             else:
                 context.metadata["html_valid"] = True
@@ -509,14 +413,10 @@ class ResponseMiddleware(BaseMiddleware):
             "filtered_count": self.filtered_count,
             "error_count": self.error_count,
             "filter_rate": (
-                self.filtered_count / self.response_count
-                if self.response_count > 0
-                else 0.0
+                self.filtered_count / self.response_count if self.response_count > 0 else 0.0
             ),
             "error_rate": (
-                self.error_count / self.response_count
-                if self.response_count > 0
-                else 0.0
+                self.error_count / self.response_count if self.response_count > 0 else 0.0
             ),
             "status_codes": self.status_code_stats,
         }

@@ -3,6 +3,7 @@
 
 class StructuredDataError(Exception):
     """Базова помилка для Structured Data плагіна."""
+
     pass
 
 

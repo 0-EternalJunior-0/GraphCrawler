@@ -91,7 +91,8 @@ dmypy.json
 *.log
 logs/
 
-# Storage (runtime data)
+# Storage (runtime data) - ЦЕНТРАЛІЗОВАНА ПАПКА
+crawler_data/
 graphs_storage/
 jobs_crawler/data/output/
 jobs_crawler/data/graphs/
@@ -109,8 +110,3 @@ Thumbs.db
 *.pid
 *.seed
 *.pid.lock
-
-
-
-# MkDocs site
-site/

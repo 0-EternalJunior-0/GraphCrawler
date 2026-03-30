@@ -71,7 +71,7 @@ class SpiderLifecycleManager:
 
         self.plugin_manager.execute_sync(NodePluginType.BEFORE_CRAWL, context)
 
-        logger.info(f"BEFORE_CRAWL hooks executed for {self.config.url}")
+        logger.info("BEFORE_CRAWL hooks executed for %s", self.config.url)
 
     def execute_after_crawl(self, pages_crawled: int) -> None:
         """
@@ -102,4 +102,4 @@ class SpiderLifecycleManager:
 
         self.plugin_manager.execute_sync(NodePluginType.AFTER_CRAWL, context)
 
-        logger.info(f"AFTER_CRAWL hooks executed (pages: {pages_crawled})")
+        logger.info("AFTER_CRAWL hooks executed (pages: %s)", pages_crawled)

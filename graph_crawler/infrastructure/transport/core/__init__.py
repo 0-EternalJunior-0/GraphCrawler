@@ -1,7 +1,4 @@
-"""Core модуль драйверів - базові абстракції та mixins.
-
-
-"""
+"""Core модуль драйверів - базові абстракції та mixins."""
 
 from graph_crawler.infrastructure.transport.core.base_async import BaseAsyncDriver
 from graph_crawler.infrastructure.transport.core.base_sync import BaseSyncDriver

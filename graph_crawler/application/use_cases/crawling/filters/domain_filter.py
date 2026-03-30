@@ -1,6 +1,5 @@
 """Domain Filter Strategy.
 
-
 - Підтримка спеціальних патернів у allowed_domains:
   * '*' - wildcard режим (куди завгодно)
   * 'domain' - тільки основний домен
@@ -10,11 +9,10 @@
 """
 
 import logging
+from typing import Optional
 
 from graph_crawler.application.use_cases.crawling.filters.base import BaseURLFilter
-from graph_crawler.application.use_cases.crawling.filters.domain_patterns import (
-    AllowedDomains,
-)
+from graph_crawler.domain.value_objects.domain_patterns import AllowedDomains
 from graph_crawler.domain.value_objects.models import DomainFilterConfig
 from graph_crawler.shared.utils.url_utils import URLUtils
 
@@ -25,16 +23,6 @@ class DomainFilter(BaseURLFilter):
     """
     Фільтр за доменом з підтримкою спеціальних патернів.
 
-
-    - Wildcard режим через '*' або AllowedDomains.ALL
-    - Спеціальні патерни: 'domain', 'subdomains', 'domain+subdomains'
-    - Автоматичне парсування та розділення патернів
-
-    Конфіг:
-        base_domain: str - базовий домен для порівняння
-        allowed_domains: list - дозволені домени + спеціальні патерни
-        blocked_domains: list - заблоковані домени
-
     Examples:
         >>> # Wildcard режим
         >>> config = DomainFilterConfig(
@@ -43,15 +31,6 @@ class DomainFilter(BaseURLFilter):
         ... )
         >>> filter = DomainFilter(config)
         >>> filter.is_allowed("https://any-site.com")  # True
-
-        >>> # Тільки домен без субдоменів
-        >>> config = DomainFilterConfig(
-        ...     base_domain="company.com",
-        ...     allowed_domains=["domain"]
-        ... )
-        >>> filter = DomainFilter(config)
-        >>> filter.is_allowed("https://company.com/page")  # True
-        >>> filter.is_allowed("https://jobs.company.com")  # False
     """
 
     def __init__(self, config: DomainFilterConfig, event_bus=None):
@@ -62,8 +41,9 @@ class DomainFilter(BaseURLFilter):
             config: DomainFilterConfig (Pydantic)
             event_bus: EventBus для публікації подій (опціонально)
         """
-        self.config = config
-        super().__init__(config)
+        # Зберігаємо оригінальний config ДО виклику super().__init__
+        self._domain_config = config
+        super().__init__(config.model_dump() if hasattr(config, "model_dump") else dict(config))
         self.event_bus = event_bus
 
         # Парсимо спеціальні патерни
@@ -82,7 +62,6 @@ class DomainFilter(BaseURLFilter):
         """
         Парсує allowed_domains і виділяє спеціальні патерни.
 
-
         від конкретних доменів для оптимізації перевірок.
         """
         AllowedDomains.get_special_patterns()
@@ -95,7 +74,7 @@ class DomainFilter(BaseURLFilter):
         self.concrete_domains = set()
 
         # Парсимо кожен домен
-        for domain in self.config.allowed_domains:
+        for domain in self._domain_config.allowed_domains:
             if domain == AllowedDomains.ALL.value:  # '*'
                 self.wildcard_mode = True
             elif domain == AllowedDomains.DOMAIN.value:  # 'domain'
@@ -143,24 +122,15 @@ class DomainFilter(BaseURLFilter):
 
         return False
 
-    def is_allowed(self, url: str, source_url: str = None) -> bool:
+    def is_allowed(self, url: str, source_url: Optional[str] = None) -> bool:
         """
         Перевіряє чи дозволений домен.
-
-        ПОРЯДОК ПЕРЕВІРКИ:
-        1. Wildcard режим ('*') → дозволити все
-        2. Заблоковані домени → заблокувати
-        3. Спеціальні патерни ('domain', 'subdomains', 'domain+subdomains')
-        4. Конкретні домени з allowed_domains
-        5. Конкретні домени є субдоменами дозволених
 
         Args:
             url: URL для перевірки
             source_url: URL джерела (для визначення базового домену)
-
         Returns:
             True якщо домен дозволений
-
         Example:
             >>> filter = DomainFilter(config)
             >>> filter.is_allowed("https://company.com/page")
@@ -171,56 +141,52 @@ class DomainFilter(BaseURLFilter):
 
         domain = URLUtils.get_domain(url)
         if not domain:
-            logger.debug(f"Invalid domain for URL: {url}")
+            logger.debug("Invalid domain for URL: %s", url)
             return False
 
-        #  КРОК 1: Wildcard режим - дозволити все
-        if self.wildcard_mode:
-            logger.debug(f"Wildcard mode: allowing {url}")
-            return True
-
-        #  КРОК 2: Перевіряємо заблоковані домени
-        if domain in self.config.blocked_domains:
-            logger.debug(f"Blocked domain: {domain}")
+        #  КРОК 1: Перевіряємо заблоковані домени ПЕРШИМ (навіть при wildcard!)
+        if domain in self._domain_config.blocked_domains:
+            logger.debug("Blocked domain: %s", domain)
             self._publish_filtered_event(url, "domain", "blocked_domain")
             return False
 
+        #  КРОК 2: Wildcard режим - дозволити все (крім blocked)
+        if self.wildcard_mode:
+            logger.debug("Wildcard mode: allowing %s", url)
+            return True
+
         #  КРОК 3: Перевіряємо спеціальні патерни
-        base_domain = self.config.base_domain
+        base_domain = self._domain_config.base_domain
 
         # 3.1: Тільки основний домен (без субдоменів)
         if self.domain_only:
             if domain == base_domain:
-                logger.debug(f"Domain pattern matched: {domain} == {base_domain}")
+                logger.debug("Domain pattern matched: %s == %s", domain, base_domain)
                 return True
 
         # 3.2: Тільки субдомени (без основного домену)
         if self.subdomains_only:
             if domain != base_domain and self._is_subdomain_of(domain, base_domain):
-                logger.debug(
-                    f"Subdomain pattern matched: {domain} is subdomain of {base_domain}"
-                )
+                logger.debug("Subdomain pattern matched: %s is subdomain of %s", domain, base_domain)
                 return True
 
         # 3.3: Домен + субдомени (DEFAULT)
         if self.domain_with_sub:
             if self._is_subdomain_of(domain, base_domain):
-                logger.debug(f"Domain+subdomains pattern matched: {domain}")
+                logger.debug("Domain+subdomains pattern matched: %s", domain)
                 return True
 
         #  КРОК 4: Перевіряємо конкретні домени
         if domain in self.concrete_domains:
-            logger.debug(f"Concrete domain allowed: {domain}")
+            logger.debug("Concrete domain allowed: %s", domain)
             return True
 
         #  КРОК 5: Перевіряємо чи domain є субдоменом будь-якого з concrete_domains
-        if any(
-            self._is_subdomain_of(domain, allowed) for allowed in self.concrete_domains
-        ):
-            logger.debug(f"Domain is subdomain of allowed: {domain}")
+        if any(self._is_subdomain_of(domain, allowed) for allowed in self.concrete_domains):
+            logger.debug("Domain is subdomain of allowed: %s", domain)
             return True
 
         # Домен не дозволений
-        logger.debug(f"Domain not allowed: {domain}")
+        logger.debug("Domain not allowed: %s", domain)
         self._publish_filtered_event(url, "domain", "not_allowed")
         return False

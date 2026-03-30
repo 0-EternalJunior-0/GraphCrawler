@@ -26,15 +26,6 @@ class MetricsCollector:
     """
     Збирає детальні метрики краулінгу через EventBus.
 
-    Metrics:
-    - pages_crawled: кількість оброблених сторінок
-    - pages_failed: кількість невдалих сторінок
-    - total_links: загальна кількість знайдених посилань
-    - pages_per_second: швидкість краулінгу
-    - average_fetch_time: середній час завантаження
-    - errors_by_type: помилки згруповані по типах
-    - fetch_times: список часу завантаження кожної сторінки
-
     Example:
         >>> from graph_crawler.domain.events import EventBus
         >>> from graph_crawler.monitoring import MetricsCollector
@@ -93,9 +84,7 @@ class MetricsCollector:
         # Node події
         self.event_bus.subscribe(EventType.NODE_SCANNED, self._on_node_scanned)
         self.event_bus.subscribe(EventType.NODE_FAILED, self._on_node_failed)
-        self.event_bus.subscribe(
-            EventType.NODE_SKIPPED_UNCHANGED, self._on_node_skipped
-        )
+        self.event_bus.subscribe(EventType.NODE_SKIPPED_UNCHANGED, self._on_node_skipped)
 
         # Edge події
         self.event_bus.subscribe(EventType.EDGE_CREATED, self._on_edge_created)
@@ -108,13 +97,11 @@ class MetricsCollector:
 
         logger.debug("Subscribed to package_crawler events")
 
-    # === Event Handlers ===
-
     def _on_crawl_started(self, event: CrawlerEvent):
         """Обробка початку краулінгу."""
         self.start_time = time.time()
         self.last_snapshot_time = self.start_time
-        logger.info(f" Metrics collection started for URL: {event.data.get('url')}")
+        logger.info(" Metrics collection started for URL: %s", event.data.get('url'))
 
     def _on_crawl_completed(self, event: CrawlerEvent):
         """Обробка завершення краулінгу."""
@@ -191,8 +178,6 @@ class MetricsCollector:
                 }
             )
 
-    # === Snapshot System ===
-
     def _take_snapshot(self):
         """Робить snapshot поточних метрик для історії."""
         if self.start_time is None:
@@ -213,8 +198,6 @@ class MetricsCollector:
 
         self.history.append(snapshot)
         self.last_snapshot_time = current_time
-
-    # === Metrics Calculations ===
 
     def get_pages_per_second(self) -> float:
         """
@@ -284,8 +267,6 @@ class MetricsCollector:
         end = self.end_time if self.end_time else time.time()
         return end - self.start_time
 
-    # === Summary & Export ===
-
     def get_summary(self) -> str:
         """
         Генерує текстовий summary метрик для консолі.
@@ -302,7 +283,7 @@ class MetricsCollector:
             "=" * 60,
             "",
             "⏱  Duration:",
-            f"   Total time: {elapsed:.2f}s ({elapsed/60:.1f} minutes)",
+            f"   Total time: {elapsed:.2f}s ({elapsed / 60:.1f} minutes)",
             "",
             " Pages:",
             f"   Crawled: {self.pages_crawled}",
@@ -324,9 +305,7 @@ class MetricsCollector:
         # Помилки по типах
         if self.errors_by_type:
             lines.extend(["", " Errors by type:"])
-            for error_type, count in sorted(
-                self.errors_by_type.items(), key=lambda x: -x[1]
-            ):
+            for error_type, count in sorted(self.errors_by_type.items(), key=lambda x: -x[1]):
                 lines.append(f"   {error_type}: {count}")
 
         # Сторінки по глибині
@@ -372,14 +351,10 @@ class MetricsCollector:
             "history": self.history,
             "timestamps": {
                 "started_at": (
-                    datetime.fromtimestamp(self.start_time).isoformat()
-                    if self.start_time
-                    else None
+                    datetime.fromtimestamp(self.start_time).isoformat() if self.start_time else None
                 ),
                 "completed_at": (
-                    datetime.fromtimestamp(self.end_time).isoformat()
-                    if self.end_time
-                    else None
+                    datetime.fromtimestamp(self.end_time).isoformat() if self.end_time else None
                 ),
             },
         }
@@ -400,9 +375,9 @@ class MetricsCollector:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(metrics, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Metrics exported to {filepath}")
+            logger.info("Metrics exported to %s", filepath)
         except Exception as e:
-            logger.error(f" Failed to export metrics: {e}")
+            logger.error(" Failed to export metrics: %s", e)
             raise
 
     def reset(self):

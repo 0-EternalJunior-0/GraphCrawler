@@ -176,10 +176,7 @@ class ConnectionPoolManager:
                 )
 
                 # Перевіряємо статус для retry
-                if (
-                    response.status in HTTP_RETRYABLE_STATUS_CODES
-                    and attempt < self.max_retries
-                ):
+                if response.status in HTTP_RETRYABLE_STATUS_CODES and attempt < self.max_retries:
                     async with self._lock:
                         self._stats["retry_attempts"] += 1
                     logger.warning(
@@ -213,9 +210,7 @@ class ConnectionPoolManager:
                         self._stats["failed_requests"] += 1
                         self._stats["active_connections"] -= 1
 
-                    logger.error(
-                        f" Request failed after {self.max_retries} attempts: {url}"
-                    )
+                    logger.error(" Request failed after %s attempts: %s", self.max_retries, url)
                     raise
 
         # Якщо дійшли сюди - піднімаємо останній exception
@@ -311,13 +306,13 @@ class ConnectionPoolManager:
 
    Async Connection Pool Statistics
 
- Pool Size:          {stats['pool_size']:>6}
- Total Requests:     {stats['total_requests']:>6}
- Successful:         {stats['successful_requests']:>6} ({stats['success_rate']:>5.1f}%)
- Failed:             {stats['failed_requests']:>6}
- Retry Attempts:     {stats['retry_attempts']:>6}
- Active Connections: {stats['active_connections']:>6}
- Uptime:             {stats['uptime']:>6.1f}s
+ Pool Size:          {stats["pool_size"]:>6}
+ Total Requests:     {stats["total_requests"]:>6}
+ Successful:         {stats["successful_requests"]:>6} ({stats["success_rate"]:>5.1f}%)
+ Failed:             {stats["failed_requests"]:>6}
+ Retry Attempts:     {stats["retry_attempts"]:>6}
+ Active Connections: {stats["active_connections"]:>6}
+ Uptime:             {stats["uptime"]:>6.1f}s
 
         """.strip()
 

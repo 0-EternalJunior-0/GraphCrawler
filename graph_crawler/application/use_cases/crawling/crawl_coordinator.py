@@ -85,9 +85,9 @@ class CrawlCoordinator:
 
         self.post_scan_hooks = post_scan_hooks or []
         if self.post_scan_hooks:
-            logger.info(f"Initialized with {len(self.post_scan_hooks)} post-scan hooks")
+            logger.info("Initialized with %s post-scan hooks", len(self.post_scan_hooks))
         if self.timeout:
-            logger.info(f"Timeout configured: {self.timeout} seconds")
+            logger.info("Timeout configured: %s seconds", self.timeout)
 
     async def coordinate(self, spider=None) -> Graph:
         """
@@ -125,13 +125,12 @@ class CrawlCoordinator:
             Граф з результатами
         """
         while not self.scheduler.is_empty():
-            # Перевіряємо стан package_crawler
             if self.spider and not await self._check_crawler_state():
                 break
 
             if not self._should_continue():
                 pages = self.progress_tracker.get_pages_crawled()
-                logger.info(f"Stopping crawl: reached limit ({pages} pages)")
+                logger.info("Stopping crawl: reached limit (%s pages)", pages)
                 break
 
             node = self.scheduler.get_next()
@@ -139,7 +138,7 @@ class CrawlCoordinator:
                 continue
 
             if node.depth > self.config.max_depth:
-                logger.debug(f"Skipping node (depth={node.depth}): {node.url}")
+                logger.debug("Skipping node (depth=%s): %s", node.depth, node.url)
                 continue
 
             # Публікуємо подію перед сканом
@@ -149,10 +148,23 @@ class CrawlCoordinator:
             fetch_start = time.time()
 
             # ASYNC ДЕЛЕГУВАННЯ: Scanner сканує ноду та повертає redirect info
-            links, fetch_response = await self.scanner.scan_node(node)
+            # Phase 1/2: Передаємо crawl_context та control_channel для AI Agent Integration
+            crawl_context = getattr(self.spider, "crawl_context", None) if self.spider else None
+            control_channel = getattr(self.spider, "control_channel", None) if self.spider else None
+
+            links, fetch_response = await self.scanner.scan_node(
+                node,
+                crawl_context=crawl_context,
+                control_channel=control_channel,
+            )
             self.progress_tracker.increment_pages()
-            
-            if hasattr(self.graph, '_low_memory_mode') and self.graph._low_memory_mode:
+
+            # Phase 1: Оновлюємо navigation_history в crawl_context
+            if crawl_context:
+                crawl_context.add_to_navigation_history(node.url)
+                crawl_context.increment_pages_visited()
+
+            if hasattr(self.graph, "_low_memory_mode") and self.graph._low_memory_mode:
                 self.graph.set_current_depth(node.depth)
                 await self.graph.maybe_evict_async()
 
@@ -181,9 +193,7 @@ class CrawlCoordinator:
             if links and self.post_scan_hooks:
                 for hook in self.post_scan_hooks:
                     try:
-                        links = await hook(
-                            actual_node, links
-                        )  # Використовуємо actual_node
+                        links = await hook(actual_node, links)  # Використовуємо actual_node
                         logger.debug(
                             f"Post-scan hook executed for {actual_node.url}, links={len(links) if links else 0}"
                         )
@@ -194,9 +204,7 @@ class CrawlCoordinator:
                         )
 
             # INCREMENTAL: Перевіряємо чи змінилась сторінка
-            should_process_links = self.incremental_strategy.should_process_node_links(
-                actual_node
-            )
+            should_process_links = self.incremental_strategy.should_process_node_links(actual_node)
 
             # ДЕЛЕГУВАННЯ: Processor обробляє посилання (якщо потрібно)
             # Передаємо fetch_response з redirect info
@@ -210,7 +218,7 @@ class CrawlCoordinator:
             if self.checkpoint_manager:
                 self.checkpoint_manager.increment_page_count()
                 if self.checkpoint_manager.should_checkpoint():
-                    self._save_checkpoint()
+                    await self._save_checkpoint()
 
             # Progress update
             if self.progress_tracker.should_publish_progress():
@@ -221,9 +229,9 @@ class CrawlCoordinator:
                 await asyncio.sleep(request_delay)  # NON-BLOCKING!
 
         pages = self.progress_tracker.get_pages_crawled()
-        logger.info(f"Crawl finished: {pages} pages scanned")
+        logger.info("Crawl finished: %s pages scanned", pages)
         stats = self.graph.get_stats()
-        logger.info(f"Graph stats: {stats}")
+        logger.info("Graph stats: %s", stats)
 
         return self.graph
 
@@ -237,16 +245,15 @@ class CrawlCoordinator:
             Граф з результатами
         """
         batch_size = getattr(self.driver, "max_concurrent", DEFAULT_BATCH_SIZE)
-        logger.info(f"Batch size: {batch_size}")
+        logger.info("Batch size: %s", batch_size)
 
         while not self.scheduler.is_empty():
-            # Перевіряємо стан package_crawler
             if self.spider and not await self._check_crawler_state():
                 break
 
             if not self._should_continue():
                 pages = self.progress_tracker.get_pages_crawled()
-                logger.info(f"Stopping crawl: reached limit ({pages} pages)")
+                logger.info("Stopping crawl: reached limit (%s pages)", pages)
                 break
 
             # Збираємо батч вузлів
@@ -255,13 +262,27 @@ class CrawlCoordinator:
             if not batch_nodes:
                 break
 
+            # Phase 1/2: Отримуємо crawl_context та control_channel для AI Agent Integration
+            crawl_context = getattr(self.spider, "crawl_context", None) if self.spider else None
+            control_channel = getattr(self.spider, "control_channel", None) if self.spider else None
+
             # ASYNC ДЕЛЕГУВАННЯ: Scanner сканує батч та повертає redirect info
             batch_start = time.time()
-            scan_results = await self.scanner.scan_batch(batch_nodes)
+            scan_results = await self.scanner.scan_batch(
+                batch_nodes,
+                crawl_context=crawl_context,
+                control_channel=control_channel,
+            )
             self.progress_tracker.increment_pages(len(scan_results))
-            
+
+            # Phase 1: Оновлюємо navigation_history в crawl_context
+            if crawl_context:
+                for node in batch_nodes:
+                    crawl_context.add_to_navigation_history(node.url)
+                crawl_context.increment("pages_visited", len(scan_results))
+
             # Оновлюємо current_depth до максимальної глибини в батчі
-            if hasattr(self.graph, '_low_memory_mode') and self.graph._low_memory_mode:
+            if hasattr(self.graph, "_low_memory_mode") and self.graph._low_memory_mode:
                 max_batch_depth = max((n.depth for n in batch_nodes), default=0)
                 self.graph.set_current_depth(max_batch_depth)
                 await self.graph.maybe_evict_async()
@@ -288,8 +309,6 @@ class CrawlCoordinator:
                                     f"Post-scan hook error for {actual_node.url} (batch): {e}",
                                     exc_info=True,
                                 )
-
-                    # Перевіряємо через incremental strategy
                     # FOLLOW_LINKS: Якщо follow_links=False, не обробляємо посилання
                     should_process = (
                         self.incremental_strategy.should_process_node_links(actual_node)
@@ -312,7 +331,7 @@ class CrawlCoordinator:
                 for _ in range(len(scan_results)):
                     self.checkpoint_manager.increment_page_count()
                 if self.checkpoint_manager.should_checkpoint():
-                    self._save_checkpoint()
+                    await self._save_checkpoint()
 
             # Публікуємо подію після обробки batch
             batch_time = time.time() - batch_start
@@ -326,9 +345,9 @@ class CrawlCoordinator:
                 await asyncio.sleep(request_delay)  # NON-BLOCKING!
 
         pages = self.progress_tracker.get_pages_crawled()
-        logger.info(f"Crawl finished: {pages} pages scanned")
+        logger.info("Crawl finished: %s pages scanned", pages)
         stats = self.graph.get_stats()
-        logger.info(f"Graph stats: {stats}")
+        logger.info("Graph stats: %s", stats)
 
         return self.graph
 
@@ -376,19 +395,19 @@ class CrawlCoordinator:
 
         # Системний ліміт
         if MAX_PAGES_LIMIT is not None and pages_crawled >= MAX_PAGES_LIMIT:
-            logger.warning(f"Reached system limit: {MAX_PAGES_LIMIT} pages")
+            logger.warning("Reached system limit: %s pages", MAX_PAGES_LIMIT)
             return False
 
         # Користувацький ліміт
         if self.config.max_pages and pages_crawled >= self.config.max_pages:
-            logger.info(f"Reached user limit: {self.config.max_pages} pages")
+            logger.info("Reached user limit: %s pages", self.config.max_pages)
             return False
 
         # Перевірка таймауту
         if self.timeout and self.start_time:
             elapsed = time.time() - self.start_time
             if elapsed >= self.timeout:
-                logger.warning(f"Timeout reached: {elapsed:.1f}s >= {self.timeout}s")
+                logger.warning("Timeout reached: %.1fs >= %ss", elapsed, self.timeout)
                 return False
 
         return True
@@ -397,30 +416,42 @@ class CrawlCoordinator:
         """
         Async перевіряє стан package_crawler для підтримки pause/resume/stop. NON-BLOCKING очікування!
 
+        Phase 2/3: Також перевіряє control_channel та stop_conditions.
+
         Returns:
             True якщо можна продовжувати краулінг, False якщо треба зупинитись
         """
         if not self.spider:
             return True
-
-        # Якщо зупинено - припиняємо краулінг
         if self.spider.is_stopped():
             logger.info("Crawler stopped by user request")
             return False
 
-        # Якщо призупинено - чекаємо поки не відновиться (NON-BLOCKING!)
+        # Phase 2: Перевіряємо control channel
+        if hasattr(self.spider, "process_control_messages"):
+            stop_reason = self.spider.process_control_messages()
+            if stop_reason:
+                logger.info("Crawler stopped via control channel: %s", stop_reason)
+                await self.spider.stop()
+                return False
+
+        # Phase 3: Перевіряємо stop conditions
+        if hasattr(self.spider, "check_stop_conditions"):
+            stop_reason = self.spider.check_stop_conditions()
+            if stop_reason:
+                logger.info("Stop condition met: %s", stop_reason)
+                await self.spider.stop()
+                return False
         while self.spider.is_paused():
             logger.info("Crawler paused, waiting for resume...")
             await asyncio.sleep(1)  # NON-BLOCKING!
-
-            # Перевіряємо чи не зупинили під час паузи
             if self.spider.is_stopped():
                 logger.info("Crawler stopped while paused")
                 return False
 
         return True
 
-    def _save_checkpoint(self) -> None:
+    async def _save_checkpoint(self) -> None:
         """
         Зберігає checkpoint з поточним станом краулінгу.
         """
@@ -430,6 +461,8 @@ class CrawlCoordinator:
         try:
             # Збираємо URLs з черги
             queue_urls = [node.url for _, _, node in self.scheduler.queue]
+            seen_urls_obj = self.scheduler.seen_urls
+            seen_urls_set: set[str] = seen_urls_obj if isinstance(seen_urls_obj, set) else set()
 
             # Збираємо метадані
             metadata = {
@@ -442,35 +475,31 @@ class CrawlCoordinator:
             }
 
             # Зберігаємо checkpoint
-            self.checkpoint_manager.save_checkpoint(
+            await self.checkpoint_manager.save_checkpoint(
                 graph=self.graph,
                 queue_urls=queue_urls,
-                seen_urls=self.scheduler.seen_urls,
+                seen_urls=seen_urls_set,
                 metadata=metadata,
             )
         except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}", exc_info=True)
+            logger.error("Failed to save checkpoint: %s", e, exc_info=True)
 
     def _handle_redirect_after_scan(
-        self, original_node: Node, final_url: str, redirect_chain: list[str] = None
+        self,
+        original_node: Node,
+        final_url: Optional[str],
+        redirect_chain: Optional[list[str]] = None,
     ) -> Optional[Node]:
         """
         Обробляє редірект після сканування ноди.
-
-        Коли сторінка /page1 редіректить на /404:
-        - Граф оновлюється: всі edges що вели на /page1 тепер ведуть на /404
-        - Створюється один вузол /404 (якщо ще не існує)
-        - В metadata edges зберігається original_url
 
         Args:
             original_node: Нода яка була просканована і виявила редірект
             final_url: Фінальний URL після редіректу
             redirect_chain: Ланцюжок проміжних редіректів
-
         Returns:
             Node: Вузол для final_url (для подальшої обробки посилань)
             None: Якщо обробка не вдалась
-
         Examples:
             >>> # /old-page редіректить на /new-page
             >>> actual_node = self._handle_redirect_after_scan(
@@ -492,17 +521,12 @@ class CrawlCoordinator:
         )
 
         if result_node is None:
-            logger.warning(
-                f"Redirect handling failed for {original_node.url} -> {final_url}"
-            )
+            logger.warning("Redirect handling failed for %s -> %s", original_node.url, final_url)
             return None
-
-        # Якщо final_url ще не в seen_urls - додаємо
-        if final_url not in self.scheduler.seen_urls:
-            self.scheduler.seen_urls.add(final_url)
-
-        # Якщо original_url був в seen_urls і він != final_url, він там залишається
+        seen_urls_obj = self.scheduler.seen_urls
+        if isinstance(seen_urls_obj, set) and final_url not in seen_urls_obj:
+            seen_urls_obj.add(final_url)
         # Це запобігає повторному додаванню original_url в чергу
 
-        logger.info(f"Redirect processed: {original_node.url} -> {final_url}")
+        logger.info("Redirect processed: %s -> %s", original_node.url, final_url)
         return result_node

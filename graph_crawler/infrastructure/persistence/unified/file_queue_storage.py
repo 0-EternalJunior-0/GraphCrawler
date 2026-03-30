@@ -58,7 +58,7 @@ class FileQueueStorage:
 
         self._executor = ThreadPoolExecutor(max_workers=2)
         self._init_db()
-        logger.info(f"FileQueueStorage initialized: {self.db_path}")
+        logger.info("FileQueueStorage initialized: %s", self.db_path)
 
     def _init_db(self):
         """Створює таблиці."""
@@ -109,7 +109,7 @@ class FileQueueStorage:
     async def push_urls(self, scan_id: str, urls: List[Tuple[str, int, int]]) -> int:
         """Додає URLs до черги."""
         result = await self._run_in_executor(self._sync_push_urls, scan_id, urls)
-        logger.debug(f"Added {result} URLs to queue {scan_id}")
+        logger.debug("Added %s URLs to queue %s", result, scan_id)
         return result
 
     def _sync_pop_urls(
@@ -156,9 +156,7 @@ class FileQueueStorage:
         self, scan_id: str, batch_size: int = 24, worker_id: Optional[str] = None
     ) -> List[Tuple[str, int]]:
         """Отримує batch URLs для обробки."""
-        return await self._run_in_executor(
-            self._sync_pop_urls, scan_id, batch_size, worker_id
-        )
+        return await self._run_in_executor(self._sync_pop_urls, scan_id, batch_size, worker_id)
 
     def _sync_mark_done(self, scan_id: str, urls: List[str]) -> None:
         """Sync версія mark_done."""
@@ -183,9 +181,7 @@ class FileQueueStorage:
         """Позначає URLs як оброблені."""
         await self._run_in_executor(self._sync_mark_done, scan_id, urls)
 
-    def _sync_mark_failed(
-        self, scan_id: str, urls: List[str], error: Optional[str]
-    ) -> None:
+    def _sync_mark_failed(self, scan_id: str, urls: List[str], error: Optional[str]) -> None:
         """Sync версія mark_failed."""
         if not urls:
             return
@@ -204,9 +200,7 @@ class FileQueueStorage:
         finally:
             conn.close()
 
-    async def mark_failed(
-        self, scan_id: str, urls: List[str], error: Optional[str] = None
-    ) -> None:
+    async def mark_failed(self, scan_id: str, urls: List[str], error: Optional[str] = None) -> None:
         """Позначає URLs як failed."""
         await self._run_in_executor(self._sync_mark_failed, scan_id, urls, error)
 

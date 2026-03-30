@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional, Union, cast
 
 from graph_crawler.application.dto import GraphDTO
 from graph_crawler.application.services.exporters.base_exporter import BaseExporter
@@ -24,22 +24,13 @@ logger = logging.getLogger(__name__)
 # Thread pool для неблокуючих file I/O операцій
 _csv_exporter_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="csv_export_")
 
+# Type alias for CSV quoting
+_QuotingType = Union[Literal[0], Literal[1], Literal[2], Literal[3]]
+
 
 class CSVExporter(BaseExporter):
     """
     Export graph to CSV format через DTO.
-
-
-
-    Creates two CSV files:
-    - {output_path}_nodes.csv - містить інформацію про nodes
-    - {output_path}_edges.csv - містить інформацію про edges
-
-    Features:
-    - Customizable columns
-    - Header row
-    - UTF-8 encoding
-    - Metadata extraction
 
     Example:
         >>> from graph_crawler.application.services.exporters import CSVExporter
@@ -54,7 +45,7 @@ class CSVExporter(BaseExporter):
         self,
         event_bus: Optional["EventBus"] = None,
         delimiter: str = ",",
-        quoting: int = csv.QUOTE_MINIMAL,
+        quoting: _QuotingType = csv.QUOTE_MINIMAL,  # type: ignore[assignment]
         **kwargs,
     ):
         """
@@ -71,12 +62,10 @@ class CSVExporter(BaseExporter):
         self.quoting = quoting
 
     def export(
-        self, graph_dto: GraphDTO, output_path: str, include_metadata: bool = True, **options
-    ) -> bool:
+        self, graph_dto: GraphDTO, output_path: str = "", include_metadata: bool = True, **options
+    ) -> bool:  # type: ignore[override]
         """
         Export graph to CSV files through DTO.
-
-
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -113,7 +102,7 @@ class CSVExporter(BaseExporter):
             # Export nodes
             nodes_file = f"{output_path}_nodes.csv"
             self._export_nodes(graph_dto, nodes_file, include_metadata)
-            logger.info(f"Exported {len(graph_dto.nodes)} nodes to {nodes_file}")
+            logger.info("Exported %s nodes to %s", len(graph_dto.nodes), nodes_file)
 
             self.publish_event(
                 EventType.EXPORT_PROGRESS,
@@ -127,7 +116,7 @@ class CSVExporter(BaseExporter):
             # Export edges
             edges_file = f"{output_path}_edges.csv"
             self._export_edges(graph_dto, edges_file)
-            logger.info(f"Exported {len(graph_dto.edges)} edges to {edges_file}")
+            logger.info("Exported %s edges to %s", len(graph_dto.edges), edges_file)
 
             duration = time.time() - start_time
 
@@ -180,9 +169,7 @@ class CSVExporter(BaseExporter):
                 metadata_keys = list(first_node.metadata.keys())
                 # Виключити вже додані поля
                 metadata_keys = [
-                    k
-                    for k in metadata_keys
-                    if k not in ["title", "status_code", "content_type"]
+                    k for k in metadata_keys if k not in ["title", "status_code", "content_type"]
                 ]
                 columns = base_columns + metadata_keys
             else:
@@ -192,7 +179,7 @@ class CSVExporter(BaseExporter):
                 f,
                 fieldnames=columns,
                 delimiter=self.delimiter,
-                quoting=self.quoting,
+                quoting=self.quoting,  # type: ignore[arg-type]
                 extrasaction="ignore",
             )
             writer.writeheader()
@@ -228,10 +215,20 @@ class CSVExporter(BaseExporter):
         nodes_by_id = {node.node_id: node for node in graph_dto.nodes}
 
         with open(file_path, "w", newline="", encoding="utf-8") as f:
-            columns = ["source_url", "target_url", "source_node_id", "target_node_id", "link_type", "metadata"]
+            columns = [
+                "source_url",
+                "target_url",
+                "source_node_id",
+                "target_node_id",
+                "link_type",
+                "metadata",
+            ]
 
             writer = csv.DictWriter(
-                f, fieldnames=columns, delimiter=self.delimiter, quoting=self.quoting
+                f,
+                fieldnames=columns,
+                delimiter=self.delimiter,
+                quoting=self.quoting,  # type: ignore[arg-type]
             )
             writer.writeheader()
 
@@ -271,10 +268,8 @@ class CSVExporter(BaseExporter):
         else:
             raise ValueError(f"Unknown format: {format}")
 
-        logger.info(f"Exported {format} to {output_path}")
+        logger.info("Exported %s to %s", format, output_path)
         return True
-
-    # ============= ASYNC МЕТОДИ =============
 
     async def export_async(
         self, graph_dto: GraphDTO, output_path: str, include_metadata: bool = True, **options
@@ -294,7 +289,7 @@ class CSVExporter(BaseExporter):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             _csv_exporter_executor,
-            partial(self.export, graph_dto, output_path, include_metadata, **options)
+            partial(self.export, graph_dto, output_path, include_metadata, **options),
         )
 
     async def export_to_single_file_async(
@@ -314,5 +309,5 @@ class CSVExporter(BaseExporter):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             _csv_exporter_executor,
-            partial(self.export_to_single_file, graph_dto, output_path, format)
+            partial(self.export_to_single_file, graph_dto, output_path, format),
         )

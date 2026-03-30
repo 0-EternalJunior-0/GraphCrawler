@@ -1,31 +1,4 @@
-"""Node Exporter - експорт нод з вибором полів та transform.
-
-ВИПРАВЛЕНО: Додано async методи з executor для неблокуючих операцій.
-
-Дозволяє експортувати ноди з:
-- Вибором конкретних полів (node_fields)
-- Кастомною трансформацією (transform_node)
-- Фільтрацією (predicate)
-
-Example:
-    >>> # Експорт з вибраними полями
-    >>> graph.export_nodes(
-    ...     'vacancies.json',
-    ...     format='json',
-    ...     node_fields=['url', 'metadata.title', 'user_data.structured_data']
-    ... )
-    >>>
-    >>> # Експорт з трансформацією
-    >>> graph.export_nodes(
-    ...     'vacancies.csv',
-    ...     format='csv',
-    ...     transform_node=lambda n: {
-    ...         'url': n.url,
-    ...         'title': n.metadata.get('title'),
-    ...         'company': n.user_data.get('structured_data', {}).get_property('hiringOrganization.name'),
-    ...     }
-    ... )
-"""
+"""Node Exporter - експорт нод з вибором полів та transform."""
 
 import asyncio
 import csv
@@ -44,11 +17,7 @@ _node_exporter_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="
 
 
 class NodeExporter:
-    """
-    Експортер нод з підтримкою вибору полів та трансформації.
-
-    Працює напряму з Graph (не через DTO) для простоти використання.
-    """
+    """Експортер нод з підтримкою вибору полів та трансформації."""
 
     @staticmethod
     def export_to_json(
@@ -69,10 +38,8 @@ class NodeExporter:
             transform_node: Функція трансформації ноди -> dict
             predicate: Фільтр нод (включає тільки де predicate(node) == True)
             pretty: Форматувати JSON з відступами
-
         Returns:
             Словник з результатами експорту
-
         Example:
             >>> NodeExporter.export_to_json(
             ...     graph.nodes.values(),
@@ -80,7 +47,7 @@ class NodeExporter:
             ...     node_fields=['url', 'metadata.title', 'depth']
             ... )
         """
-        logger.info(f"Exporting nodes to JSON: {filepath}")
+        logger.info("Exporting nodes to JSON: %s", filepath)
 
         # Фільтрація
         filtered_nodes = nodes
@@ -118,7 +85,7 @@ class NodeExporter:
             else:
                 json.dump(result, f, ensure_ascii=False, default=str)
 
-        logger.info(f"Exported {len(nodes_data)} nodes to {filepath}")
+        logger.info("Exported %s nodes to %s", len(nodes_data), filepath)
         return result
 
     @staticmethod
@@ -138,10 +105,8 @@ class NodeExporter:
             node_fields: Список полів для включення
             transform_node: Функція трансформації ноди -> dict
             predicate: Фільтр нод
-
         Returns:
             Кількість експортованих нод
-
         Example:
             >>> NodeExporter.export_to_csv(
             ...     graph.nodes.values(),
@@ -153,7 +118,7 @@ class NodeExporter:
             ...     }
             ... )
         """
-        logger.info(f"Exporting nodes to CSV: {filepath}")
+        logger.info("Exporting nodes to CSV: %s", filepath)
 
         # Фільтрація
         filtered_nodes = list(nodes)
@@ -173,11 +138,11 @@ class NodeExporter:
             fields = node_fields
         else:
             # Базові поля
-            fields = ['url', 'node_id', 'depth', 'scanned', 'response_status']
+            fields = ["url", "node_id", "depth", "scanned", "response_status"]
 
         # Записуємо CSV
         with open(filepath, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+            writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
             writer.writeheader()
 
             for node in filtered_nodes:
@@ -187,11 +152,11 @@ class NodeExporter:
                     row = NodeExporter._extract_fields(node, node_fields)
                 else:
                     row = {
-                        'url': node.url,
-                        'node_id': node.node_id,
-                        'depth': node.depth,
-                        'scanned': node.scanned,
-                        'response_status': node.response_status,
+                        "url": node.url,
+                        "node_id": node.node_id,
+                        "depth": node.depth,
+                        "scanned": node.scanned,
+                        "response_status": node.response_status,
                     }
 
                 # Конвертуємо складні типи в string
@@ -201,7 +166,7 @@ class NodeExporter:
 
                 writer.writerow(row)
 
-        logger.info(f"Exported {len(filtered_nodes)} nodes to {filepath}")
+        logger.info("Exported %s nodes to %s", len(filtered_nodes), filepath)
         return len(filtered_nodes)
 
     @staticmethod
@@ -221,7 +186,7 @@ class NodeExporter:
         result = {}
 
         for field in fields:
-            parts = field.split('.')
+            parts = field.split(".")
             value = node
 
             try:
@@ -245,8 +210,6 @@ class NodeExporter:
     def _flatten_key(prefix: str, key: str) -> str:
         """Створює плоский ключ з prefix.key."""
         return f"{prefix}.{key}" if prefix else key
-
-    # ============= ASYNC МЕТОДИ =============
 
     @staticmethod
     async def export_to_json_async(
@@ -276,8 +239,13 @@ class NodeExporter:
             _node_exporter_executor,
             partial(
                 NodeExporter.export_to_json,
-                nodes, filepath, node_fields, transform_node, predicate, pretty
-            )
+                nodes,
+                filepath,
+                node_fields,
+                transform_node,
+                predicate,
+                pretty,
+            ),
         )
 
     @staticmethod
@@ -305,7 +273,6 @@ class NodeExporter:
         return await loop.run_in_executor(
             _node_exporter_executor,
             partial(
-                NodeExporter.export_to_csv,
-                nodes, filepath, node_fields, transform_node, predicate
-            )
+                NodeExporter.export_to_csv, nodes, filepath, node_fields, transform_node, predicate
+            ),
         )

@@ -1,7 +1,5 @@
 """Excel Exporter - Clean Architecture з DTO.
 
-
-
 Exports graph to Excel format with formatting and multiple sheets.
 """
 
@@ -23,6 +21,11 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
+    pd = None  # type: ignore
+    openpyxl = None  # type: ignore
+    PatternFill = None  # type: ignore
+    Font = None  # type: ignore
+    Alignment = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +33,6 @@ logger = logging.getLogger(__name__)
 class ExcelExporter(BaseExporter):
     """
     Export graph to Excel format з форматуванням через DTO.
-
-
 
     Features:
     - Multiple sheets (Nodes, Edges, Summary)
@@ -70,12 +71,10 @@ class ExcelExporter(BaseExporter):
             )
 
     def export(
-        self, graph_dto: GraphDTO, output_path: str, include_summary: bool = True, **options
-    ) -> bool:
+        self, graph_dto: GraphDTO, output_path: str = "", include_summary: bool = True, **options
+    ) -> bool:  # type: ignore[override]
         """
         Export graph to Excel file through DTO.
-
-
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -102,6 +101,12 @@ class ExcelExporter(BaseExporter):
         )
 
         try:
+            if not PANDAS_AVAILABLE or pd is None:
+                raise ImportError(
+                    "pandas and openpyxl are required for Excel export. "
+                    "Install with: pip install pandas openpyxl"
+                )
+
             if not self.validate_graph(graph_dto):
                 logger.warning("GraphDTO validation failed, exporting empty graph")
 
@@ -110,7 +115,7 @@ class ExcelExporter(BaseExporter):
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Створити Excel writer
-            with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            with pd.ExcelWriter(output_path, engine="openpyxl") as writer:  # type: ignore[union-attr]
                 # Export nodes
                 nodes_df = self._create_nodes_dataframe(graph_dto)
                 nodes_df.to_excel(writer, sheet_name="Nodes", index=False)
@@ -140,7 +145,7 @@ class ExcelExporter(BaseExporter):
                 },
             )
 
-            logger.info(f"Exported graph to {output_path}")
+            logger.info("Exported graph to %s", output_path)
             return True
 
         except Exception as e:
@@ -159,7 +164,7 @@ class ExcelExporter(BaseExporter):
 
             raise
 
-    def _create_nodes_dataframe(self, graph_dto: GraphDTO) -> "pd.DataFrame":
+    def _create_nodes_dataframe(self, graph_dto: GraphDTO):
         """
         Create pandas DataFrame для nodes from GraphDTO.
 
@@ -169,6 +174,9 @@ class ExcelExporter(BaseExporter):
         Returns:
             pd.DataFrame: Nodes data
         """
+        if pd is None:
+            raise ImportError("pandas is required for Excel export")
+
         nodes_data = []
         for node_dto in graph_dto.nodes:
             node_dict = {
@@ -190,7 +198,7 @@ class ExcelExporter(BaseExporter):
 
         return pd.DataFrame(nodes_data)
 
-    def _create_edges_dataframe(self, graph_dto: GraphDTO) -> "pd.DataFrame":
+    def _create_edges_dataframe(self, graph_dto: GraphDTO):
         """
         Create pandas DataFrame для edges from GraphDTO.
 
@@ -200,6 +208,9 @@ class ExcelExporter(BaseExporter):
         Returns:
             pd.DataFrame: Edges data
         """
+        if pd is None:
+            raise ImportError("pandas is required for Excel export")
+
         nodes_by_id = {node.node_id: node for node in graph_dto.nodes}
 
         edges_data = []
@@ -218,7 +229,7 @@ class ExcelExporter(BaseExporter):
 
         return pd.DataFrame(edges_data)
 
-    def _create_summary_dataframe(self, graph_dto: GraphDTO) -> "pd.DataFrame":
+    def _create_summary_dataframe(self, graph_dto: GraphDTO):
         """
         Create summary DataFrame з статистикою from GraphDTO.
 
@@ -228,6 +239,9 @@ class ExcelExporter(BaseExporter):
         Returns:
             pd.DataFrame: Summary data
         """
+        if pd is None:
+            raise ImportError("pandas is required for Excel export")
+
         stats = graph_dto.stats
 
         summary_data = [
@@ -241,7 +255,7 @@ class ExcelExporter(BaseExporter):
 
         return pd.DataFrame(summary_data)
 
-    def _apply_formatting(self, workbook: "openpyxl.Workbook"):
+    def _apply_formatting(self, workbook):
         """
         Apply formatting до Excel workbook.
 
@@ -249,11 +263,11 @@ class ExcelExporter(BaseExporter):
             workbook: openpyxl Workbook instance
         """
         # Header formatting
-        header_fill = PatternFill(
+        header_fill = PatternFill(  # type: ignore[misc]
             start_color="366092", end_color="366092", fill_type="solid"
         )
-        header_font = Font(color="FFFFFF", bold=True)
-        header_alignment = Alignment(horizontal="center", vertical="center")
+        header_font = Font(color="FFFFFF", bold=True)  # type: ignore[misc]
+        header_alignment = Alignment(horizontal="center", vertical="center")  # type: ignore[misc]
 
         for sheet_name in workbook.sheetnames:
             sheet = workbook[sheet_name]
@@ -273,8 +287,10 @@ class ExcelExporter(BaseExporter):
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except (TypeError, AttributeError):
                         pass
+                    except Exception:
+                        pass  # Fallback для невідомих помилок
 
                 adjusted_width = min(max_length + 2, 50)  # Max 50 chars
                 sheet.column_dimensions[column_letter].width = adjusted_width

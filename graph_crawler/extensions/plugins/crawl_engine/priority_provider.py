@@ -22,13 +22,6 @@ class EnginePriorityProvider:
     """Provider для обчислення пріоритетів через Engine плагіни.
 
     Абстракція між Scheduler та Engine плагінами.
-    Scheduler може опціонально використовувати Provider для пріоритизації.
-
-    Архітектурні переваги:
-    1. Scheduler залишається незалежним (не знає про плагіни)
-    2. Плагіни не завязані на Scheduler (можна використовувати окремо)
-    3. Зворотна сумісність (якщо provider немає - працює як раніше)
-
     Example:
         >>> plugin = SmartCrawlEnginePlugin(search_prompt="...")
         >>> provider = EnginePriorityProvider(plugins=[plugin])
@@ -41,7 +34,7 @@ class EnginePriorityProvider:
         ... )
     """
 
-    def __init__(self, plugins: List[BaseEnginePlugin] = None):
+    def __init__(self, plugins: Optional[List[BaseEnginePlugin]] = None):
         """
         Ініціалізує Provider з плагінами.
 
@@ -88,9 +81,7 @@ class EnginePriorityProvider:
             int: Пріоритет 1-15 або None якщо жоден плагін не визначив
         """
         # Отримуємо плагіни для пріоритизації
-        plugins = self._plugins_by_type.get(
-            EnginePluginType.CALCULATE_PRIORITIES, []
-        )
+        plugins = self._plugins_by_type.get(EnginePluginType.CALCULATE_PRIORITIES, [])
 
         if not plugins:
             return None
@@ -111,20 +102,15 @@ class EnginePriorityProvider:
                 priority = plugin.calculate_url_priority(context)
                 if priority is not None:
                     priorities.append((priority, plugin.name))
-                    logger.debug(
-                        f"Plugin '{plugin.name}' set priority {priority} for {url}"
-                    )
+                    logger.debug("Plugin '%s' set priority %s for %s", plugin.name, priority, url)
             except Exception as e:
                 logger.error(
-                    f"Error in plugin '{plugin.name}' calculating priority: {e}",
-                    exc_info=True
+                    f"Error in plugin '{plugin.name}' calculating priority: {e}", exc_info=True
                 )
 
         if priorities:
             max_priority, plugin_name = max(priorities, key=lambda x: x[0])
-            logger.debug(
-                f"Selected priority {max_priority} from plugin '{plugin_name}' for {url}"
-            )
+            logger.debug("Selected priority %s from plugin '%s' for %s", max_priority, plugin_name, url)
             return max_priority
 
         return None
@@ -149,9 +135,7 @@ class EnginePriorityProvider:
         Returns:
             Dict[url, priority]: Мапа URL -> пріоритет
         """
-        plugins = self._plugins_by_type.get(
-            EnginePluginType.CALCULATE_PRIORITIES, []
-        )
+        plugins = self._plugins_by_type.get(EnginePluginType.CALCULATE_PRIORITIES, [])
 
         if not plugins:
             return {}
@@ -180,8 +164,7 @@ class EnginePriorityProvider:
 
             except Exception as e:
                 logger.error(
-                    f"Error in plugin '{plugin.name}' batch calculation: {e}",
-                    exc_info=True
+                    f"Error in plugin '{plugin.name}' batch calculation: {e}", exc_info=True
                 )
 
         # Для кожного URL вибираємо максимальний пріоритет
@@ -210,9 +193,7 @@ class EnginePriorityProvider:
             False: Точно НЕ сканувати
             None: Немає явного рішення
         """
-        plugins = self._plugins_by_type.get(
-            EnginePluginType.BEFORE_URL_ADDED, []
-        )
+        plugins = self._plugins_by_type.get(EnginePluginType.BEFORE_URL_ADDED, [])
 
         if not plugins:
             return None
@@ -232,15 +213,12 @@ class EnginePriorityProvider:
             try:
                 decision = plugin.should_scan_url(context)
                 if decision is False:
-                    logger.debug(f"Plugin '{plugin.name}' blocked {url}")
+                    logger.debug("Plugin '%s' blocked %s", plugin.name, url)
                     return False
                 elif decision is True:
                     has_true = True
             except Exception as e:
-                logger.error(
-                    f"Error in plugin '{plugin.name}' scan decision: {e}",
-                    exc_info=True
-                )
+                logger.error("Error in plugin '%s' scan decision: %s", plugin.name, e, exc_info=True)
 
         return True if has_true else None
 
@@ -250,7 +228,7 @@ class EnginePriorityProvider:
             try:
                 plugin.teardown()
             except Exception as e:
-                logger.error(f"Error tearing down plugin '{plugin.name}': {e}")
+                logger.error("Error tearing down plugin '%s': %s", plugin.name, e)
 
         logger.info("EnginePriorityProvider teardown complete")
 

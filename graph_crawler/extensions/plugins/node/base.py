@@ -5,11 +5,23 @@ Node плагіни виконуються на різних етапах жит
 - ЕТАП 2 (HTML): ON_BEFORE_SCAN, ON_HTML_PARSED, ON_AFTER_SCAN
 """
 
+import inspect
+import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from graph_crawler.domain.context.crawl_context import CrawlContext
+    from graph_crawler.domain.interfaces.control_channel import (
+        ControlMessage,
+        CrawlCommand,
+        IControlChannel,
+    )
 
 
 class NodePluginType(str, Enum):
@@ -32,32 +44,6 @@ class NodePluginContext(BaseModel):
     """
     Контекст для Node плагінів (Pydantic BaseModel).
 
-    Замінено @dataclass на Pydantic BaseModel для сумісності з архітектурою проекту.
-
-    Переваги Pydantic:
-    - Автоматична валідація даних
-    - Сумісність з іншими Pydantic моделями проекту
-    - Серіалізація через model_dump()
-
-    ЖИТТЄВИЙ ЦИКЛ ПОЛІВ:
-
-    ЕТАП 1 (URL_STAGE):
-        Доступно: url, depth, should_scan, can_create_edges, node
-         Недоступно: html, html_tree, parser (ще не створені)
-         metadata, user_data - порожні dict
-
-    ЕТАП 2 (HTML_STAGE):
-         INPUT (початок process_html):
-           * html - HTML string
-           * html_tree - DOM після парсингу
-           * parser - Tree adapter
-           * metadata - порожній dict (заповнюється плагінами)
-           * user_data - порожній dict (заповнюється плагінами)
-
-         OUTPUT (після плагінів):
-           * metadata - заповнений метаданими (title, h1, description)
-           * user_data - заповнений даними від плагінів
-           * extracted_links - список URL
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -73,9 +59,7 @@ class NodePluginContext(BaseModel):
 
     # Етап 2: HTML_STAGE INPUT (доступні тільки після парсингу HTML)
     html: Optional[str] = None
-    html_tree: Optional[Any] = (
-        None  # Any замість BeautifulSoup (підтримка різних парсерів)
-    )
+    html_tree: Optional[Any] = None  # Any замість BeautifulSoup (підтримка різних парсерів)
     parser: Optional[Any] = None  # Tree adapter/parser instance
 
     # Етап 2: HTML_STAGE OUTPUT (заповнюються плагінами)
@@ -89,7 +73,11 @@ class NodePluginContext(BaseModel):
     skip_link_extraction: bool = False  # Не витягувати посилання
     skip_metadata_extraction: bool = False  # Не витягувати метадані
 
-    # ==================== LAW OF DEMETER: Методи для metadata ====================
+    # Phase 1: AI Agent Integration - глобальний контекст краулінгу
+    crawl_context: Optional[Any] = None  # CrawlContext
+
+    # Phase 2: AI Agent Integration - канал керування
+    control_channel: Optional[Any] = None  # IControlChannel
 
     def get_metadata(self, key: str, default: Any = None) -> Any:
         """
@@ -126,6 +114,149 @@ class NodePluginContext(BaseModel):
         """
         return key in self.metadata
 
+    def get_from_crawl_context(self, key: str, default: Any = None) -> Any:
+        """
+        Безпечно отримує значення з глобального crawl_context.
+
+        Args:
+            key: Ключ
+            default: Значення за замовчуванням
+
+        Returns:
+            Значення або default
+        """
+        if self.crawl_context:
+            return self.crawl_context.get(key, default)
+        return default
+
+    def set_in_crawl_context(self, key: str, value: Any) -> None:
+        """
+        Встановлює значення в глобальному crawl_context.
+
+        Args:
+            key: Ключ
+            value: Значення
+        """
+        if self.crawl_context:
+            self.crawl_context.set(key, value)
+
+    def add_extracted_to_context(self, data: Dict[str, Any]) -> None:
+        """
+        Додає витягнуті дані до глобального контексту.
+
+        Args:
+            data: Словник з витягнутими даними
+        """
+        if self.crawl_context:
+            self.crawl_context.add_extracted_data(data, self.url)
+
+    def request_stop(self, reason: str = "Plugin requested stop") -> None:
+        """
+        Запитати зупинку краулінгу.
+
+        Використовує control_channel якщо доступний, інакше crawl_context.
+
+        Args:
+            reason: Причина зупинки
+        """
+        # Phase 2: Спочатку пробуємо через control_channel
+        if self.control_channel:
+            from graph_crawler.domain.interfaces.control_channel import ControlMessage, CrawlCommand
+
+            self.control_channel.send(
+                ControlMessage(
+                    command=CrawlCommand.STOP,
+                    data={"reason": reason},
+                    sender=f"plugin:{self.__class__.__name__}",
+                )
+            )
+        # Fallback до crawl_context
+        elif self.crawl_context:
+            self.crawl_context.set("stop_requested", True)
+            self.crawl_context.set("stop_reason", reason)
+
+    def send_command(
+        self, command: "CrawlCommand", data: Optional[Dict[str, Any]] = None, priority: int = 0
+    ) -> bool:
+        """
+        Відправити команду через control_channel.
+
+        Phase 2: AI Agent Integration
+
+        Args:
+            command: Тип команди
+            data: Додаткові дані
+            priority: Пріоритет команди
+
+        Returns:
+            True якщо команда відправлена успішно
+        """
+        if self.control_channel:
+            from graph_crawler.domain.interfaces.control_channel import ControlMessage
+
+            self.control_channel.send(
+                ControlMessage(
+                    command=command,
+                    data=data or {},
+                    sender=f"plugin:{self.__class__.__name__}",
+                    priority=priority,
+                )
+            )
+            return True
+        return False
+
+    def reprioritize_url(self, url: str, new_priority: int) -> bool:
+        """
+        Запросити зміну пріоритету URL.
+
+        Phase 2: AI Agent Integration
+
+        Args:
+            url: URL для зміни пріоритету
+            new_priority: Новий пріоритет
+
+        Returns:
+            True якщо команда відправлена
+        """
+        if self.control_channel:
+            from graph_crawler.domain.interfaces.control_channel import ControlMessage, CrawlCommand
+
+            self.control_channel.send(
+                ControlMessage(
+                    command=CrawlCommand.REPRIORITIZE,
+                    data={"url": url, "priority": new_priority},
+                    sender=f"plugin:{self.__class__.__name__}",
+                )
+            )
+            return True
+        return False
+
+    def force_visit_url(self, url: str) -> bool:
+        """
+        Запросити примусове відвідування URL.
+
+        Phase 2: AI Agent Integration
+
+        Args:
+            url: URL для відвідування
+
+        Returns:
+            True якщо команда відправлена
+        """
+        if self.control_channel:
+            from graph_crawler.domain.interfaces.control_channel import ControlMessage, CrawlCommand
+
+            self.control_channel.send(
+                ControlMessage(
+                    command=CrawlCommand.FORCE_VISIT,
+                    data={"url": url},
+                    sender=f"plugin:{self.__class__.__name__}",
+                    priority=8,
+                )
+            )
+            return True
+        return False
+
     def __repr__(self):
         return f"NodePluginContext(url={self.url}, has_html={self.html is not None}, metadata_keys={list(self.metadata.keys())})"
 
@@ -138,49 +269,50 @@ class BaseNodePlugin(ABC):
     - ЕТАП 1 (URL): ON_NODE_CREATED
     - ЕТАП 2 (HTML): ON_BEFORE_SCAN, ON_HTML_PARSED, ON_AFTER_SCAN
 
-    Приклад:
+    Example:
         class MyPlugin(BaseNodePlugin):
             @property
             def plugin_type(self):
-                 "Повертає Plugin Type."
                 return NodePluginType.ON_HTML_PARSED
 
             def execute(self, context: NodePluginContext) -> NodePluginContext:
-                # Ваша логіка
+                # Your logic here
                 if context.html_tree:
                     context.user_data['my_data'] = 'value'
                 return context
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
-        """Ініціалізує NodePluginType."""
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize the plugin with optional configuration."""
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
 
     @property
     @abstractmethod
     def plugin_type(self) -> NodePluginType:
-        """Тип плагіну (етап життєвого циклу)."""
-        pass
+        """Return the plugin type (lifecycle stage)."""
+        ...
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Назва плагіну."""
-        pass
+        """Return the plugin name."""
+        ...
 
     @abstractmethod
-    def execute(self, context: NodePluginContext) -> NodePluginContext:
+    def execute(self, context: NodePluginContext) -> "NodePluginContext | Any":
         """
-        Виконує логіку плагіну.
+        Execute the plugin logic.
+
+        Can be sync or async (return coroutine).
 
         Args:
-            context: Контекст з даними ноди
+            context: Context with node data
 
         Returns:
-            Оновлений контекст
+            Updated context (or coroutine that returns context)
         """
-        pass
+        ...
 
     def setup(self):
         """Ініціалізація плагіну."""
@@ -209,7 +341,7 @@ class NodePluginManager:
         Args:
             event_bus: EventBus для публікації подій (опціонально,)
         """
-        self.plugins: Dict[NodePluginType, list[BaseNodePlugin]] = {
+        self.plugins: Dict[NodePluginType, List[BaseNodePlugin]] = {
             plugin_type: [] for plugin_type in NodePluginType
         }
         self.event_bus = event_bus
@@ -237,8 +369,6 @@ class NodePluginManager:
         Returns:
             Оновлений контекст
         """
-        import inspect
-
         for plugin in self.plugins.get(plugin_type, []):
             if plugin.enabled:
                 try:
@@ -252,9 +382,7 @@ class NodePluginManager:
                                 data={
                                     "plugin_name": plugin.name,
                                     "plugin_type": plugin_type.value,
-                                    "url": (
-                                        context.url if hasattr(context, "url") else None
-                                    ),
+                                    "url": (context.url if hasattr(context, "url") else None),
                                 },
                             )
                         )
@@ -275,19 +403,14 @@ class NodePluginManager:
                                 data={
                                     "plugin_name": plugin.name,
                                     "plugin_type": plugin_type.value,
-                                    "url": (
-                                        context.url if hasattr(context, "url") else None
-                                    ),
+                                    "url": (context.url if hasattr(context, "url") else None),
                                 },
                             )
                         )
 
                 except Exception as e:
                     # Логуємо помилку, але продовжуємо
-                    import logging
-
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Plugin {plugin.name} error: {e}", exc_info=True)
+                    logger.error("Plugin %s error: %s", plugin.name, e, exc_info=True)
 
                     # Подія про помилку
                     if self.event_bus:
@@ -299,9 +422,7 @@ class NodePluginManager:
                                 data={
                                     "plugin_name": plugin.name,
                                     "plugin_type": plugin_type.value,
-                                    "url": (
-                                        context.url if hasattr(context, "url") else None
-                                    ),
+                                    "url": (context.url if hasattr(context, "url") else None),
                                     "error": str(e),
                                     "error_type": type(e).__name__,
                                 },
@@ -329,11 +450,6 @@ class NodePluginManager:
         Returns:
             Оновлений контекст
         """
-        import inspect
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         for plugin in self.plugins.get(plugin_type, []):
             if plugin.enabled:
                 try:
@@ -341,19 +457,18 @@ class NodePluginManager:
                     if inspect.isawaitable(result):
                         # Async плагін в sync контексті - ігноруємо з попередженням
                         logger.warning(
-                            f"Plugin {plugin.name} is async but called in sync context. "
-                            f"Skipping. Use execute() for async plugins."
+                            "Plugin %s is async but called in sync context. "
+                            "Skipping. Use execute() for async plugins.",
+                            plugin.name
                         )
                         continue
                     context = result
                 except Exception as e:
-                    logger.error(f"Plugin {plugin.name} failed: {e}")
+                    logger.error("Plugin %s failed: %s", plugin.name, e)
         return context
 
     async def teardown_all(self):
-        """Async закриває всі плагіни ."""
-        import inspect
-
+        """Async закриває всі плагіни."""
         for plugins_list in self.plugins.values():
             for plugin in plugins_list:
                 teardown = plugin.teardown

@@ -8,27 +8,27 @@ Usage:
     inject IGraphExporter implementation.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, List, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
 class IEdgeExporter(Protocol):
     """
     Interface for edge export functionality (ISP).
-    
+
         importing EdgeExporter from Application layer directly.
     """
-    
+
     @staticmethod
     def export_to_json(graph_dto: Any, filepath: str, **kwargs) -> Any:
         """Exports edges to JSON format."""
         ...
-    
+
     @staticmethod
     def export_to_csv(graph_dto: Any, filepath: str, **kwargs) -> Any:
         """Exports edges to CSV format."""
         ...
-    
+
     @staticmethod
     def export_to_dot(graph_dto: Any, filepath: str, **kwargs) -> Any:
         """Exports edges to DOT format (Graphviz)."""
@@ -39,10 +39,10 @@ class IEdgeExporter(Protocol):
 class INodeExporter(Protocol):
     """
     Interface for node export functionality (ISP).
-    
+
         importing NodeExporter from Application layer directly.
     """
-    
+
     @staticmethod
     def export_to_json(
         nodes: List[Any],
@@ -50,11 +50,11 @@ class INodeExporter(Protocol):
         node_fields: Optional[List[str]] = None,
         transform_node: Optional[Callable] = None,
         predicate: Optional[Callable] = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Exports nodes to JSON format."""
         ...
-    
+
     @staticmethod
     def export_to_csv(
         nodes: List[Any],
@@ -62,7 +62,7 @@ class INodeExporter(Protocol):
         node_fields: Optional[List[str]] = None,
         transform_node: Optional[Callable] = None,
         predicate: Optional[Callable] = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Exports nodes to CSV format."""
         ...
@@ -72,10 +72,10 @@ class INodeExporter(Protocol):
 class IGraphMapper(Protocol):
     """
     Interface for Graph to DTO mapping.
-    
+
     Used by export functions to convert Graph entity to DTO.
     """
-    
+
     @staticmethod
     def to_dto(graph: Any) -> Any:
         """Converts Graph entity to GraphDTO."""
@@ -84,6 +84,6 @@ class IGraphMapper(Protocol):
 
 __all__ = [
     "IEdgeExporter",
-    "INodeExporter", 
+    "INodeExporter",
     "IGraphMapper",
 ]

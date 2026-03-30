@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graph-crawler"
-version = "4.0.24"
+version = "4.0.41"
 description = "Sync-First бібліотека для побудови графу веб-сайтів - просто як requests!"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,8 @@ dependencies = [
     "lxml>=4.9.0",
     "lxml_html_clean",
     "selectolax>=0.3.0",
+    # XML безпека (захист від XXE атак)
+    "defusedxml>=0.7.0",
     # Валідація та конфіги
     "pydantic>=2.5.0",
     "pydantic-settings>=2.0.0",
@@ -52,7 +54,6 @@ dependencies = [
     "pybloom-live",
     # REST API
     "fastapi",
-    "lmdb",
 ]
 
 [project.optional-dependencies]
@@ -145,7 +146,6 @@ all = [
     # Performance
     "aiodns>=3.1.0",
     "uvloop>=0.19.0; platform_system != 'Windows'",
-    "lmdb",
 ]
 
 [project.urls]

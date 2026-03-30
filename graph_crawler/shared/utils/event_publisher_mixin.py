@@ -95,7 +95,7 @@ class EventPublisherMixin:
             self.publish_event(event_type, data, metadata)
             return True
         except Exception as e:
-            logger.warning(f"Event publishing failed for {event_type} ({context}): {e}")
+            logger.warning("Event publishing failed for %s (%s): %s", event_type, context, e)
             return False
 
     def has_event_bus(self) -> bool:
@@ -138,9 +138,7 @@ class EventPublisherMixin:
         if additional_data:
             data.update(additional_data)
 
-        self.publish_event(
-            EventType.ERROR_OCCURRED, data=data, metadata={"severity": "error"}
-        )
+        self.publish_event(EventType.ERROR_OCCURRED, data=data, metadata={"severity": "error"})
 
     def publish_progress_event(
         self,

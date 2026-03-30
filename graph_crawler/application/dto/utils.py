@@ -1,42 +1,19 @@
 """High-Level Utility Functions для роботи з DTO.
 
-
-
 Спрощує типові операції:
-- Серіалізація/десеріалізація графів
-- Робота з JSON/файлами
-- Batch операції
-
-Приклад:
-    >>> from graph_crawler.application.dto.utils import (
-    ...     graph_to_json,
-    ...     json_to_graph,
-    ...     save_graph,
-    ...     load_graph,
-    ...     merge_graphs,
-    ... )
-    >>>
-    >>> # Серіалізація в JSON
-    >>> json_str = graph_to_json(graph)
-    >>>
-    >>> # Десеріалізація з JSON
-    >>> graph = json_to_graph(json_str)
-    >>>
-    >>> # Збереження/завантаження з файлу
-    >>> save_graph(graph, 'graph.json')
-    >>> graph = load_graph('graph.json')
-    >>>
-    >>> # Об'єднання графів з custom стратегією
-    >>> merged = merge_graphs([g1, g2, g3], strategy='merge')
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 # Використовуємо fast_json з orjson
 from graph_crawler.shared.utils.fast_json import dumps as json_dumps
 from graph_crawler.shared.utils.fast_json import loads as json_loads
+
+if TYPE_CHECKING:
+    from graph_crawler.domain.entities.graph import Graph
+    from graph_crawler.domain.entities.node import Node
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +138,9 @@ def save_graph(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     json_str = graph_to_json(graph, indent=indent)
-    path.write_text(json_str, encoding='utf-8')
+    path.write_text(json_str, encoding="utf-8")
 
-    logger.info(f"Graph saved to {path}")
+    logger.info("Graph saved to %s", path)
 
 
 def load_graph(
@@ -189,10 +166,10 @@ def load_graph(
         >>> graph = load_graph('output/graph.json', context=context)
     """
     path = Path(path)
-    json_str = path.read_text(encoding='utf-8')
+    json_str = path.read_text(encoding="utf-8")
 
     graph = json_to_graph(json_str, context=context)
-    logger.info(f"Graph loaded from {path}: {len(graph.nodes)} nodes")
+    logger.info("Graph loaded from %s: %s nodes", path, len(graph.nodes))
 
     return graph
 
@@ -209,24 +186,12 @@ def merge_graphs(
         graphs: Список графів для об'єднання
         strategy: Стратегія merge ('first', 'last', 'merge', 'newest', 'oldest', 'custom')
         custom_merge_fn: Кастомна функція для 'custom' стратегії
-
     Returns:
         Об'єднаний граф
-
-    Example:
-        >>> # Об'єднання з дефолтною стратегією 'last'
-        >>> merged = merge_graphs([g1, g2, g3])
-        >>>
-        >>> # Об'єднання з 'merge' стратегією
-        >>> merged = merge_graphs([g1, g2, g3], strategy='merge')
-        >>>
-        >>> # Об'єднання з кастомною функцією
-        >>> def my_merge(n1, n2):
-        ...     return n1 if n1.scanned else n2
-        >>> merged = merge_graphs([g1, g2], strategy='custom', custom_merge_fn=my_merge)
     """
     if not graphs:
         from graph_crawler.domain.entities.graph import Graph
+
         return Graph()
 
     if len(graphs) == 1:
@@ -240,9 +205,7 @@ def merge_graphs(
             result = result + graph
 
     logger.info(
-        f"Merged {len(graphs)} graphs: "
-        f"result has {len(result.nodes)} nodes, "
-        f"strategy={strategy}"
+        f"Merged {len(graphs)} graphs: result has {len(result.nodes)} nodes, strategy={strategy}"
     )
 
     return result
@@ -275,22 +238,20 @@ def filter_graph(
 
     result = Graph(default_merge_strategy=graph.default_merge_strategy)
 
-    # Фільтруємо ноди
-    for node in graph.nodes.values():
+    # Фільтруємо ноди (streaming через iter_nodes)
+    for node in graph.iter_nodes():
         if predicate(node):
             result.add_node(node)
 
     # Зберігаємо edges якщо потрібно
     if keep_edges:
-        result_node_ids = set(result.nodes.keys())
-        for edge in graph.edges:
-            if (edge.source_node_id in result_node_ids and
-                edge.target_node_id in result_node_ids):
+        # Використовуємо iter_nodes() для streaming доступу замість .nodes.keys()
+        result_node_ids = {node.node_id for node in result.iter_nodes()}
+        for edge in graph.iter_edges():
+            if edge.source_node_id in result_node_ids and edge.target_node_id in result_node_ids:
                 result.add_edge(edge)
 
-    logger.debug(
-        f"Filtered graph: {len(graph.nodes)} -> {len(result.nodes)} nodes"
-    )
+    logger.debug("Filtered graph: %s -> %s nodes", len(graph.nodes), len(result.nodes))
 
     return result
 
@@ -314,20 +275,12 @@ def clone_graph(
         json_str = graph_to_json(graph)
         return json_to_graph(json_str)
     else:
-        # Shallow clone
+        # Shallow clone (streaming через iter_nodes)
         from graph_crawler.domain.entities.graph import Graph
 
         result = Graph(default_merge_strategy=graph.default_merge_strategy)
-        for node in graph.nodes.values():
+        for node in graph.iter_nodes():
             result.add_node(node)
-        for edge in graph.edges:
+        for edge in graph.iter_edges():
             result.add_edge(edge)
         return result
-
-
-# Type hints для IDE
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from graph_crawler.domain.entities.graph import Graph
-    from graph_crawler.domain.entities.node import Node

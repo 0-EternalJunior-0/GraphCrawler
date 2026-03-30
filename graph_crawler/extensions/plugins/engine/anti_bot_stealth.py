@@ -56,14 +56,11 @@ class AntiBotStealthPlugin(BasePlugin):
         return scripts
 
     def _apply_cloudflare_bypass(self, context: PluginContext) -> None:
+        """Apply Cloudflare-specific bypass techniques."""
         logger.info("Applying Cloudflare bypass techniques")
 
-        cf_headers = {
-            "CF-Connecting-IP": self._get_random_ip(),
-            "CF-IPCountry": "US",
-        }
-        context.metadata.setdefault("extra_headers", {}).update(cf_headers)
-
+        # NOTE: CF-Connecting-IP header is set by Cloudflare itself and cannot be
+        # spoofed by the client. We only add stealth scripts and human emulation.
         cf_scripts = cloudflare_specific_scripts()
         context.plugin_data.setdefault("stealth_scripts", []).extend(cf_scripts)
 
@@ -72,13 +69,10 @@ class AntiBotStealthPlugin(BasePlugin):
             context.plugin_data["wait_time"] = random.uniform(3, 7)
 
     def _apply_datadome_bypass(self, context: PluginContext) -> None:
+        """Apply DataDome-specific bypass techniques."""
         logger.info("Applying DataDome bypass techniques")
         dd_scripts = datadome_specific_scripts()
         context.plugin_data.setdefault("stealth_scripts", []).extend(dd_scripts)
-
-    @staticmethod
-    def _get_random_ip() -> str:
-        return f"{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 255)}"
 
     # Core plugin API
     def apply_stealth_to_context(self, context: PluginContext) -> PluginContext:
@@ -98,14 +92,12 @@ class AntiBotStealthPlugin(BasePlugin):
             context.plugin_data["anti_bot_system"] = detected_system
             logger.warning("Anti-bot system detected: %s", detected_system.value)
 
-            if (
-                detected_system == AntiBotSystem.CLOUDFLARE
-                and self.config.get("bypass_cloudflare", True)
+            if detected_system == AntiBotSystem.CLOUDFLARE and self.config.get(
+                "bypass_cloudflare", True
             ):
                 self._apply_cloudflare_bypass(context)
-            elif (
-                detected_system == AntiBotSystem.DATADOME
-                and self.config.get("bypass_datadome", False)
+            elif detected_system == AntiBotSystem.DATADOME and self.config.get(
+                "bypass_datadome", False
             ):
                 self._apply_datadome_bypass(context)
 
@@ -124,17 +116,15 @@ class AntiBotStealthPlugin(BasePlugin):
         self.bypass_successes += 1
 
     def report_failure(self) -> None:
-        # attempts already counted, nothing extra for now
-        return None
+        """Report a bypass failure. Attempts are already counted in execute()."""
+        # Nothing to do here - attempts counter is already incremented in execute()
 
     def get_stats(self) -> Dict[str, Any]:
         return {
             "bypass_attempts": self.bypass_attempts,
             "bypass_successes": self.bypass_successes,
             "success_rate": (
-                self.bypass_successes / self.bypass_attempts
-                if self.bypass_attempts > 0
-                else 0.0
+                self.bypass_successes / self.bypass_attempts if self.bypass_attempts > 0 else 0.0
             ),
             "detected_systems": list(set(self.detected_systems)),
             "stealth_mode": self.config.get("stealth_mode", "high"),

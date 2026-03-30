@@ -35,28 +35,6 @@ class EnginePluginContext:
     """Контекст для Engine плагінів.
 
     Передає дані між плагіном та Scheduler через абстракцію.
-
-    Attributes:
-        url: URL для аналізу
-        url_text: Текст URL (для keyword matching)
-        depth: Глибина URL
-        parent_url: URL батьківської сторінки (опціонально)
-        parent_score: Relevance score батьківської сторінки (опціонально)
-
-        # Дані для batch обробки
-        urls_batch: Список URL для batch пріоритизації
-
-        # Контекст батьківської сторінки
-        parent_context: Дані батьківської сторінки (title, text тощо)
-
-        # Результати після сканування
-        scanned_html: HTML після сканування
-        scanned_text: Витягнутий текст
-        scanned_metadata: Метадані (title, description тощо)
-        extracted_links: Витягнуті посилання
-
-        # User data для кастомних даних від плагінів
-        user_data: Словник для передачі даних між плагінами
     """
 
     url: str
@@ -85,28 +63,9 @@ class BaseEnginePlugin(ABC):
     """Базовий клас для Crawl Engine плагінів.
 
     Engine плагіни працюють на вищому рівні ніж Node плагіни:
-    - Node плагіни: аналізують HTML ПІСЛЯ сканування
-    - Engine плагіни: керують процесом краулінгу ПЕРЕД скануванням
-
-    Архітектурний принцип:
-    - Scheduler НЕ знає про плагіни напряму
-    - Плагіни взаємодіють через EnginePriorityProvider (абстракція)
-    - Зворотна сумісність - якщо provider немає, все працює як раніше
-
-    Приклад:
-        >>> class MyEnginePlugin(BaseEnginePlugin):
-        ...     @property
-        ...     def plugin_type(self):
-        ...         return EnginePluginType.CALCULATE_PRIORITIES
-        ...
-        ...     def calculate_url_priority(self, context: EnginePluginContext) -> int:
-        ...         # Ваша ML логіка
-        ...         if 'important' in context.url:
-        ...             return 15
-        ...         return 5
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Ініціалізує Engine плагін.
 
@@ -114,9 +73,9 @@ class BaseEnginePlugin(ABC):
             config: Словник з конфігурацією
         """
         self.config = config or {}
-        self.enabled = self.config.get('enabled', True)
+        self.enabled = self.config.get("enabled", True)
 
-        logger.debug(f"{self.name} initialized with config: {self.config}")
+        logger.debug("%s initialized with config: %s", self.name, self.config)
 
     @property
     @abstractmethod
@@ -149,10 +108,7 @@ class BaseEnginePlugin(ABC):
         """
         pass
 
-    def calculate_batch_priorities(
-        self,
-        contexts: List[EnginePluginContext]
-    ) -> Dict[str, int]:
+    def calculate_batch_priorities(self, contexts: List[EnginePluginContext]) -> Dict[str, int]:
         """Обчислює пріоритети для batch URL (опціонально).
 
         Деякі ML моделі ефективніші при batch обробці.
@@ -186,10 +142,7 @@ class BaseEnginePlugin(ABC):
         """
         return None
 
-    def analyze_scan_result(
-        self,
-        context: EnginePluginContext
-    ) -> Tuple[float, Dict[str, Any]]:
+    def analyze_scan_result(self, context: EnginePluginContext) -> Tuple[float, Dict[str, Any]]:
         """Аналізує результати сканування (опціонально).
 
         Викликається ПІСЛЯ сканування для аналізу контенту.
@@ -214,8 +167,4 @@ class BaseEnginePlugin(ABC):
         pass
 
     def __repr__(self):
-        return (
-            f"{self.__class__.__name__}("
-            f"enabled={self.enabled}, "
-            f"type={self.plugin_type.value})"
-        )
+        return f"{self.__class__.__name__}(enabled={self.enabled}, type={self.plugin_type.value})"

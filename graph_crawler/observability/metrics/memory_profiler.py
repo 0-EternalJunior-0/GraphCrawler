@@ -71,28 +71,6 @@ class MemoryProfiler:
     """
     Моніторинг пам'яті під час краулінгу з використанням tracemalloc.
 
-    Features:
-    - Автоматичні snapshots кожні N сторінок
-    - Виявлення витоків пам'яті (порівняння snapshots)
-    - Топ споживачів пам'яті по файлах
-    - Експорт звітів в JSON
-    - Warnings при перевищенні порогів
-
-    Example:
-        >>> from graph_crawler.domain.events import EventBus
-        >>> from graph_crawler.monitoring import MemoryProfiler
-        >>>
-        >>> event_bus = EventBus()
-        >>> profiler = MemoryProfiler(event_bus, snapshot_interval=100)
-        >>>
-        >>> # Після краулінгу
-        >>> print(profiler.get_summary())
-        >>> profiler.export_report("memory_report.json")
-        >>>
-        >>> # Перевірити чи є витоки
-        >>> leaks = profiler.detect_memory_leaks()
-        >>> if leaks:
-        >>>     print(f"Warning: Memory leak detected! Growing: {leaks['growth_rate_mb_per_page']} MB/page")
     """
 
     def __init__(
@@ -136,6 +114,7 @@ class MemoryProfiler:
         self.peak_memory_mb = 0.0
         self.warnings_issued = 0
         from collections import deque
+
         self.warning_history: deque = deque(maxlen=max_warnings)
 
         # Tracemalloc
@@ -170,7 +149,7 @@ class MemoryProfiler:
                 self.tracemalloc_started = True
                 logger.info("tracemalloc started for memory profiling")
             except Exception as e:
-                logger.warning(f"Failed to start tracemalloc: {e}")
+                logger.warning("Failed to start tracemalloc: %s", e)
 
         # Створюємо початковий snapshot
         self._create_snapshot()
@@ -189,8 +168,7 @@ class MemoryProfiler:
         leaks = self.detect_memory_leaks()
         if leaks:
             logger.warning(
-                f" Memory leak detected: "
-                f"{leaks['growth_rate_mb_per_page']:.3f} MB/page growth"
+                f" Memory leak detected: {leaks['growth_rate_mb_per_page']:.3f} MB/page growth"
             )
 
         logger.info(
@@ -269,7 +247,7 @@ class MemoryProfiler:
             )
 
         except Exception as e:
-            logger.error(f"Failed to create memory snapshot: {e}", exc_info=True)
+            logger.error("Failed to create memory snapshot: %s", e, exc_info=True)
 
     def _issue_warning(self, current_mb: float):
         """Видає попередження про високе використання пам'яті."""
@@ -406,9 +384,7 @@ class MemoryProfiler:
             lines.append("\n Memory Snapshots:")
             lines.append(f"  Initial memory: {first.current_memory:.2f} MB")
             lines.append(f"  Final memory: {last.current_memory:.2f} MB")
-            lines.append(
-                f"  Memory change: {last.current_memory - first.current_memory:+.2f} MB"
-            )
+            lines.append(f"  Memory change: {last.current_memory - first.current_memory:+.2f} MB")
 
             if last.pages_crawled > 0:
                 avg_per_page = last.current_memory / last.pages_crawled
@@ -450,9 +426,7 @@ class MemoryProfiler:
             for i, stat in enumerate(last_snapshot.top_stats[:10], 1):
                 filename, size, count = stat
                 size_mb = size / (1024 * 1024)
-                lines.append(
-                    f"  {i}. {filename[:50]}: {size_mb:.2f} MB ({count} objects)"
-                )
+                lines.append(f"  {i}. {filename[:50]}: {size_mb:.2f} MB ({count} objects)")
 
         lines.append("\n" + "=" * 60)
 
@@ -470,9 +444,7 @@ class MemoryProfiler:
                 "generated_at": datetime.now().isoformat(),
                 "pages_crawled": self.pages_crawled,
                 "duration_seconds": (
-                    (self.end_time - self.start_time)
-                    if self.start_time and self.end_time
-                    else None
+                    (self.end_time - self.start_time) if self.start_time and self.end_time else None
                 ),
                 "peak_memory_mb": round(self.peak_memory_mb, 2),
                 "warnings_issued": self.warnings_issued,
@@ -491,9 +463,9 @@ class MemoryProfiler:
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
-            logger.info(f"Memory report exported to {filepath}")
+            logger.info("Memory report exported to %s", filepath)
         except Exception as e:
-            logger.error(f"Failed to export memory report: {e}", exc_info=True)
+            logger.error("Failed to export memory report: %s", e, exc_info=True)
 
     def reset(self):
         """Скидає всю статистику (для нового краулінгу)."""
@@ -515,6 +487,6 @@ class MemoryProfiler:
                 self.tracemalloc_started = False
                 logger.info("⏹ tracemalloc stopped")
             except Exception as e:
-                logger.warning(f"Failed to stop tracemalloc: {e}")
+                logger.warning("Failed to stop tracemalloc: %s", e)
 
         self.is_running = False

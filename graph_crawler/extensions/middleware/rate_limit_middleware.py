@@ -90,7 +90,7 @@ class TokenBucket:
                 wait_time = tokens_needed / self.refill_rate
                 return wait_time
 
-    async def wait_for_token(self, tokens: float = 1.0, url: str = None):
+    async def wait_for_token(self, tokens: float = 1.0, url: Optional[str] = None):
         """
         Async чекає доки не з'явиться достатньо токенів .
 
@@ -102,7 +102,7 @@ class TokenBucket:
         """
         wait_time = await self.consume(tokens)
         if wait_time > 0:
-            logger.debug(f"Rate limit: waiting {wait_time:.2f}s for token")
+            logger.debug("Rate limit: waiting %.2fs for token", wait_time)
 
             if self.event_bus:
                 from graph_crawler.domain.events import CrawlerEvent, EventType
@@ -145,7 +145,8 @@ class RateLimitMiddleware(BaseMiddleware):
     """
     Async middleware для контролю швидкості запитів .
 
-    Використовує Token Bucket алгоритм для обмеження частоти запитів. Неблокуючий async wait через asyncio.sleep().
+    Використовує Token Bucket алгоритм для обмеження частоти запитів.
+    Неблокуючий async wait через asyncio.sleep().
 
     Конфігурація:
         requests_per_second: Кількість запитів на секунду (default: 2.0)
@@ -153,7 +154,7 @@ class RateLimitMiddleware(BaseMiddleware):
         burst_size: Максимальний burst (default: requests_per_second * 2)
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self.bucket: Optional[TokenBucket] = None
         self.requests_count = 0
@@ -194,10 +195,7 @@ class RateLimitMiddleware(BaseMiddleware):
             capacity=capacity, refill_rate=refill_rate, event_bus=self.event_bus
         )
 
-        logger.info(
-            f"Rate limiting initialized: {refill_rate:.2f} req/s, "
-            f"burst: {capacity:.0f}"
-        )
+        logger.info("Rate limiting initialized: %.2f req/s, burst: %.0f", refill_rate, capacity)
 
     async def process(self, context: MiddlewareContext) -> MiddlewareContext:
         """

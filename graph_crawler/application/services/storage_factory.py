@@ -29,29 +29,13 @@ def register_storage(name: str, factory: Callable[[dict], "IStorage"]) -> None:
     """
     Реєструє storage factory (OCP - Open/Closed Principle).
 
-    Дозволяє користувачам додавати власні storage типи без модифікації
-    основного коду.
-
     Args:
         name: Назва storage типу (наприклад, "redis", "elasticsearch")
         factory: Функція, яка приймає config dict і повертає IStorage
-
-    Examples:
-        >>> from graph_crawler.application.services.storage_factory import register_storage
-        >>>
-        >>> class RedisStorage:
-        ...     def __init__(self, host="localhost", port=6379):
-        ...         self.host = host
-        ...         self.port = port
-        ...     def save_graph(self, graph): ...
-        ...     def load_graph(self): ...
-        >>>
-        >>> register_storage("redis", lambda cfg: RedisStorage(**cfg))
-        >>> storage = create_storage("redis", host="127.0.0.1", port=6380)
     """
     name = name.lower()
     _STORAGE_REGISTRY[name] = factory
-    logger.debug(f"Registered storage type: {name}")
+    logger.debug("Registered storage type: %s", name)
 
 
 def get_available_storage_types() -> list:
@@ -88,10 +72,9 @@ def _register_builtin_storages() -> None:
     # JSON Storage (до 10K nodes)
     def create_json(cfg: dict) -> "IStorage":
         from graph_crawler.infrastructure.persistence.json_storage import JSONStorage
+        from graph_crawler.shared.constants import DEFAULT_GRAPHS_DIR
 
-        storage_dir = cfg.get("storage_dir") or cfg.get(
-            "db_path", "/tmp/graph_crawler_json"
-        )
+        storage_dir = cfg.get("storage_dir") or cfg.get("db_path", DEFAULT_GRAPHS_DIR)
         return JSONStorage(storage_dir=storage_dir)
 
     register_storage("json", create_json)
@@ -101,8 +84,9 @@ def _register_builtin_storages() -> None:
         from graph_crawler.infrastructure.persistence.sqlite_storage import (
             SQLiteStorage,
         )
+        from graph_crawler.shared.constants import DEFAULT_DB_DIR
 
-        storage_dir = cfg.get("storage_dir") or cfg.get("db_path", "/tmp/graph_crawler")
+        storage_dir = cfg.get("storage_dir") or cfg.get("db_path", DEFAULT_DB_DIR)
         return SQLiteStorage(storage_dir=storage_dir)
 
     register_storage("sqlite", create_sqlite)
@@ -117,8 +101,7 @@ def _register_builtin_storages() -> None:
             return PostgreSQLStorage(cfg)
         except ImportError:
             raise ImportError(
-                "PostgreSQLStorage requires asyncpg. "
-                "Install with: pip install asyncpg"
+                "PostgreSQLStorage requires asyncpg. Install with: pip install asyncpg"
             )
 
     register_storage("postgresql", create_postgresql)
@@ -132,9 +115,7 @@ def _register_builtin_storages() -> None:
 
             return MongoDBStorage(cfg)
         except ImportError:
-            raise ImportError(
-                "MongoDBStorage requires motor. " "Install with: pip install motor"
-            )
+            raise ImportError("MongoDBStorage requires motor. Install with: pip install motor")
 
     register_storage("mongodb", create_mongodb)
 
@@ -149,10 +130,6 @@ def create_storage(
     """
     Створює storage з Registry Pattern.
 
-    Factory pattern для простого створення storage.
-    Дозволяє використовувати string shortcuts замість імпортування класів.
-
-
     Args:
         storage: Тип storage або готовий instance
             - "memory" (default): В пам'яті (до 1K nodes)
@@ -163,34 +140,14 @@ def create_storage(
             - IStorage instance: Повертається як є
         config: Конфігурація storage як dict (опціонально)
         **kwargs: Конфігурація storage як keyword arguments
-
     Returns:
         IStorage: Готовий до використання storage
-
     Raises:
         ValueError: Якщо невідомий тип storage
         ImportError: Якщо потрібний пакет не встановлено
-
     Examples:
         In-memory storage:
         >>> storage = create_storage("memory")
-
-        SQLite з шляхом (kwargs):
-        >>> storage = create_storage("sqlite", db_path="/tmp/graphs.db")
-
-        SQLite з шляхом (dict):
-        >>> storage = create_storage("sqlite", {"db_path": "/tmp/graphs.db"})
-
-        Кастомний storage:
-        >>> class RedisStorage:
-        ...     def save_graph(self, graph): ...
-        ...     def load_graph(self): ...
-        >>>
-        >>> storage = create_storage(RedisStorage())
-
-        Реєстрація та використання custom storage:
-        >>> register_storage("redis", lambda cfg: RedisStorage(**cfg))
-        >>> storage = create_storage("redis", host="localhost")
     """
     # Merge config dict з kwargs
     final_config = config.copy() if config else {}
@@ -200,7 +157,7 @@ def create_storage(
     if storage is not None and not isinstance(storage, str):
         # Перевіряємо чи це схоже на storage (має метод save_graph)
         if hasattr(storage, "save_graph"):
-            logger.debug(f"Using custom storage: {type(storage).__name__}")
+            logger.debug("Using custom storage: %s", type(storage).__name__)
             return storage
         else:
             raise ValueError(
@@ -220,5 +177,5 @@ def create_storage(
         )
 
     factory = _STORAGE_REGISTRY[storage_type]
-    logger.debug(f"Creating {storage_type} storage via Registry")
+    logger.debug("Creating %s storage via Registry", storage_type)
     return factory(final_config)

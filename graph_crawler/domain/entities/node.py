@@ -1,10 +1,4 @@
-"""Базовий клас для вузла графу (веб-сторінки) - Pydantic модель.
-
-Python 3.14 Optimizations:
-- Free-threading support для паралельного HTML парсингу (2-4x speedup!)
-- Adaptive thread pool sizing based on GIL status
-- Thread-local parser instances для уникнення contention
-"""
+"""Node - вузол графу (веб-сторінка). Pydantic модель з підтримкою Python 3.14 free-threading."""
 
 import asyncio
 import logging
@@ -18,14 +12,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
-# Це вирішує circular imports через Dependency Inversion Principle
-from graph_crawler.domain.interfaces.node_interfaces import (
-    IPluginManager,
-)
-from graph_crawler.domain.value_objects.lifecycle import (
-    NodeLifecycle,
-    NodeLifecycleError,
-)
+from graph_crawler.domain.interfaces.node_interfaces import IPluginManager
+from graph_crawler.domain.value_objects.lifecycle import NodeLifecycle, NodeLifecycleError
 from graph_crawler.domain.value_objects.models import ContentType
 
 if TYPE_CHECKING:
@@ -33,127 +21,82 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ============ PYTHON 3.14 FREE-THREADING DETECTION ============
 
 def _detect_free_threading() -> bool:
-    """
-    Визначає чи Python 3.14 free-threading enabled.
-
-    Returns:
-        True якщо GIL disabled (free-threading mode)
-        False якщо GIL enabled або Python < 3.14
-    """
-    if not hasattr(sys, '_is_gil_enabled'):
+    """True якщо GIL disabled (Python 3.14 free-threading)."""
+    if not hasattr(sys, "_is_gil_enabled"):
         return False
     return not sys._is_gil_enabled()
 
+
 _is_free_threaded = _detect_free_threading()
 
-# ============ OPTIMAL THREAD POOL SIZE (PYTHON 3.14 OPTIMIZED) ============
-
 if _is_free_threaded:
-    # 🚀 Free-threading: CPU-bound парсинг справді паралельний!
-    # Можемо використати більше workers - 2x speedup гарантований
     _max_html_workers = (os.cpu_count() or 4) * 2
-    logger.info(
-        f"🚀 Python 3.14 Free-threading detected! "
-        f"HTML parser optimized with {_max_html_workers} workers (2x CPU cores)"
-    )
+    logger.info("Python 3.14 Free-threading! HTML parser: %d workers", _max_html_workers)
 else:
-    # З GIL: обмежуємо до cpu_count (більше не дасть ефекту)
     _max_html_workers = os.cpu_count() or 4
-    logger.info(
-        f"GIL enabled. HTML parser threads: {_max_html_workers} "
-        f"(Python {sys.version_info.major}.{sys.version_info.minor})"
-    )
+    logger.info("GIL enabled. HTML parser: %d threads", _max_html_workers)
 
 _parser_thread_lock = threading.Lock()
 _parser_thread_parsers: Dict[int, Any] = {}
 
+
 def _init_parser_thread():
-    """
-    Ініціалізує parser resources для кожного thread (Python 3.14 optimization).
-    Раніше два потоки могли одночасно ініціалізувати parsers = {},
-    перезаписуючи один одного.
-
-    В free-threaded режимі кожен thread має свій:
-    - lxml parser instance (уникаємо contention)
-    - BeautifulSoup cache
-    - Thread-local buffer
-
-    Це дає 2-4x speedup для batch HTML parsing!
-    """
+    """Ініціалізує parser для thread. Thread-local для уникнення contention."""
     global _parser_thread_parsers
-
     thread_id = threading.get_ident()
 
     with _parser_thread_lock:
         if thread_id in _parser_thread_parsers:
-            return  # Вже ініціалізовано для цього thread
+            return
 
-        # Створюємо parser для цього thread
         try:
             from lxml import etree
+
             parser = etree.HTMLParser(
                 remove_blank_text=True,
                 remove_comments=True,
-                encoding='utf-8',
-                huge_tree=False,  # Security
+                encoding="utf-8",
+                huge_tree=False,
             )
             _parser_thread_parsers[thread_id] = parser
-            logger.debug(
-                f"Parser initialized for thread {thread_id} "
-                f"(free_threaded={_is_free_threaded})"
-            )
+            logger.debug("Parser initialized for thread %d", thread_id)
         except ImportError:
             logger.warning("lxml not available, falling back to html.parser")
 
-# ============ THREAD POOL для HTML PARSING (PYTHON 3.14 OPTIMIZED) ============
+
 import atexit
 
-# При batch з 1000 URL без ліміту всі завдання одразу ставляться в чергу,
-# що може з'їсти RAM якщо HTML великі. BoundedSemaphore обмежує кількість
-# одночасних завдань до max_workers * 2.
-
-# asyncio.Semaphore не можна створювати на рівні модуля без event loop!
-# Використовуємо lazy initialization при першому async виклику.
 _html_executor_semaphore: Optional[asyncio.Semaphore] = None
 _html_executor_semaphore_loop_id: Optional[int] = None
 _semaphore_lock = threading.Lock()
 
-def _get_html_executor_semaphore() -> asyncio.Semaphore:
-    """
-    asyncio.Semaphore повинен створюватись в контексті running event loop.
-    Цей метод забезпечує thread-safe lazy initialization.
-    
 
-    Returns:
-        asyncio.Semaphore для обмеження черги HTML парсера
-    """
+def _get_html_executor_semaphore() -> asyncio.Semaphore:
+    """Lazy init semaphore для обмеження черги HTML парсера."""
     global _html_executor_semaphore, _html_executor_semaphore_loop_id
 
     try:
         current_loop = asyncio.get_running_loop()
         current_loop_id = id(current_loop)
     except RuntimeError:
-        # Немає running loop - створимо semaphore, він буде прив'язаний до наступного loop
         current_loop_id = None
 
-    # Перевіряємо чи потрібно створити новий semaphore
-    need_new_semaphore = (
-        _html_executor_semaphore is None or
-        (current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id)
+    need_new = _html_executor_semaphore is None or (
+        current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id
     )
 
-    if need_new_semaphore:
+    if need_new:
         with _semaphore_lock:
-            # Double-check locking pattern
-            if _html_executor_semaphore is None or (current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id):
+            if _html_executor_semaphore is None or (
+                current_loop_id is not None and _html_executor_semaphore_loop_id != current_loop_id
+            ):
                 _html_executor_semaphore = asyncio.Semaphore(_max_html_workers * 2)
                 _html_executor_semaphore_loop_id = current_loop_id
-                logger.debug(f"Created new HTML executor semaphore for event loop {current_loop_id}")
 
     return _html_executor_semaphore
+
 
 _html_executor = ThreadPoolExecutor(
     max_workers=_max_html_workers,
@@ -161,183 +104,39 @@ _html_executor = ThreadPoolExecutor(
     initializer=_init_parser_thread,
 )
 
-# Реєструємо shutdown при завершенні програми для уникнення resource leak
 atexit.register(_html_executor.shutdown, wait=True)
+logger.info("HTML executor: workers=%d, free_threaded=%s", _max_html_workers, _is_free_threaded)
 
-logger.info(
-    f"HTML executor initialized: "
-    f"workers={_max_html_workers}, "
-    f"max_queued_tasks={_max_html_workers * 2}, "
-    f"free_threaded={_is_free_threaded}, "
-    f"python={sys.version_info.major}.{sys.version_info.minor}"
-)
-
-# ============ АБСТРАКЦІЇ ============
-# Dependency Inversion Principle: Node залежить від абстракцій, не конкретних реалізацій
 
 class ITreeAdapter(Protocol):
-    """
-    Інтерфейс для Tree Adapter (Protocol для DIP).
+    """Protocol для Tree Adapter."""
 
-    Node залежить від цього інтерфейсу, а не від конкретного BaseTreeAdapter.
+    def parse(self, html: str) -> Any: ...
 
-    Example:
-        >>> class CustomAdapter:
-        ...     def parse(self, html: str):
-        ...         return custom_tree
-        >>> node = Node(url="...", tree_parser=CustomAdapter())
-    """
-
-    def parse(self, html: str) -> Any:
-        """Парсить HTML в дерево."""
-        ...
 
 class IContentHashStrategy(Protocol):
-    """
-    Інтерфейс для обчислення content hash (Protocol).
+    """Protocol для content hash. Повертає SHA256 hex digest (64 символи)."""
 
-        Забезпечує дотримання Liskov Substitution Principle:
-        - Чітко визначений контракт: метод повертає строку (SHA256 hex digest)
-        - Користувач може створити власну стратегію, не порушуючи контракт
-        - Валідація результату гарантує що це валідний хеш
+    def compute_hash(self, node: "Node") -> str: ...
 
-        Example:
-            >>> class CustomHashStrategy:
-            ...     def compute_hash(self, node: 'Node') -> str:
-            ...         # Повертає SHA256 hex digest (64 символи)
-            ...         return hashlib.sha256(node.metadata['h1'].encode()).hexdigest()
-            >>>
-            >>> node.hash_strategy = CustomHashStrategy()
-            >>> hash_value = node.get_content_hash()  # Використає кастомну стратегію
-    """
-
-    def compute_hash(self, node: "Node") -> str:
-        """
-        Обчислює content hash для ноди.
-
-        Контракт:
-        - MUST повертати SHA256 hex digest (64 символи, lowercase)
-        - MUST бути детермінованим (однакові дані → однаковий хеш)
-        - MUST викликатися тільки після process_html() (HTML_STAGE)
-
-        Args:
-            node: Node для якої обчислюється хеш
-
-        Returns:
-            SHA256 hex digest string (64 символи)
-        """
-        ...
 
 class ISimHashStrategyLocal(Protocol):
-    """
-    Інтерфейс для обчислення SimHash (Protocol) - Locality-Sensitive Hash.
+    """Protocol для SimHash. Повертає 64-бітний hex (16 символів)."""
 
-    SimHash використовується для знаходження ПОДІБНИХ документів (near-duplicates),
-    на відміну від SHA256 content_hash який знаходить ТОЧНІ дублікати.
+    def compute_simhash(self, node: "Node") -> str: ...
 
-    Властивості SimHash:
-    - Схожі документи матимуть схожі SimHash (мала Hamming distance)
-    - Різні документи матимуть різні SimHash (велика Hamming distance)
-    - 64-бітний хеш = 16 hex символів
-
-    Example:
-        >>> class CustomSimHashStrategy:
-        ...     def compute_simhash(self, node: 'Node') -> str:
-        ...         # Кастомна логіка
-        ...         return simhash_hex  # 16 символів
-        >>>
-        >>> node.simhash_strategy = CustomSimHashStrategy()
-        >>> simhash = node.get_simhash()
-    """
-
-    def compute_simhash(self, node: "Node") -> str:
-        """
-        Обчислює SimHash для ноди.
-
-        Контракт:
-        - MUST повертати 64-бітний SimHash як hex string (16 символів, lowercase)
-        - MUST бути детермінованим (однакові дані → однаковий SimHash)
-        - MUST викликатися тільки після process_html() (HTML_STAGE)
-
-        Args:
-            node: Node для якої обчислюється SimHash
-
-        Returns:
-            SimHash hex string (16 символів)
-        """
-        ...
 
 class Node(BaseModel):
     """
-    Базовий клас для вузла графу (веб-сторінка) - Pydantic модель.
+    Вузол графу (веб-сторінка). Pydantic модель.
 
-    Кожен вузол представляє одну веб-сторінку з метаданими.
-    Користувачі можуть успадковувати цей клас для додавання власної логіки.
+    Життєвий цикл:
+    1. URL_STAGE: Створення - доступний url, depth, should_scan, can_create_edges
+    2. HTML_STAGE: Після process_html() - metadata, user_data, extracted_links
 
-    ВАЖЛИВО: HTML не зберігається у пам'яті для економії RAM.
-    HTML обробляється одразу та видаляється.
-
-     ЖИТТЄВИЙ ЦИКЛ NODE (2 ЧІТКІ ЕТАПИ):
-
-    ЕТАП 1: СТВОРЕННЯ - URL_STAGE (__init__)
-        Доступно: url, depth, should_scan, can_create_edges
-        Що можна:
-           * Аналізувати URL на ключові слова
-           * Визначати параметри по домену
-           * Встановлювати should_scan, can_create_edges
-           * Викликати on_node_created хуки
-         Що НЕМОЖНА:
-           * Працювати з HTML (його ще немає!)
-           * Витягувати метадані (їх ще немає!)
-           * Аналізувати контент сторінки
-
-    ЕТАП 2: ОБРОБКА HTML - HTML_STAGE (process_html)
-         INPUT (на початку process_html):
-           * html - HTML контент (string)
-           * html_tree - DOM дерево (після парсингу)
-           * parser - Tree adapter для роботи з деревом
-
-         ОБРОБКА (через плагіни):
-           * MetadataExtractorPlugin витягує title, h1, description, keywords
-           * LinkExtractorPlugin витягує посилання <a href>
-           * CustomPlugins - ваша власна логіка
-
-         OUTPUT (після process_html):
-           * metadata - заповнені метадані (dict)
-           * user_data - дані від плагінів (dict)
-           * extracted_links - список URL (list)
-           * HTML та html_tree ВИДАЛЕНІ з пам'яті!
-
-        Що можна:
-           * Витягувати метадані через плагіни
-           * Аналізувати текст сторінки
-           * Шукати ключові слова в контенті
-           * Витягувати посилання
-           * Виконувати плагіни
-         Що НЕМОЖНА:
-           * Змінювати базові параметри (url, depth)
-
-    Розділення етапів запобігає помилкам:
-     Пошук ключових слів в HTML до сканування
-     Використання metadata при створенні ноди
-     Виклик методів не на своєму етапі
-
-    Атрибути:
-        url: URL сторінки
-        node_id: Унікальний ідентифікатор вузла
-        metadata: Додаткові метадані (заповнюються плагінами після process_html)
-        scanned: Чи була сторінка просканована
-        should_scan: Чи треба сканувати цей вузол (False для зовнішніх посилань)
-        can_create_edges: Чи може вузол створювати нові зв'язки (edges)
-        depth: Глибина вузла від кореневого
-        created_at: Час створення вузла
-        response_status: HTTP статус код відповіді
-        lifecycle_stage: Поточний етап життєвого циклу
-        user_data: Додаткові дані від користувача (кастомні поля, заповнюються плагінами)
+    HTML не зберігається в пам'яті - обробляється і видаляється.
     """
 
-    # ============ PYDANTIC FIELDS ============
-    # Базові параметри (ЕТАП 1: URL_STAGE)
     url: str
     node_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     depth: int = Field(default=0, ge=0)
@@ -345,99 +144,58 @@ class Node(BaseModel):
     can_create_edges: bool = True
     created_at: datetime = Field(default_factory=datetime.now)
 
-    # Параметри для ЕТАП 2: HTML_STAGE
     metadata: Dict[str, Any] = Field(default_factory=dict)
     user_data: Dict[str, Any] = Field(default_factory=dict)
     scanned: bool = False
     response_status: Optional[int] = None
 
-    # HTTP Redirect інформація (заповнюється в NodeScanner після fetch)
-    # Використовується для обробки редіректів в кастомних Node класах
-    # PrivateAttr - не серіалізується, але доступний як атрибут
     _response_final_url: Optional[str] = PrivateAttr(default=None)
     _response_original_url: Optional[str] = PrivateAttr(default=None)
     _response_is_redirect: bool = PrivateAttr(default=False)
 
-    # Content Type - визначає тип контенту сторінки (HTML, JSON, image, empty тощо)
-    # Заповнюється в NodeScanner після отримання HTTP response
     content_type: ContentType = ContentType.UNKNOWN
-
-    # Incremental Crawling - content hash (обчислюється після process_html)
     content_hash: Optional[str] = None
-
-    # SimHash для пошуку подібних документів (near-duplicates)
-    # На відміну від content_hash (SHA256), SimHash зберігає locality:
-    # схожі документи матимуть схожі SimHash з малою Hamming distance
     simhash: Optional[str] = None
-
-    # Scheduler перевіряє це поле ПЕРЕД URLRule (див. scheduler.py)
     priority: Optional[int] = Field(default=None, ge=1, le=10)
-
-    # Lifecycle
     lifecycle_stage: NodeLifecycle = NodeLifecycle.URL_STAGE
 
-    # Plugin Manager (не серіалізується)
-    # Використовуємо Any замість Protocol для сумісності з Pydantic
     plugin_manager: Optional[Any] = Field(default=None, exclude=True)
-
-    # Tree Parser/Adapter (не серіалізується)
     tree_parser: Optional[Any] = Field(default=None, exclude=True)
-
     hash_strategy: Optional[Any] = Field(default=None, exclude=True)
-
-    # SimHash Strategy (не серіалізується) - для кастомної логіки SimHash
     simhash_strategy: Optional[Any] = Field(default=None, exclude=True)
 
-    # Pydantic configuration
     model_config = ConfigDict(
-        arbitrary_types_allowed=True,  # Для NodePluginManager, BeautifulSoup
-        validate_assignment=True,  # Валідація при присвоєнні
-        use_enum_values=False,  # Зберігаємо enum об'єкти
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        use_enum_values=False,
     )
 
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        """Валідація URL."""
         from urllib.parse import urlparse
 
         from graph_crawler.shared.exceptions import InvalidURLError
 
         if not v:
             raise InvalidURLError("URL cannot be empty")
-
         if not v.startswith(("http://", "https://")):
             raise InvalidURLError(f"URL must start with http:// or https://, got: {v}")
-
         parsed = urlparse(v)
         if not parsed.netloc:
             raise InvalidURLError(f"URL must have a valid domain: {v}")
-
         return v
 
     def model_post_init(self, __context: Any) -> None:
-        """Викликається після ініціалізації моделі Pydantic."""
-        # Викликаємо хук ON_NODE_CREATED (ЕТАП 1)
         self._trigger_node_created_hook()
 
     def _trigger_node_created_hook(self):
-        """
-        Викликає хук ON_NODE_CREATED після створення ноди.
-
-        Це ЕТАП 1 - доступний ТІЛЬКИ URL.
-        Користувач може додати свою логіку через плагіни.
-        """
+        """Викликає хук ON_NODE_CREATED. URL_STAGE - доступний тільки URL."""
         if not self.plugin_manager:
             return
 
-        # Node залежить від Protocol interfaces (INodePluginContext, IPluginManager),
-        # а конкретні реалізації (NodePluginContext) імпортуються lazy для уникнення circular deps.
-        from graph_crawler.extensions.plugins.node import (
-            NodePluginContext,
-            NodePluginType,
-        )
+        from graph_crawler.extensions.plugins.node import NodePluginContext, NodePluginType
 
-        # Створюємо контекст для плагінів
         context = NodePluginContext(
             node=self,
             url=self.url,
@@ -445,143 +203,71 @@ class Node(BaseModel):
             should_scan=self.should_scan,
             can_create_edges=self.can_create_edges,
         )
-
-        # Виконуємо плагіни ON_NODE_CREATED (sync)
-        context = self.plugin_manager.execute_sync(
-            NodePluginType.ON_NODE_CREATED, context
-        )
-
-        # Оновлюємо параметри з контексту (користувач міг їх змінити)
+        context = self.plugin_manager.execute_sync(NodePluginType.ON_NODE_CREATED, context)
         self.should_scan = context.should_scan
         self.can_create_edges = context.can_create_edges
         self.user_data.update(context.user_data)
 
-    async def process_html(self, html: str) -> List[str]:
+    async def process_html(
+        self,
+        html: str,
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
+    ) -> List[str]:
         """
-        ============ ЕТАП 2: HTML_STAGE ============
+        Обробляє HTML через плагінну систему. HTML_STAGE.
 
-        Async обробляє HTML через ЧИСТУ ПЛАГІННУ СИСТЕМУ. Тепер async для підтримки async плагінів (ML, LLM, API).
-
-        Args:
-            html: HTML контент сторінки
-
-        Returns:
-            Список знайдених URL посилань
-
-        Raises:
-            NodeLifecycleError: Якщо нода вже просканована
+        Returns: Список знайдених URL
         """
-        # Перевірка lifecycle
         if self.lifecycle_stage == NodeLifecycle.HTML_STAGE:
-            logger.warning(f"Node already processed: {self.url}")
+            logger.warning("Node already processed: %s", self.url)
             return []
 
-        # Переходимо на ЕТАП 2
         self.lifecycle_stage = NodeLifecycle.HTML_STAGE
-
-        # Крок 1: Парсинг HTML (ASYNC через ThreadPoolExecutor для швидкості)
         parser, html_tree = await self._parse_html_async(html)
-
-        # Крок 2: Створення контексту та виконання плагінів (async)
-        # ПРИМІТКА: _update_from_context тепер викликається всередині _execute_plugins
-        # перед ON_AFTER_SCAN плагінами, щоб кастомні Node класи могли заповнити поля
-        context = await self._execute_plugins(html, html_tree, parser)
-
-        # Крок 3: Фінальне оновлення user_data з контексту (для змін від ON_AFTER_SCAN плагінів)
-        # metadata вже оновлено в _execute_plugins
+        context = await self._execute_plugins(
+            html, html_tree, parser, crawl_context, control_channel
+        )
         self.user_data.update(context.user_data)
-
-        # Крок 4: Обчислення hash
         self._compute_content_hash()
-
-        # Крок 5: Очищення пам'яті
         self._cleanup_memory(html, html_tree, context)
 
-        logger.debug(
-            f"Processed HTML for {self.url}: {len(context.extracted_links)} links, metadata keys: {list(self.metadata.keys())}"
-        )
-
+        logger.debug("Processed %s: %d links", self.url, len(context.extracted_links))
         return context.extracted_links
 
     def _parse_html_sync(self, html: str) -> Tuple[Any, Any]:
-        """
-        Синхронний парсинг HTML в дерево через adapter.
-
-        Використовується через ThreadPoolExecutor для не блокування event loop.
-
-        🔒 FIX RACE CONDITION: Тепер створюємо НОВИЙ parser instance для кожного виклику!
-        Раніше використовувався singleton get_default_parser(), що призводило до race condition
-        коли кілька нод паралельно викликали parser.parse(html) і перезаписували self._tree.
-
-        Args:
-            html: HTML контент
-
-        Returns:
-            Tuple (parser, html_tree)
-        """
+        """Синхронний парсинг HTML. Новий parser instance для кожного виклику."""
         if self.tree_parser is None:
-            # Parser factory must be set during application bootstrap via set_parser_factory()
             from graph_crawler.domain.interfaces.parser import create_parser
-            
+
             parser = create_parser()
-            
             if parser is None:
                 raise RuntimeError(
-                    "Parser factory not configured (Clean Architecture violation). "
-                    "Call set_parser_factory() during application bootstrap:\n"
-                    "  from graph_crawler.domain.interfaces.parser import set_parser_factory\n"
-                    "  from graph_crawler.infrastructure.adapters import BeautifulSoupAdapter\n"
-                    "  set_parser_factory(lambda: BeautifulSoupAdapter())"
+                    "Parser factory not configured. Call set_parser_factory() during bootstrap."
                 )
         else:
             parser = self.tree_parser
-
-        html_tree = parser.parse(html)
-        return parser, html_tree
+        return parser, parser.parse(html)
 
     async def _parse_html_async(self, html: str) -> Tuple[Any, Any]:
-        """
-        Async парсинг HTML через ThreadPoolExecutor з обмеженою чергою.
-        одночасних завдань в черзі executor'а. Це запобігає OOM при batch
-        з 1000+ URL з великими HTML.
-
-        Args:
-            html: HTML контент
-
-        Returns:
-            Tuple (parser, html_tree)
-        """
+        """Async парсинг через ThreadPoolExecutor."""
         semaphore = _get_html_executor_semaphore()
-
         async with semaphore:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                _html_executor,
-                self._parse_html_sync,
-                html
-            )
+            return await loop.run_in_executor(_html_executor, self._parse_html_sync, html)
 
-    async def _execute_plugins(self, html: str, html_tree: Any, parser: Any) -> Any:
-        """
-        Async виконує плагіни для обробки HTML. Тепер async для підтримки async плагінів (ML, LLM, API).
-
-        Args:
-            html: HTML контент
-            html_tree: Парсоване дерево
-            parser: Tree adapter
-
-        Returns:
-            NodePluginContext з результатами
-        """
-        # Node залежить від Protocol interfaces для type hints, але використовує
-        # конкретні реалізації через lazy import для уникнення circular deps.
-        # Shallow copy призводив до спільних вкладених структур між нодами
+    async def _execute_plugins(
+        self,
+        html: str,
+        html_tree: Any,
+        parser: Any,
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
+    ) -> Any:
+        """Виконує плагіни для обробки HTML."""
         import copy as copy_module
 
-        from graph_crawler.extensions.plugins.node import (
-            NodePluginContext,
-            NodePluginType,
-        )
+        from graph_crawler.extensions.plugins.node import NodePluginContext, NodePluginType
 
         context = NodePluginContext(
             node=self,
@@ -594,47 +280,27 @@ class Node(BaseModel):
             parser=parser,
             metadata=copy_module.deepcopy(self.metadata) if self.metadata else {},
             user_data=copy_module.deepcopy(self.user_data) if self.user_data else {},
+            crawl_context=crawl_context,
+            control_channel=control_channel,
         )
 
         if self.plugin_manager:
-            context = await self.plugin_manager.execute(
-                NodePluginType.ON_BEFORE_SCAN, context
-            )
-            context = await self.plugin_manager.execute(
-                NodePluginType.ON_HTML_PARSED, context
-            )
-
-            # Оновлюємо ноду ПЕРЕД виконанням ON_AFTER_SCAN плагінів
-            # Це дозволяє кастомним Node класам заповнити поля (наприклад, text)
-            # які потім будуть використані плагінами (наприклад, RealTimeVectorizerPlugin)
+            context = await self.plugin_manager.execute(NodePluginType.ON_BEFORE_SCAN, context)
+            context = await self.plugin_manager.execute(NodePluginType.ON_HTML_PARSED, context)
             self._update_from_context(context)
-
-            context = await self.plugin_manager.execute(
-                NodePluginType.ON_AFTER_SCAN, context
-            )
+            context = await self.plugin_manager.execute(NodePluginType.ON_AFTER_SCAN, context)
 
         return context
 
     def _update_from_context(self, context: Any):
-        """
-        Оновлює ноду результатами з контексту.
-        Раніше shallow copy призводив до того що вкладені словники
-        (structured_data, opengraph) були спільними між нодами.
-
-        Args:
-            context: NodePluginContext з результатами плагінів
-        """
+        """Оновлює ноду з контексту плагінів. Deep copy для уникнення shared references."""
         import copy as copy_module
 
-        # Це критично для structured_data, opengraph та інших вкладених словників
         if context.metadata:
             self.metadata = copy_module.deepcopy(context.metadata)
         else:
             self.metadata = {}
-
-        # user_data теж може мати вкладені структури
         if context.user_data:
-            # Merge з existing user_data, deep copy нових значень
             for key, value in context.user_data.items():
                 if isinstance(value, (dict, list)):
                     self.user_data[key] = copy_module.deepcopy(value)
@@ -642,38 +308,21 @@ class Node(BaseModel):
                     self.user_data[key] = value
 
     def _compute_content_hash(self):
-        """
-        Обчислює content hash та SimHash для Incremental Crawling та пошуку дублікатів.
-        """
-        # SHA256 content hash для детекції ТОЧНИХ змін
+        """Обчислює content_hash та SimHash."""
         try:
             self.content_hash = self.get_content_hash()
-            logger.debug(
-                f"Content hash computed for {self.url}: {self.content_hash[:16]}..."
-            )
         except Exception as e:
-            logger.warning(f"Failed to compute content_hash for {self.url}: {e}")
+            logger.warning("Failed to compute content_hash for %s: %s", self.url, e)
             self.content_hash = None
 
-        # SimHash для пошуку ПОДІБНИХ документів (near-duplicates)
         try:
             self.simhash = self.get_simhash()
-            logger.debug(
-                f"SimHash computed for {self.url}: {self.simhash}"
-            )
         except Exception as e:
-            logger.warning(f"Failed to compute simhash for {self.url}: {e}")
+            logger.warning("Failed to compute simhash for %s: %s", self.url, e)
             self.simhash = None
 
     def _cleanup_memory(self, html: str, html_tree: Any, context: Any):
-        """
-        Видаляє HTML та дерево з пам'яті (критично для 20k+ сторінок).
-
-        Args:
-            html: HTML контент
-            html_tree: Парсоване дерево
-            context: NodePluginContext
-        """
+        """Видаляє HTML з пам'яті."""
         del html
         del html_tree
         context.html = None
@@ -681,244 +330,90 @@ class Node(BaseModel):
 
     def get_content_hash(self) -> str:
         """
-                Обчислює hash контенту для детекції змін (Incremental Crawling).
-
-        Використовує IContentHashStrategy Protocol для гарантії контракту.
-
-                ДЕФОЛТНА РЕАЛІЗАЦІЯ: SHA256 від чистого тексту сторінки.
-
-                КОРИСТУВАЧ МОЖЕ ЗАДАТИ КАСТОМНУ СТРАТЕГІЮ через hash_strategy:
-
-                Example 1: Кастомна стратегія (рекомендовано)
-                    >>> class H1HashStrategy:
-                    ...     def compute_hash(self, node):
-                    ...         return hashlib.sha256(node.metadata['h1'].encode()).hexdigest()
-                    >>>
-                    >>> node.hash_strategy = H1HashStrategy()
-                    >>> hash_value = node.get_content_hash()
-
-                Example 2: Наслідування (альтернатива)
-                    >>> class MyNode(Node):
-                    ...     def get_content_hash(self):
-                    ...         if self.hash_strategy:
-                    ...             return self.hash_strategy.compute_hash(self)
-                    ...         return hashlib.sha256(self.metadata['h1'].encode()).hexdigest()
-
-                ВАЖЛИВО: Можна викликати ТІЛЬКИ після process_html() (ЕТАП 2: HTML_STAGE).
-
-                Returns:
-                    SHA256 hex digest string (64 символи, lowercase)
-
-                Raises:
-                    NodeLifecycleError: Якщо викликано до process_html()
-                    ValueError: Якщо hash_strategy повертає невалідний хеш
+        SHA256 hash контенту. Викликати тільки після process_html().
+        Можна задати кастомну стратегію через hash_strategy.
         """
         import hashlib
         import re
 
-        # Перевірка lifecycle - можна викликати тільки після process_html
         if self.lifecycle_stage != NodeLifecycle.HTML_STAGE:
             raise NodeLifecycleError(
-                f"Cannot compute content_hash at {self.lifecycle_stage.value}. "
-                f"Call process_html() first (must be at HTML_STAGE)."
+                f"Cannot compute content_hash at {self.lifecycle_stage.value}. Call process_html() first."
             )
 
-        # Якщо задана кастомна стратегія - використовуємо її
         if self.hash_strategy:
             hash_value = self.hash_strategy.compute_hash(self)
-
-            # LSP: Валідація що результат - це валідний SHA256 хеш
             if not isinstance(hash_value, str):
                 raise ValueError(
-                    f"Hash strategy must return string, got {type(hash_value).__name__}. "
-                    f"Strategy: {type(self.hash_strategy).__name__}"
+                    f"Hash strategy must return string, got {type(hash_value).__name__}"
                 )
-
-            from graph_crawler.shared.constants import (
-                SHA256_HASH_LENGTH,
-                SHA256_HASH_PATTERN,
-            )
+            from graph_crawler.shared.constants import SHA256_HASH_PATTERN
 
             if not re.match(SHA256_HASH_PATTERN, hash_value):
-                raise ValueError(
-                    f"Hash strategy must return valid SHA256 hex digest ({SHA256_HASH_LENGTH} chars, lowercase), "
-                    f"got: '{hash_value[:20]}...' (len={len(hash_value)}). "
-                    f"Strategy: {type(self.hash_strategy).__name__}"
-                )
-
-            # LSP: Валідація детермінованості стратегії
-            # Перевірка виконується тільки один раз при першому виклику
+                raise ValueError(f"Invalid SHA256 hash from strategy: {hash_value[:20]}...")
             if not hasattr(self, "_hash_determinism_validated"):
                 self._validate_hash_strategy_deterministic(hash_value)
                 self._hash_determinism_validated = True
-
             return hash_value
 
-        # Дефолтна стратегія - hash від чистого тексту сторінки
         from graph_crawler.shared.constants import DEFAULT_HASH_ENCODING
 
         text = self.user_data.get("text_content", "")
         return hashlib.sha256(text.encode(DEFAULT_HASH_ENCODING)).hexdigest()
 
     def _validate_hash_strategy_deterministic(self, first_hash: str) -> None:
-        """
-        Перевіряє чи hash_strategy детермінована (LSP Principle).
-
-        Викликає стратегію двічі з тими самими даними і перевіряє чи хеші ідентичні.
-        Це критично для incremental crawling, бо недетермінована стратегія
-        призведе до хибних спрацювань change detection.
-
-        Args:
-            first_hash: Перший обчислений хеш для порівняння
-
-        Raises:
-            ValueError: Якщо стратегія недетермінована (повертає різні хеші)
-
-        Warning:
-            Цей метод викликається тільки один раз при першому обчисленні хешу.
-            Якщо стратегія використовує зовнішні змінні (час, випадкові числа),
-            тест може давати false positive.
-        """
+        """Перевіряє детермінованість hash_strategy."""
         if not self.hash_strategy:
             return
-
-        # Викликаємо стратегію другий раз з тими самими даними
         second_hash = self.hash_strategy.compute_hash(self)
-
         if first_hash != second_hash:
             raise ValueError(
-                f"Hash strategy is NOT DETERMINISTIC! "
-                f"Got different hashes for same data:\n"
-                f"  1st call: {first_hash[:32]}...\n"
-                f"  2nd call: {second_hash[:32]}...\n"
-                f"Strategy: {type(self.hash_strategy).__name__}\n\n"
-                f"This will break incremental crawling! "
-                f"Hash strategy MUST return same hash for same input data."
+                f"Hash strategy NOT DETERMINISTIC! 1st: {first_hash[:32]}... 2nd: {second_hash[:32]}..."
             )
 
     def mark_as_scanned(self):
-        """Позначає вузол як просканований."""
         self.scanned = True
 
     def get_simhash(self) -> str:
         """
-        Обчислює SimHash контенту для пошуку подібних документів (near-duplicates).
-
-        SimHash - це Locality-Sensitive Hash:
-        - Схожі документи матимуть схожі SimHash (мала Hamming distance)
-        - Різні документи матимуть різні SimHash (велика Hamming distance)
-        - Повертає 64-бітний хеш як 16 hex символів
-
-        ДЕФОЛТНА РЕАЛІЗАЦІЯ:
-        1. Токенізація тексту на n-grams (3-грами за замовчуванням)
-        2. Хешування кожного n-gram
-        3. Зважена сума бітів хешів
-        4. Згортання в 64-бітний SimHash
-
-        КОРИСТУВАЧ МОЖЕ ЗАДАТИ КАСТОМНУ СТРАТЕГІЮ через simhash_strategy:
-
-        Example:
-            >>> class CustomSimHashStrategy:
-            ...     def compute_simhash(self, node):
-            ...         # Кастомна логіка
-            ...         return simhash_hex  # 16 символів
-            >>>
-            >>> node.simhash_strategy = CustomSimHashStrategy()
-            >>> simhash = node.get_simhash()
-
-        ВАЖЛИВО: Можна викликати ТІЛЬКИ після process_html() (ЕТАП 2: HTML_STAGE).
-
-        Returns:
-            SimHash hex string (16 символів, lowercase)
-
-        Raises:
-            NodeLifecycleError: Якщо викликано до process_html()
-            ValueError: Якщо simhash_strategy повертає невалідний SimHash
+        SimHash для near-duplicate detection. Викликати тільки після process_html().
+        Схожі документи мають схожий SimHash (мала Hamming distance).
         """
         import re
 
-        # Перевірка lifecycle - можна викликати тільки після process_html
         if self.lifecycle_stage != NodeLifecycle.HTML_STAGE:
             raise NodeLifecycleError(
-                f"Cannot compute simhash at {self.lifecycle_stage.value}. "
-                f"Call process_html() first (must be at HTML_STAGE)."
+                f"Cannot compute simhash at {self.lifecycle_stage.value}. Call process_html() first."
             )
 
-        # Якщо задана кастомна стратегія - використовуємо її
         if self.simhash_strategy:
             simhash_value = self.simhash_strategy.compute_simhash(self)
-
-            # Валідація результату
             if not isinstance(simhash_value, str):
-                raise ValueError(
-                    f"SimHash strategy must return string, got {type(simhash_value).__name__}. "
-                    f"Strategy: {type(self.simhash_strategy).__name__}"
-                )
-
-            from graph_crawler.shared.constants import (
-                SIMHASH_HEX_LENGTH,
-                SIMHASH_PATTERN,
-            )
+                raise ValueError("SimHash strategy must return string")
+            from graph_crawler.shared.constants import SIMHASH_PATTERN
 
             if not re.match(SIMHASH_PATTERN, simhash_value):
-                raise ValueError(
-                    f"SimHash strategy must return valid 64-bit hex ({SIMHASH_HEX_LENGTH} chars, lowercase), "
-                    f"got: '{simhash_value}' (len={len(simhash_value)}). "
-                    f"Strategy: {type(self.simhash_strategy).__name__}"
-                )
-
-            # Валідація детермінованості
+                raise ValueError(f"Invalid SimHash: {simhash_value}")
             if not hasattr(self, "_simhash_determinism_validated"):
                 self._validate_simhash_strategy_deterministic(simhash_value)
                 self._simhash_determinism_validated = True
-
             return simhash_value
 
-        # Дефолтна стратегія - SimHash від чистого тексту сторінки
-        from graph_crawler.shared.constants import (
-            DEFAULT_SIMHASH_NGRAM_SIZE,
-            SIMHASH_BITS,
-        )
+        from graph_crawler.shared.constants import DEFAULT_SIMHASH_NGRAM_SIZE, SIMHASH_BITS
 
         text = self.user_data.get("text_content", "")
         return self._compute_simhash_default(text, DEFAULT_SIMHASH_NGRAM_SIZE, SIMHASH_BITS)
 
     def _compute_simhash_default(self, text: str, ngram_size: int = 3, bits: int = 64) -> str:
-        """
-
-        ОПТИМІЗАЦІЇ:
-        1. Numba JIT компіляція для числових операцій (10-50x прискорення)
-        2. Fallback на array module якщо Numba недоступна
-        3. Фінальне згортання через оптимізований loop
-
-        Алгоритм:
-        1. Токенізація тексту на n-grams
-        2. Для кожного n-gram обчислюємо hash (md5 для швидкості)
-        3. Для кожного біта хешу: якщо біт=1, додаємо +1, інакше -1
-        4. Фінальний SimHash: біт=1 якщо сума >= 0, біт=0 якщо сума < 0
-
-        Args:
-            text: Текст для хешування
-            ngram_size: Розмір n-gram (за замовчуванням 3)
-            bits: Кількість біт в SimHash (за замовчуванням 64)
-
-        Returns:
-            SimHash як hex string
-        """
+        """SimHash через n-grams. Numba JIT якщо доступний."""
         if not text:
-            return "0" * (bits // 4)  # Порожній текст = нульовий хеш
+            return "0" * (bits // 4)
 
-        # Нормалізація тексту
         text = text.lower().strip()
-
-        # Генерація n-grams
         tokens = []
         words = text.split()
         for i in range(max(1, len(words) - ngram_size + 1)):
-            ngram = " ".join(words[i:i + ngram_size])
-            tokens.append(ngram)
-
-        # Якщо текст занадто короткий, використовуємо слова як токени
+            tokens.append(" ".join(words[i : i + ngram_size]))
         if not tokens:
             tokens = words if words else [text]
 
@@ -927,176 +422,72 @@ class Node(BaseModel):
                 compute_simhash_fast,
                 is_numba_available,
             )
+
             if is_numba_available():
                 return compute_simhash_fast(tokens, bits)
         except ImportError:
-            pass  # Fallback на pure Python
+            pass
 
-        # Pure Python fallback (array module)
         import hashlib
         from array import array
 
-        v = array('i', [0] * bits)  # signed int array - швидше за list
+        v = array("i", [0] * bits)
         mask = (1 << bits) - 1
 
-        # Обробка кожного токена
         for token in tokens:
-            # Хешуємо токен (md5 дає 128 біт, беремо перші 64)
-            token_hash = hashlib.md5(token.encode("utf-8")).hexdigest()
-            hash_int = int(token_hash[:bits // 4], 16) & mask
-
-            # Для кожного біта: якщо біт=1, v[i]+=1, інакше v[i]-=1
+            token_hash = hashlib.md5(token.encode("utf-8"), usedforsecurity=False).hexdigest()
+            hash_int = int(token_hash[: bits // 4], 16) & mask
             temp = hash_int
             for i in range(bits):
                 v[i] += ((temp & 1) << 1) - 1
                 temp >>= 1
 
-        # Згортаємо вектор в SimHash
         simhash = 0
         for i in range(bits):
             if v[i] >= 0:
-                simhash |= (1 << i)
+                simhash |= 1 << i
 
-        # Повертаємо як hex string з правильною кількістю символів
         return format(simhash, f"0{bits // 4}x")
 
     def _validate_simhash_strategy_deterministic(self, first_simhash: str) -> None:
-        """
-        Перевіряє чи simhash_strategy детермінована (LSP Principle).
-
-        Args:
-            first_simhash: Перший обчислений SimHash для порівняння
-
-        Raises:
-            ValueError: Якщо стратегія недетермінована
-        """
         if not self.simhash_strategy:
             return
-
         second_simhash = self.simhash_strategy.compute_simhash(self)
-
         if first_simhash != second_simhash:
-            raise ValueError(
-                f"SimHash strategy is NOT DETERMINISTIC! "
-                f"Got different hashes for same data:\n"
-                f"  1st call: {first_simhash}\n"
-                f"  2nd call: {second_simhash}\n"
-                f"Strategy: {type(self.simhash_strategy).__name__}\n\n"
-                f"SimHash strategy MUST return same hash for same input data."
-            )
+            raise ValueError("SimHash strategy NOT DETERMINISTIC!")
 
     @staticmethod
     def hamming_distance(simhash1: str, simhash2: str) -> int:
-        """
-        Обчислює Hamming distance між двома SimHash.
-
-        Hamming distance = кількість бітів, що відрізняються.
-        Менша відстань = більш схожі документи.
-
-        Орієнтовні пороги для 64-бітного SimHash:
-        - 0-3: майже ідентичні документи
-        - 4-10: дуже схожі документи
-        - 11-20: помірно схожі
-        - >20: різні документи
-
-        Args:
-            simhash1: Перший SimHash (hex string)
-            simhash2: Другий SimHash (hex string)
-
-        Returns:
-            Hamming distance (0-64 для 64-бітного хешу)
-
-        Example:
-            >>> dist = Node.hamming_distance("abc123def456789a", "abc123def456789b")
-            >>> print(f"Distance: {dist}")
-        """
-        # Конвертуємо hex в int
-        hash1_int = int(simhash1, 16)
-        hash2_int = int(simhash2, 16)
-
-        # XOR дає біти, що відрізняються
-        xor_result = hash1_int ^ hash2_int
-
-        # Підраховуємо кількість одиничних бітів
+        """Hamming distance між SimHash. 0-3: ідентичні, 4-10: схожі, >20: різні."""
+        xor_result = int(simhash1, 16) ^ int(simhash2, 16)
         return bin(xor_result).count("1")
 
     def model_dump(self, **kwargs) -> Dict[str, Any]:
-        """
-        Серіалізує вузол у словник.
-
-        Pydantic автоматично:
-        - Серіалізує всі поля (включаючи кастомні в підкласах)
-        - Виключає plugin_manager (exclude=True)
-        - Конвертує datetime, enum в JSON-compatible формати
-        """
         data = super().model_dump(**kwargs)
-
-        # Конвертуємо lifecycle_stage в string для JSON
-        if "lifecycle_stage" in data and isinstance(
-            data["lifecycle_stage"], NodeLifecycle
-        ):
+        if "lifecycle_stage" in data and isinstance(data["lifecycle_stage"], NodeLifecycle):
             data["lifecycle_stage"] = data["lifecycle_stage"].value
-
-        # Конвертуємо content_type в string для JSON
         if "content_type" in data and isinstance(data["content_type"], ContentType):
             data["content_type"] = data["content_type"].value
-
-        # Конвертуємо datetime в ISO format
         if "created_at" in data and isinstance(data["created_at"], datetime):
             data["created_at"] = data["created_at"].isoformat()
-
         return data
 
     @classmethod
-    def model_validate(
-        cls, obj: Any, context: Optional[Dict] = None, **kwargs
-    ) -> "Node":
-        """
-        Десеріалізує вузол зі словника або JSON.
-
-        Pydantic автоматично:
-        - Валідує всі поля
-        - Конвертує типи (str -> datetime, str -> enum)
-        - Підтримує кастомні поля в підкласах
-
-        Args:
-            obj: Об'єкт для валідації
-            context: Опціональний контекст з залежностями (plugin_manager, tree_parser)
-            **kwargs: Додаткові параметри для Pydantic
-
-        Returns:
-            Валідований Node об'єкт з відновленими залежностями
-
-        Example:
-            >>> from graph_crawler.infrastructure.adapters.beautifulsoup_adapter import BeautifulSoupAdapter
-            >>> context = {
-            ...     'plugin_manager': NodePluginManager(),
-            ...     'tree_parser': BeautifulSoupAdapter()
-            ... }
-            >>> node = Node.model_validate(node_dict, context=context)
-        """
-        # Якщо це словник, конвертуємо lifecycle_stage, content_type та created_at
+    def model_validate(cls, obj: Any, context: Optional[Dict] = None, **kwargs) -> "Node":
         if isinstance(obj, dict):
             if "lifecycle_stage" in obj and isinstance(obj["lifecycle_stage"], str):
                 obj["lifecycle_stage"] = NodeLifecycle(obj["lifecycle_stage"])
-
             if "content_type" in obj and isinstance(obj["content_type"], str):
                 obj["content_type"] = ContentType(obj["content_type"])
-
             if "created_at" in obj and isinstance(obj["created_at"], str):
                 obj["created_at"] = datetime.fromisoformat(obj["created_at"])
 
         node = super().model_validate(obj, **kwargs)
-
-        # Відновлюємо залежності з контексту якщо передані
-        #  ВАЖЛИВО: plugin_manager та tree_parser не серіалізуються
-        # Вони мають бути передані через context при десеріалізації
         if context:
             if "plugin_manager" in context:
                 node.plugin_manager = context["plugin_manager"]
             if "tree_parser" in context:
                 node.tree_parser = context["tree_parser"]
-
         return node
 
     def restore_dependencies(
@@ -1106,35 +497,7 @@ class Node(BaseModel):
         hash_strategy: Optional[IContentHashStrategy] = None,
         simhash_strategy: Optional[ISimHashStrategyLocal] = None,
     ):
-        """
-                Відновлює залежності після десеріалізації.
-
-                 ВАЖЛИВО: plugin_manager, tree_parser, hash_strategy та simhash_strategy не серіалізуються.
-                Після завантаження Node з JSON/SQLite, ці поля будуть None.
-                Використовуйте цей метод для відновлення залежностей.
-
-        Приймає будь-який об'єкт що реалізує Protocol (не тільки конкретні класи)
-        Додано hash_strategy для кастомізації обчислення hash
-        Додано simhash_strategy для кастомізації обчислення SimHash
-
-                Args:
-                    plugin_manager: Будь-який об'єкт з методом execute() (IPluginManager Protocol)
-                    tree_parser: Будь-який об'єкт з методом parse() (ITreeAdapter Protocol)
-                    hash_strategy: Будь-який об'єкт з методом compute_hash() (IContentHashStrategy Protocol)
-                    simhash_strategy: Будь-який об'єкт з методом compute_simhash() (ISimHashStrategy Protocol)
-
-                Example:
-                    >>> from graph_crawler.extensions.CustomPlugins.node import NodePluginManager
-                    >>> from graph_crawler.infrastructure.adapters.beautifulsoup_adapter import BeautifulSoupAdapter
-                    >>>
-                    >>> node = Node.model_validate(node_dict)
-                    >>> node.restore_dependencies(
-                    ...     plugin_manager=NodePluginManager(),
-                    ...     tree_parser=BeautifulSoupAdapter(),
-                    ...     hash_strategy=CustomHashStrategy(),
-                    ...     simhash_strategy=CustomSimHashStrategy()
-                    ... )
-        """
+        """Відновлює залежності після десеріалізації."""
         if plugin_manager is not None:
             self.plugin_manager = plugin_manager
         if tree_parser is not None:
@@ -1144,57 +507,32 @@ class Node(BaseModel):
         if simhash_strategy is not None:
             self.simhash_strategy = simhash_strategy
 
-    # LAW OF DEMETER: Методи-обгортки для metadata
-    # Замість node.metadata.get("title") використовуємо node.get_title()
-
     def _get_metadata_field(self, field: str, default: Any = None) -> Any:
-        """
-                Універсальний helper для отримання полів з metadata.
-
-        Усуває дублювання коду в 6+ getter методах.
-                Централізує логіку доступу до metadata для дотримання DRY принципу.
-
-                Args:
-                    field: Назва поля в metadata
-                    default: Значення за замовчуванням якщо поле не знайдено
-
-                Returns:
-                    Значення поля або default
-        """
         return self.metadata.get(field, default) if self.metadata else default
 
     def get_title(self) -> Optional[str]:
-        """Отримати title сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("title")
 
     def get_description(self) -> Optional[str]:
-        """Отримати description сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("description")
 
     def get_h1(self) -> Optional[str]:
-        """Отримати H1 заголовок сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("h1")
 
     def get_keywords(self) -> Optional[str]:
-        """Отримати keywords сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("keywords")
 
     def get_canonical_url(self) -> Optional[str]:
-        """Отримати canonical URL сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("canonical_url")
 
     def get_language(self) -> Optional[str]:
-        """Отримати мову сторінки (Law of Demeter wrapper)."""
         return self._get_metadata_field("language")
 
     def get_meta_value(self, key: str, default: Any = None) -> Any:
-        """Отримати значення з metadata за ключем (Law of Demeter wrapper)."""
         return self._get_metadata_field(key, default)
 
     def __repr__(self):
         return (
             f"Node(url={self.url}, lifecycle={self.lifecycle_stage.value}, "
-            f"content_type={self.content_type.value}, scanned={self.scanned}, "
-            f"should_scan={self.should_scan}, can_create_edges={self.can_create_edges}, "
-            f"depth={self.depth})"
+            f"scanned={self.scanned}, depth={self.depth})"
         )

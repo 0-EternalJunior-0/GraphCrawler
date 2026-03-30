@@ -69,7 +69,7 @@ class WebSocketConnectionManager:
             try:
                 await connection.send_json(data)
             except Exception as e:
-                logger.error(f"Error sending to WebSocket client: {e}")
+                logger.error("Error sending to WebSocket client: %s", e)
                 disconnected.append(connection)
 
         # Видалити мертві з'єднання

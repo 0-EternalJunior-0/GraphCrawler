@@ -24,7 +24,10 @@ class RobotsTxtMiddleware(BaseMiddleware):
         Перевіряє чи дозволено сканувати URL перед запитом.
 
         Приклад використання:
-            >>> from graph_crawler.middleware import RobotsTxtMiddleware, MiddlewareContext
+            >>> from graph_crawler.extensions.middleware.robots_middleware import (
+            ...     RobotsTxtMiddleware
+            ... )
+            >>> from graph_crawler.extensions.middleware.base import MiddlewareContext
             >>> middleware = RobotsTxtMiddleware(user_agent="GraphCrawler/0.1.0")
             >>> context = MiddlewareContext(url="https://example.com/page")
             >>> try:

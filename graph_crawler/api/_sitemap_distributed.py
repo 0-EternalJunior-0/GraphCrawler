@@ -29,25 +29,12 @@ def distributed_crawl_sitemap(
     driver: Optional[DriverType] = None,
     driver_config: Optional[dict[str, Any]] = None,
     timeout: Optional[int] = None,
+    url_rules: Optional[list] = None,
+    max_sitemaps: Optional[int] = None,
+    max_depth: Optional[int] = None,
 ) -> Graph:
     """
     Distributed sitemap crawling через Celery.
-
-    Процес:
-    1. Парсить robots.txt локально
-    2. Знаходить всі sitemap URLs
-    3. Розподіляє обробку sitemap на Celery workers
-    4. Workers парсять sitemap та повертають URLs
-    5. URLs обробляються через CeleryBatchSpider
-
-    Args:
-        url: Базовий URL сайту
-        max_urls: Максимальна кількість URL
-        include_urls: Чи краулити кінцеві URL
-        wrapper_config: Конфігурація broker/database
-        driver: Драйвер для краулінгу
-        driver_config: Конфігурація драйвера
-        timeout: Таймаут в секундах
 
     Returns:
         Graph з sitemap структурою та (опціонально) кінцевими сторінками
@@ -65,12 +52,10 @@ def distributed_crawl_sitemap(
     logger.info("=" * 60)
     logger.info("  DISTRIBUTED SITEMAP CRAWL")
     logger.info("=" * 60)
-    logger.info(f"   URL: {url}")
-    logger.info(f"   Max URLs: {max_urls or 'unlimited'}")
-    logger.info(f"   Include URLs content: {include_urls}")
-    logger.info(f"   Timeout: {timeout or 'none'}s")
-
-    # ========== ПАРСИМО BROKER CONFIG ==========
+    logger.info("   URL: %s", url)
+    logger.info("   Max URLs: %s", max_urls or "unlimited")
+    logger.info("   Include URLs content: %s", include_urls)
+    logger.info("   Timeout: %ss", timeout or "none")
     broker_config = wrapper_config.get("broker", {})
     broker_type = broker_config.get("type", "redis")
     broker_host = broker_config.get("host", "localhost")
@@ -79,9 +64,13 @@ def distributed_crawl_sitemap(
     broker_url = f"{broker_type}://{broker_host}:{broker_port}/0"
     backend_url = f"{broker_type}://{broker_host}:{broker_port}/1"
 
-    logger.info(f"   Broker: {broker_url}")
-
-    # ========== КРОК 1: ПАРСИМО ROBOTS.TXT ==========
+    logger.info("   Broker: %s", broker_url)
+    if url_rules:
+        logger.info("   URL rules: %d rules", len(url_rules))
+    if max_sitemaps:
+        logger.info("   Max sitemaps: %s", max_sitemaps)
+    if max_depth:
+        logger.info("   Max depth: %s", max_depth)
     logger.info("\n Step 1: Parsing robots.txt...")
 
     parser = SitemapParser()
@@ -89,13 +78,22 @@ def distributed_crawl_sitemap(
     event_bus = EventBus()
     processor = SitemapProcessor(graph=graph, event_bus=event_bus, include_urls=False)
 
+    # Ініціалізуємо змінні перед try блоком для уникнення reference before assignment
+    sitemap_urls = []
+    all_urls = []
+
     try:
         sitemap_data = parser.parse_from_robots(url)
         sitemap_urls = sitemap_data.get("sitemap_urls", [])
         all_urls = sitemap_data.get("urls", [])
 
-        logger.info(f"   Found {len(sitemap_urls)} sitemap(s)")
-        logger.info(f"   Found {len(all_urls)} URLs in sitemaps")
+        # Застосовуємо max_sitemaps якщо вказано
+        if max_sitemaps and len(sitemap_urls) > max_sitemaps:
+            logger.info("   Limiting sitemaps from %d to %d", len(sitemap_urls), max_sitemaps)
+            sitemap_urls = sitemap_urls[:max_sitemaps]
+
+        logger.info("   Found %d sitemap(s)", len(sitemap_urls))
+        logger.info("   Found %d URLs in sitemaps", len(all_urls))
 
         # Створюємо nodes для robots.txt та sitemaps
         from urllib.parse import urljoin
@@ -115,20 +113,32 @@ def distributed_crawl_sitemap(
             )
 
     except Exception as e:
-        logger.error(f"   Error parsing robots.txt: {e}")
+        logger.error("   Error parsing robots.txt: %s", e)
+        # Змінні вже ініціалізовані вище, але явно скидаємо на випадок часткової помилки
         all_urls = []
+        sitemap_urls = []
 
     finally:
-        parser.close()
+        # parser.close() є async, тому викликаємо через asyncio
+        import asyncio
 
-    # ========== КРОК 2: ОБРОБЛЯЄМО URLs ЧЕРЕЗ DISTRIBUTED ==========
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Якщо вже є event loop - просто ігноруємо close
+                pass
+            else:
+                loop.run_until_complete(parser.close())
+        except RuntimeError:
+            # Якщо немає event loop - створюємо новий
+            asyncio.run(parser.close())
     if include_urls and all_urls:
-        logger.info(f"\n Step 2: Distributed crawl of {len(all_urls)} URLs...")
+        logger.info("\n Step 2: Distributed crawl of %d URLs...", len(all_urls))
 
         # Обмежуємо кількість URL
         if max_urls and len(all_urls) > max_urls:
             all_urls = all_urls[:max_urls]
-            logger.info(f"   Limited to {max_urls} URLs")
+            logger.info("   Limited to %d URLs", max_urls)
 
         # Використовуємо CeleryBatchSpider для краулінгу URLs
         from graph_crawler.application.use_cases.crawling.celery_batch_spider import (
@@ -142,14 +152,16 @@ def distributed_crawl_sitemap(
         # Визначаємо batch_size
         batch_size = wrapper_config.get("batch_size")
         if batch_size is None:
-            if hasattr(actual_driver, "max_concurrent"):
-                batch_size = actual_driver.max_concurrent
+            # Використовуємо getattr для безпечного доступу
+            max_concurrent = getattr(actual_driver, "max_concurrent", None)
+            if max_concurrent is not None:
+                batch_size = max_concurrent
             else:
                 batch_size = 24
 
         crawler_config = CrawlerConfig(
             url=url,
-            max_depth=1,  # Тільки один рівень - самі URL
+            max_depth=1,
             max_pages=len(all_urls),
             driver=DriverConfig(**(driver_config or {})),
             celery=CeleryConfig(
@@ -158,9 +170,7 @@ def distributed_crawl_sitemap(
                 backend_url=backend_url,
                 workers=wrapper_config.get("workers", 10),
                 task_time_limit=wrapper_config.get("task_time_limit", 600),
-                worker_prefetch_multiplier=wrapper_config.get(
-                    "worker_prefetch_multiplier", 4
-                ),
+                worker_prefetch_multiplier=wrapper_config.get("worker_prefetch_multiplier", 4),
             ),
         )
 
@@ -172,38 +182,53 @@ def distributed_crawl_sitemap(
             timeout=timeout,
         )
 
-        # Додаємо URLs до черги
-        logger.info(f"   Adding {len(all_urls)} URLs to queue...")
-        for page_url in all_urls:
-            spider._add_to_queue(page_url, depth=2)
+        # CeleryBatchSpider використовує crawl() для повного краулінгу з root URL.
+        # Для sitemap сценарію нам потрібно обробити конкретний список URLs.
+        # Використовуємо внутрішні методи spider для batch обробки.
+        logger.info("   Processing %d URLs via batch tasks...", len(all_urls))
 
-        # Запускаємо обробку
+        # Створюємо список URLs з depth=2 для обробки
+        urls_to_crawl = [(page_url, 2) for page_url in all_urls]
+
+        # Запускаємо batch обробку
         try:
-            crawled_graph = spider.crawl()
+            spider.start_time = time.time()
 
-            # Мержимо графи
-            for node in crawled_graph.nodes.values():
+            # Серіалізуємо конфігурацію для передачі воркерам
+            config_dict = spider._serialize_config()
+
+            # Створюємо batches та виконуємо tasks
+            batches = spider._create_batches(urls_to_crawl)
+            spider.total_batches_sent = len(batches)
+
+            results = spider._execute_batch_tasks(batches, config_dict)
+
+            # Обробляємо результати
+            spider._process_batch_results(results)
+
+            crawled_graph = spider.graph
+
+            # Мержимо графи (streaming через iter_nodes)
+            for node in crawled_graph.iter_nodes():
                 graph.add_node(node)
-            for edge in crawled_graph.edges:
+            for edge in crawled_graph.iter_edges():
                 graph.add_edge(edge)
 
-            logger.info(f"   Crawled {len(crawled_graph.nodes)} pages")
+            logger.info("   Crawled %d pages", len(crawled_graph.nodes))
 
         except Exception as e:
-            logger.error(f"   Error in distributed crawl: {e}")
-
-    # ========== СТАТИСТИКА ==========
+            logger.error("   Error in distributed crawl: %s", e)
     duration = time.time() - start_time
     stats = graph.get_stats()
 
     logger.info("\n" + "=" * 60)
     logger.info(" SITEMAP CRAWL COMPLETED")
     logger.info("=" * 60)
-    logger.info(f"   Duration: {duration:.2f}s")
-    logger.info(f"   Total nodes: {stats.get('total_nodes', 0)}")
-    logger.info(f"   Total edges: {stats.get('total_edges', 0)}")
-    logger.info(f"   Sitemaps: {len(sitemap_urls) if 'sitemap_urls' in dir() else 0}")
-    logger.info(f"   URLs processed: {len(all_urls) if 'all_urls' in dir() else 0}")
+    logger.info("   Duration: %.2fs", duration)
+    logger.info("   Total nodes: %d", stats.get("total_nodes", 0))
+    logger.info("   Total edges: %d", stats.get("total_edges", 0))
+    logger.info("   Sitemaps: %d", len(sitemap_urls) if "sitemap_urls" in dir() else 0)
+    logger.info("   URLs processed: %d", len(all_urls) if "all_urls" in dir() else 0)
     logger.info("=" * 60)
 
     return graph

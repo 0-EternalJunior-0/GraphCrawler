@@ -21,7 +21,7 @@ import logging
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
-from celery import Celery, group
+from celery import Celery, group  # type: ignore[import-not-found]
 
 from graph_crawler.application.use_cases.crawling.serialization_mixin import (
     ConfigSerializationMixin,
@@ -30,10 +30,10 @@ from graph_crawler.application.use_cases.crawling.spider import GraphSpider
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.interfaces.storage import IStorage
-from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.value_objects.configs import CrawlerConfig
 from graph_crawler.shared.constants import (
     DEFAULT_CELERY_RESULTS_TIMEOUT,
 )
@@ -44,45 +44,8 @@ logger = logging.getLogger(__name__)
 
 class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
     """
-     DEPRECATED: Використовуйте CeleryBatchSpider для 24x кращої продуктивності!
+    DEPRECATED: Використовуйте CeleryBatchSpider для 24x кращої продуктивності!
 
-
-    Розподілений краулер з підтримкою Celery для масштабування між серверами.
-
-    Архітектура:
-    - Головний процес координує краулінг і збирає результати
-    - Celery воркери (можуть бути на різних серверах) обробляють окремі сторінки
-    - Redis/RabbitMQ як брокер для черги задач
-    - Кожен воркер має свій екземпляр driver та scanner
-
-    Використання:
-    ```python
-    #  DEPRECATED - використовуйте CeleryBatchSpider замість цього!
-    spider = CelerySpider(
-        config,
-        driver,
-        storage,
-        celery_broker='redis://localhost:6379/0'
-    )
-    graph = spider.crawl()
-    ```
-
-    Розподілена обробка між множиною серверів:
-    - Підходить для екстремально великих сайтів (>100k сторінок)
-    - Необмежене масштабування через додавання воркерів
-
-    Переваги:
-    - Розподілення між множиною серверів
-    - Необмежене горизонтальне масштабування
-    - Fault tolerance (retry, error handling)
-    - Моніторинг через Flower
-    - Асинхронна обробка
-
-    Обмеження:
-    -  Потребує Redis/RabbitMQ брокер
-    -  Складніша інфраструктура
-    -  Overhead для малих проектів
-    -  DEPRECATED: 1 task = 1 URL (неефективно!)
     """
 
     def __init__(self, config: CrawlerConfig, driver: IDriver, storage: IStorage):
@@ -116,10 +79,8 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
         self.pages_crawled = 0
         self.visited_urls = set()
 
-        logger.info(
-            f"CelerySpider initialized with broker: {self._get_celery_broker_url()}"
-        )
-        logger.info(f"Celery workers: {self._get_celery_workers()}")
+        logger.info("CelerySpider initialized with broker: %s", self._get_celery_broker_url())
+        logger.info("Celery workers: %s", self._get_celery_workers())
 
     def _get_celery_workers(self) -> int:
         """Повертає кількість Celery воркерів."""
@@ -171,8 +132,8 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
         # Встановлюємо environment variables для воркерів
         os.environ["CELERY_BROKER_URL"] = celery_config.broker_url
         os.environ["CELERY_RESULT_BACKEND"] = celery_config.backend_url
-        logger.info(f"Set CELERY_BROKER_URL to: {celery_config.broker_url}")
-        logger.info(f"Set CELERY_RESULT_BACKEND to: {celery_config.backend_url}")
+        logger.info("Set CELERY_BROKER_URL to: %s", celery_config.broker_url)
+        logger.info("Set CELERY_RESULT_BACKEND to: %s", celery_config.backend_url)
 
         if celery_config.broker_url != celery.conf.broker_url:
             celery.conf.update(
@@ -219,7 +180,7 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
                 plugin_class = getattr(module, class_name)
                 plugins.append(plugin_class())
             except Exception as e:
-                logger.warning(f"Failed to import plugin {plugin_path}: {e}")
+                logger.warning("Failed to import plugin %s: %s", plugin_path, e)
 
         config.node_plugins = plugins if plugins else None
 
@@ -245,12 +206,8 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
         Returns:
             Tuple (node, links)
         """
-        node_class = (
-            spider.config.custom_node_class if spider.config.custom_node_class else Node
-        )
-        node = node_class(
-            url=url, depth=depth, plugin_manager=spider.node_plugin_manager
-        )
+        node_class = spider.config.custom_node_class if spider.config.custom_node_class else Node
+        node = node_class(url=url, depth=depth, plugin_manager=spider.node_plugin_manager)
         links = spider.scanner.scan_node(node)
         return node, links
 
@@ -304,9 +261,10 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
                 Returns:
                     Побудований граф
         """
-        logger.info(f"Starting Celery crawl: {self._get_start_url()}")
+        logger.info("Starting Celery crawl: %s", self._get_start_url())
         logger.info(
-            f"Celery workers: {self._get_celery_workers()}, max_depth: {self._get_max_depth()}, max_pages: {self._get_max_pages()}"
+            f"Celery workers: {self._get_celery_workers()}, "
+            f"max_depth: {self._get_max_depth()}, max_pages: {self._get_max_pages()}"
         )
 
         # Крок 1: Ініціалізація
@@ -315,7 +273,7 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
 
         # Крок 2: Основний цикл
         while urls_to_process and self._should_continue():
-            logger.info(f"Processing {len(urls_to_process)} URLs via Celery")
+            logger.info("Processing %s URLs via Celery", len(urls_to_process))
 
             # Крок 3: Виконання задач
             results = self._execute_celery_tasks(urls_to_process, config_dict)
@@ -324,12 +282,13 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
             urls_to_process = self._process_celery_results(results)
 
             logger.info(
-                f"Celery round completed. Total pages: {self.pages_crawled}, URLs in queue: {len(urls_to_process)}"
+                f"Celery round completed. Total pages: {self.pages_crawled}, "
+                f"URLs in queue: {len(urls_to_process)}"
             )
 
-        logger.info(f"Celery crawl finished: {self.pages_crawled} pages scanned")
+        logger.info("Celery crawl finished: %s pages scanned", self.pages_crawled)
         stats = self.graph.get_stats()
-        logger.info(f"Graph stats: {stats}")
+        logger.info("Graph stats: %s", stats)
 
         return self.graph
 
@@ -454,18 +413,18 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
         """
         max_pages = self._get_max_pages()
         if max_pages and self.pages_crawled >= max_pages:
-            logger.info(f"Reached max_pages limit: {max_pages}")
+            logger.info("Reached max_pages limit: %s", max_pages)
             return False
         return True
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> Dict[str, Any]:
         """
         Повертає статистику краулінгу.
 
         Returns:
             Словник зі статистикою
         """
-        stats = self.graph.get_stats()
+        stats: Dict[str, Any] = self.graph.get_stats()
         stats["pages_crawled"] = self.pages_crawled
         stats["celery_workers"] = self._get_celery_workers()
         stats["mode"] = "celery"
@@ -474,7 +433,7 @@ class CelerySpider(ConfigSerializationMixin, IDistributedSpider):
     def get_partial_graph(self) -> Graph:
         """
         Повертає частковий граф (для випадку timeout/shutdown).
-        
+
         Returns:
             Поточний стан графу
         """

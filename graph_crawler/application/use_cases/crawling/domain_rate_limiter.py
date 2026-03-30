@@ -1,7 +1,5 @@
 """Domain-based Rate Limiter - обмеження запитів по доменам.
 
-
-
 Забезпечує:
 - Per-domain rate limiting (наприклад, max 10 req/sec на домен)
 - Автоматичне throttling при 429 статусах
@@ -51,30 +49,6 @@ class DomainRateLimiter:
     """
     Per-domain Rate Limiter з Token Bucket алгоритмом.
 
-    Забезпечує:
-    - Ліміт запитів на секунду для кожного домену
-    - Burst support (можна зробити N запитів одразу)
-    - Автоматичний backoff при 429 статусах
-    - Thread-safe для asyncio
-
-    Алгоритм Token Bucket:
-    - Кожен домен має "bucket" з токенами
-    - Токени поповнюються з часом (requests_per_second)
-    - Запит споживає 1 токен
-    - Якщо токенів немає - потрібно чекати
-
-    Приклад:
-        >>> limiter = DomainRateLimiter(
-        ...     requests_per_second=10,
-        ...     burst_limit=20
-        ... )
-        >>>
-        >>> async def crawl(url):
-        ...     domain = URLUtils.get_domain(url)
-        ...     await limiter.acquire(domain)
-        ...     response = await fetch(url)
-        ...     if response.status == 429:
-        ...         limiter.report_rate_limited(domain)
     """
 
     def __init__(
@@ -114,8 +88,7 @@ class DomainRateLimiter:
         self._lock = asyncio.Lock()
 
         logger.info(
-            f"✅ DomainRateLimiter initialized: "
-            f"{requests_per_second} req/s, burst={burst_limit}"
+            f"✅ DomainRateLimiter initialized: {requests_per_second} req/s, burst={burst_limit}"
         )
 
     async def acquire(self, domain: str, tokens: int = 1) -> bool:
@@ -143,8 +116,7 @@ class DomainRateLimiter:
             if stats.last_request_time > 0:
                 elapsed = now - stats.last_request_time
                 stats.tokens = min(
-                    stats.burst_limit,
-                    stats.tokens + elapsed * stats.requests_per_second
+                    stats.burst_limit, stats.tokens + elapsed * stats.requests_per_second
                 )
 
             # Перевірка чи є токени
@@ -219,10 +191,7 @@ class DomainRateLimiter:
         stats.rate_limited_count += 1
 
         # Exponential backoff
-        backoff_time = min(
-            self.backoff_base ** stats.backoff_multiplier,
-            self.max_backoff
-        )
+        backoff_time = min(self.backoff_base**stats.backoff_multiplier, self.max_backoff)
         stats.backoff_until = time.monotonic() + backoff_time
         stats.backoff_multiplier = min(stats.backoff_multiplier + 1, 6)
 
@@ -271,16 +240,13 @@ class DomainRateLimiter:
 
     def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
         """Отримати статистику для всіх доменів."""
-        return {
-            domain: self.get_domain_stats(domain)
-            for domain in self._domains
-        }
+        return {domain: self.get_domain_stats(domain) for domain in self._domains}
 
     def reset_domain(self, domain: str) -> None:
         """Скинути статистику для домену."""
         if domain in self._domains:
             del self._domains[domain]
-            logger.info(f"Reset rate limiter for {domain}")
+            logger.info("Reset rate limiter for %s", domain)
 
     def reset_all(self) -> None:
         """Скинути всю статистику."""

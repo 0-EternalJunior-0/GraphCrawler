@@ -9,7 +9,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from graph_crawler.infrastructure.transport.context import EventPriority
 
@@ -20,29 +20,10 @@ class BaseDriverPlugin(ABC):
     """
     Базовий клас для всіх driver-specific плагінів.
 
-    Плагін може:
-    1. Підписуватися на етапи драйвера (hooks)
-    2. Створювати та публікувати власні події
-    3. Отримувати доступ до внутрішніх об'єктів драйвера через контекст
-    4. Комунікувати з іншими плагінами через події
-
-    Приклад:
-        class MyPlugin(BaseDriverPlugin):
-            def get_hooks(self) -> List[str]:
-                return ['navigation_completed', 'content_ready']
-
-            async def on_navigation_completed(self, ctx: BrowserContext):
-                # Ваша логіка
-                return ctx
-
-            async def on_content_ready(self, ctx: BrowserContext):
-                if self._detect_captcha(ctx.page):
-                    ctx.emit('captcha_detected', captcha_type='recaptcha')
-                return ctx
     """
 
     def __init__(
-        self, config: Dict[str, Any] = None, priority: int = EventPriority.NORMAL
+        self, config: Optional[Dict[str, Any]] = None, priority: int = EventPriority.NORMAL
     ):
         """
         Ініціалізація плагіна.
@@ -51,13 +32,18 @@ class BaseDriverPlugin(ABC):
             config: Конфігурація плагіна
             priority: Пріоритет виконання (1-100, менше = вище пріоритет)
         """
-        self.config = config or {}
+        self._config = config or {}
         self.priority = priority
         self.enabled = True
         self._stats = {"executions": 0, "errors": 0, "total_time": 0.0}
 
+    @property
+    def config(self) -> Dict[str, Any]:
+        """Повертає конфігурацію плагіна."""
+        return self._config
+
     @staticmethod
-    def config(**kwargs) -> Dict[str, Any]:
+    def create_config(**kwargs) -> Dict[str, Any]:
         """
         Створює конфігурацію для плагіна.
 
@@ -65,7 +51,7 @@ class BaseDriverPlugin(ABC):
         Підкласи можуть перевизначити для власних параметрів.
 
         Example:
-            config = MyPlugin.config(param1="value1", param2=123)
+            config = MyPlugin.create_config(param1="value1", param2=123)
             plugin = MyPlugin(config)
 
         Args:
@@ -74,6 +60,13 @@ class BaseDriverPlugin(ABC):
         Returns:
             Dict з конфігурацією
         """
+        return kwargs
+
+    # Backward compatibility alias - для виклику як Plugin.config(...)
+    # Примітка: не плутати з @property config який повертає _config
+    @staticmethod
+    def make_config(**kwargs) -> Dict[str, Any]:
+        """Alias для create_config() для backward compatibility."""
         return kwargs
 
     @property
@@ -115,7 +108,7 @@ class BaseDriverPlugin(ABC):
 
         Викликається один раз при додаванні плагіна в драйвер.
         """
-        logger.info(f"Plugin '{self.name}' initialized (priority={self.priority})")
+        logger.info("Plugin '%s' initialized (priority=%s)", self.name, self.priority)
 
     def teardown(self):
         """
@@ -123,7 +116,7 @@ class BaseDriverPlugin(ABC):
 
         Викликається при закритті драйвера.
         """
-        logger.debug(f"Plugin '{self.name}' teardown")
+        logger.debug("Plugin '%s' teardown", self.name)
 
     def get_stats(self) -> Dict[str, Any]:
         """

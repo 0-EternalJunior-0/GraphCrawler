@@ -8,7 +8,7 @@ Form Filler плагін для Playwright драйвера.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 from graph_crawler.infrastructure.transport.playwright.context import BrowserContext
@@ -21,40 +21,6 @@ class FormFillerPlugin(BaseDriverPlugin):
     """
     Плагін для автоматичного заповнення форм.
 
-    Конфігурація:
-        forms: Словник з даними для форм:
-            {
-                'login': {
-                    'selector': 'form.login',
-                    'fields': {
-                        '#username': 'user@example.com',
-                        '#password': 'secret123'
-                    },
-                    'submit': 'button[type="submit"]'
-                }
-            }
-        auto_submit: Чи автоматично відправляти форму (default: False)
-        typing_delay: Затримка між символами в мс (default: 50)
-
-    Події:
-        - form_found: Знайдено форму
-        - form_filled: Форму заповнено
-        - form_submitted: Форму відправлено
-
-    Приклад:
-        plugin = FormFillerPlugin(FormFillerPlugin.config(
-            forms={
-                'login': {
-                    'selector': 'form#login',
-                    'fields': {
-                        'input[name="email"]': 'user@example.com',
-                        'input[name="password"]': 'password123'
-                    },
-                    'submit': 'button.submit'
-                }
-            },
-            auto_submit=True
-        ))
     """
 
     @property
@@ -68,9 +34,7 @@ class FormFillerPlugin(BaseDriverPlugin):
         # Підписуємось на подію login_required від інших плагінів
         return ["login_required", "fill_form_request"]
 
-    async def _fill_form(
-        self, page, form_config: Dict[str, Any], ctx: BrowserContext
-    ) -> bool:
+    async def _fill_form(self, page, form_config: Dict[str, Any], ctx: BrowserContext) -> bool:
         """
         Заповнює форму згідно з конфігурацією.
 
@@ -91,10 +55,10 @@ class FormFillerPlugin(BaseDriverPlugin):
             if form_selector:
                 form = await page.query_selector(form_selector)
                 if not form:
-                    logger.debug(f"Form not found: {form_selector}")
+                    logger.debug("Form not found: %s", form_selector)
                     return False
 
-            logger.info(f"Filling form: {form_selector or 'default'}")
+            logger.info("Filling form: %s", form_selector or 'default')
             ctx.emit("form_found", form_selector=form_selector)
 
             # Заповнюємо поля
@@ -105,11 +69,11 @@ class FormFillerPlugin(BaseDriverPlugin):
                         await field.click()
                         await field.fill("")  # Очищаємо
                         await field.type(value, delay=typing_delay)
-                        logger.debug(f"Filled field {field_selector}")
+                        logger.debug("Filled field %s", field_selector)
                     else:
-                        logger.warning(f"Field not found: {field_selector}")
+                        logger.warning("Field not found: %s", field_selector)
                 except Exception as e:
-                    logger.error(f"Error filling field {field_selector}: {e}")
+                    logger.error("Error filling field %s: %s", field_selector, e)
 
             ctx.emit("form_filled", form_selector=form_selector)
             ctx.data["form_filled"] = True
@@ -121,7 +85,7 @@ class FormFillerPlugin(BaseDriverPlugin):
                     submit_btn = await page.query_selector(submit_selector)
                     if submit_btn:
                         await submit_btn.click()
-                        logger.info(f"Form submitted via {submit_selector}")
+                        logger.info("Form submitted via %s", submit_selector)
                         ctx.emit("form_submitted", form_selector=form_selector)
                         ctx.data["form_submitted"] = True
 
@@ -131,7 +95,7 @@ class FormFillerPlugin(BaseDriverPlugin):
             return True
 
         except Exception as e:
-            logger.error(f"Error filling form: {e}")
+            logger.error("Error filling form: %s", e)
             ctx.errors.append(e)
             return False
 
@@ -161,12 +125,12 @@ class FormFillerPlugin(BaseDriverPlugin):
                 if form_selector:
                     form = await ctx.page.query_selector(form_selector)
                     if form:
-                        logger.info(f"Found form '{form_name}' on {ctx.url}")
+                        logger.info("Found form '%s' on %s", form_name, ctx.url)
                         await self._fill_form(ctx.page, form_config, ctx)
                         break  # Заповнюємо першу знайдену
 
         except Exception as e:
-            logger.error(f"Error in form filler: {e}")
+            logger.error("Error in form filler: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -189,9 +153,7 @@ class FormFillerPlugin(BaseDriverPlugin):
             logger.info("Login required event received, attempting login...")
             await self._fill_form(ctx.page, login_form, ctx)
 
-    async def on_fill_form_request(
-        self, ctx: BrowserContext, form_name: str = None, **event_data
-    ):
+    async def on_fill_form_request(self, ctx: BrowserContext, form_name: Optional[str] = None, **event_data):
         """
         Обробник запиту на заповнення форми.
 
@@ -207,5 +169,5 @@ class FormFillerPlugin(BaseDriverPlugin):
         form_config = forms_config.get(form_name)
 
         if form_config:
-            logger.info(f"Fill form request for '{form_name}'")
+            logger.info("Fill form request for '%s'", form_name)
             await self._fill_form(ctx.page, form_config, ctx)

@@ -5,7 +5,7 @@
 
 import asyncio
 import logging
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from graph_crawler.domain.events.events import CrawlerEvent, EventType
 from graph_crawler.shared.constants import DEFAULT_EVENT_HISTORY_SIZE
@@ -21,33 +21,6 @@ class EventBus:
     """
     Event Bus для Observer Pattern .
 
-    Дозволяє компонентам підписуватися на події та реагувати на них. Підтримує як sync, так і async callbacks.
-
-    Переваги:
-    - Loose coupling між компонентами
-    - Легко додавати нових observers
-    - Централізоване управління подіями
-    - Логування, моніторинг, analytics
-    - Async callbacks для неблокуючої обробки
-
-    Приклад:
-        bus = EventBus()
-
-        # Підписка на події
-        def on_node_created(event: CrawlerEvent):
-            print(f"Node created: {event.data['url']}")
-
-        bus.subscribe(EventType.NODE_CREATED, on_node_created)
-
-        # Публікація події
-        event = CrawlerEvent.create(
-            EventType.NODE_CREATED,
-            data={'url': 'https://example.com'}
-        )
-        bus.publish(event)
-
-        # Async publish для async callbacks
-        await bus.publish_async(event)
     """
 
     def __init__(self):
@@ -55,9 +28,7 @@ class EventBus:
         self._history: List[CrawlerEvent] = []
         self._history_enabled = False
 
-    def subscribe(
-        self, event_type: EventType, callback: Callable[[CrawlerEvent], None]
-    ):
+    def subscribe(self, event_type: EventType, callback: Callable[[CrawlerEvent], None]):
         """
         Підписується на події певного типу.
 
@@ -76,9 +47,7 @@ class EventBus:
 
         self._subscribers[event_type].append(callback)
 
-    def unsubscribe(
-        self, event_type: EventType, callback: Callable[[CrawlerEvent], None]
-    ):
+    def unsubscribe(self, event_type: EventType, callback: Callable[[CrawlerEvent], None]):
         """
         Відписується від події.
 
@@ -91,7 +60,7 @@ class EventBus:
             if callback in self._subscribers[event_type]:
                 self._subscribers[event_type].remove(callback)
             else:
-                logger.warning(f"Callback not found for event type {event_type}")
+                logger.warning("Callback not found for event type %s", event_type)
 
     def unsubscribe_all(self, callback: Callable[[CrawlerEvent], None]):
         """
@@ -106,9 +75,9 @@ class EventBus:
                 self._subscribers[event_type].remove(callback)
                 removed_count += 1
 
-        logger.debug(f"Unsubscribed callback from {removed_count} event types")
+        logger.debug("Unsubscribed callback from %s event types", removed_count)
 
-    def clear_subscribers(self, event_type: EventType = None):
+    def clear_subscribers(self, event_type: Optional[EventType] = None):
         """
         Очищає підписників.
 
@@ -122,7 +91,7 @@ class EventBus:
         elif event_type in self._subscribers:
             # Очищуємо підписки для конкретного типу
             del self._subscribers[event_type]
-            logger.debug(f"Cleared subscribers for {event_type}")
+            logger.debug("Cleared subscribers for %s", event_type)
 
     def publish(self, event: CrawlerEvent, fail_fast: bool = False):
         """
@@ -159,7 +128,7 @@ class EventBus:
         self,
         event: CrawlerEvent,
         timeout: float = DEFAULT_CALLBACK_TIMEOUT,
-        fail_fast: bool = False
+        fail_fast: bool = False,
     ):
         """
         Async публікує подію всім підписникам.
@@ -208,7 +177,7 @@ class EventBus:
         self._history_enabled = True
         self._max_history_size = max_size
 
-    def get_history(self, event_type: EventType = None) -> List[CrawlerEvent]:
+    def get_history(self, event_type: Optional[EventType] = None) -> List[CrawlerEvent]:
         """
         Повертає історію подій.
 
@@ -226,7 +195,7 @@ class EventBus:
         """Очищує історію подій."""
         self._history.clear()
 
-    def get_subscriber_count(self, event_type: EventType = None) -> int:
+    def get_subscriber_count(self, event_type: Optional[EventType] = None) -> int:
         """Повертає кількість підписників."""
         if event_type:
             return len(self._subscribers.get(event_type, []))

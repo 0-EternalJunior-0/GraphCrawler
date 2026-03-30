@@ -1,27 +1,6 @@
 """Enhanced Error Tracing для GraphCrawler.
 
 Features:
-- Structured error context
-- Stack trace з контекстом
-- Error categorization
-- Correlation ID tracking
-- Error aggregation
-
-Usage:
-    >>> from graph_crawler.observability.error_tracing import (
-    ...     ErrorTracer,
-    ...     trace_error,
-    ...     get_error_summary,
-    ... )
-    >>>
-    >>> # Trace an error
-    >>> try:
-    ...     fetch(url)
-    ... except Exception as e:
-    ...     trace_error(e, context={"url": url, "depth": 2})
-    >>>
-    >>> # Get error summary
-    >>> summary = get_error_summary()
 """
 
 import logging
@@ -106,22 +85,18 @@ class ErrorTracer:
         "TimeoutError": "network",
         "aiohttp.ClientError": "network",
         "asyncio.TimeoutError": "network",
-
         # HTTP errors
         "HTTPError": "http",
         "ClientResponseError": "http",
-
         # Parsing errors
         "ParseError": "parsing",
         "HTMLParseError": "parsing",
         "UnicodeDecodeError": "parsing",
         "JSONDecodeError": "parsing",
-
         # Validation errors
         "ValidationError": "validation",
         "ValueError": "validation",
         "TypeError": "validation",
-
         # System errors
         "MemoryError": "system",
         "OSError": "system",
@@ -219,7 +194,7 @@ class ErrorTracer:
                 "error_category": category,
                 "correlation_id": correlation_id,
                 **(context or {}),
-            }
+            },
         )
 
         return error_ctx
@@ -260,13 +235,15 @@ class ErrorTracer:
                 except Exception:
                     locals_subset[k] = "<unrepresentable>"
 
-            frames.append({
-                "file": frame.f_code.co_filename,
-                "module": frame.f_globals.get("__name__", ""),
-                "function": frame.f_code.co_name,
-                "line": tb.tb_lineno,
-                "locals": locals_subset,
-            })
+            frames.append(
+                {
+                    "file": frame.f_code.co_filename,
+                    "module": frame.f_globals.get("__name__", ""),
+                    "function": frame.f_code.co_name,
+                    "line": tb.tb_lineno,
+                    "locals": locals_subset,
+                }
+            )
             tb = tb.tb_next
         return frames
 
@@ -296,11 +273,7 @@ class ErrorTracer:
             total = len(self._errors)
 
             # Top error types
-            top_types = sorted(
-                self._error_counts.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:10]
+            top_types = sorted(self._error_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
             # Category distribution
             categories = dict(self._category_counts)
@@ -310,9 +283,7 @@ class ErrorTracer:
                 "unique_types": len(self._error_counts),
                 "top_error_types": dict(top_types),
                 "by_category": categories,
-                "recent_errors": [
-                    e.to_dict() for e in self.get_recent_errors(5)
-                ],
+                "recent_errors": [e.to_dict() for e in self.get_recent_errors(5)],
             }
 
     def get_summary_text(self) -> str:
@@ -333,10 +304,12 @@ class ErrorTracer:
         for cat, count in summary["by_category"].items():
             lines.append(f"  • {cat}: {count}")
 
-        lines.extend([
-            "",
-            "Top Error Types:",
-        ])
+        lines.extend(
+            [
+                "",
+                "Top Error Types:",
+            ]
+        )
 
         for err_type, count in summary["top_error_types"].items():
             lines.append(f"  • {err_type}: {count}")

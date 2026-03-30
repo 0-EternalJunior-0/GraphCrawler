@@ -20,41 +20,32 @@ class NodeMapper:
     """
     Mapper для конвертації Node ↔ NodeDTO.
 
-    Відповідальність:
-    - Domain → DTO: Серіалізація Node в NodeDTO (без залежностей)
-    - DTO → Domain: Десеріалізація NodeDTO в Node (з відновленням залежностей)
-    - CreateDTO → Domain: Створення нового Node з мінімальних даних
-
-    ВАЖЛИВО про залежності:
-    - plugin_manager, tree_parser, hash_strategy НЕ серіалізуються в DTO
-    - При to_domain() вони передаються через context або використовуються дефолтні
-    - Це забезпечує гнучкість: можна завантажити Node і потім налаштувати залежності
-
-    Examples:
-        >>> # Domain → DTO (серіалізація)
-        >>> node = Node(url="https://example.com", depth=0)
-        >>> node_dto = NodeMapper.to_dto(node)
-        >>>
-        >>> # DTO → Domain (десеріалізація з контекстом)
-        >>> context = {
-        ...     'plugin_manager': my_plugin_manager,
-        ...     'tree_parser': my_parser,
-        ...     'hash_strategy': my_hash_strategy
-        ... }
-        >>> node = NodeMapper.to_domain(node_dto, context=context)
-        >>>
-        >>> # CreateDTO → Domain (створення нового)
-        >>> create_dto = CreateNodeDTO(url="https://example.com", depth=0)
-        >>> node = NodeMapper.from_create_dto(create_dto, context=context)
     """
 
     # Базові поля Node які є в NodeDTO (не треба дублювати в _custom_fields)
-    _BASE_NODE_FIELDS: FrozenSet[str] = frozenset({
-        'url', 'node_id', 'depth', 'should_scan', 'can_create_edges',
-        'created_at', 'metadata', 'user_data', 'scanned', 'response_status',
-        'content_hash', 'simhash', 'priority', 'lifecycle_stage', 'content_type',
-        'plugin_manager', 'tree_parser', 'hash_strategy', 'simhash_strategy'
-    })
+    _BASE_NODE_FIELDS: FrozenSet[str] = frozenset(
+        {
+            "url",
+            "node_id",
+            "depth",
+            "should_scan",
+            "can_create_edges",
+            "created_at",
+            "metadata",
+            "user_data",
+            "scanned",
+            "response_status",
+            "content_hash",
+            "simhash",
+            "priority",
+            "lifecycle_stage",
+            "content_type",
+            "plugin_manager",
+            "tree_parser",
+            "hash_strategy",
+            "simhash_strategy",
+        }
+    )
 
     @staticmethod
     @lru_cache(maxsize=32)
@@ -64,7 +55,7 @@ class NodeMapper:
         """
         return frozenset(
             field_name
-            for field_name in node_class.model_fields.keys()
+            for field_name in node_class.model_fields
             if field_name not in NodeMapper._BASE_NODE_FIELDS
         )
 
@@ -73,20 +64,10 @@ class NodeMapper:
         """
         Конвертує Domain Node в NodeDTO для передачі між шарами.
 
-        Серіалізує всі поля Node, ОКРІМ:
-        - plugin_manager (не серіалізується)
-        - tree_parser (не серіалізується)
-        - hash_strategy (не серіалізується)
-
-        Кастомні Pydantic поля підкласів Node автоматично зберігаються
-        в user_data['_custom_fields'] для збереження через DTO pipeline.
-
         Args:
             node: Domain Node entity
-
         Returns:
             NodeDTO з усіма даними Node
-
         Example:
             >>> node = Node(url="https://example.com", depth=0)
             >>> await node.process_html("<html>...</html>")
@@ -122,7 +103,7 @@ class NodeMapper:
                     custom_fields[field_name] = value
 
             if custom_fields:
-                user_data['_custom_fields'] = custom_fields
+                user_data["_custom_fields"] = custom_fields
 
         return NodeDTO(
             node_id=node.node_id,
@@ -144,19 +125,12 @@ class NodeMapper:
 
     @staticmethod
     def to_domain(
-            node_dto: NodeDTO,
-            context: Optional[Dict[str, Any]] = None,
-            node_class: Type[Node] = Node,
+        node_dto: NodeDTO,
+        context: Optional[Dict[str, Any]] = None,
+        node_class: Type[Node] = Node,
     ) -> Node:
         """
         Конвертує NodeDTO в Domain Node з відновленням залежностей.
-
-        ВАЖЛИВО: Залежності (plugin_manager, tree_parser, hash_strategy)
-        передаються через context. Якщо context=None, вони будуть None.
-        Користувач може відновити їх пізніше через node.restore_dependencies().
-
-        Кастомні Pydantic поля відновлюються з user_data['_custom_fields']
-        якщо node_class їх підтримує.
 
         Args:
             node_dto: NodeDTO для конвертації
@@ -166,22 +140,8 @@ class NodeMapper:
                 - 'hash_strategy': Стратегія обчислення hash
             node_class: Клас Node для створення (за замовчуванням Node,
                        може бути CustomNode для розширень)
-
         Returns:
             Domain Node entity з відновленими залежностями
-
-        Example:
-            >>> # Без context (залежності будуть None)
-            >>> node = NodeMapper.to_domain(node_dto)
-            >>>
-            >>> # З context (залежності відновлені)
-            >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-            >>> node = NodeMapper.to_domain(node_dto, context=context)
-            >>>
-            >>> # З кастомним Node класом
-            >>> class CustomNode(Node):
-            ...     text: Optional[str] = None
-            >>> node = NodeMapper.to_domain(node_dto, node_class=CustomNode)
         """
         context = context or {}
 
@@ -201,30 +161,30 @@ class NodeMapper:
 
         # Копіюємо user_data та витягуємо _custom_fields
         user_data = node_dto.user_data.copy()
-        custom_fields = user_data.pop('_custom_fields', {})
+        custom_fields = user_data.pop("_custom_fields", {})
 
         # Базові параметри для створення Node
         node_kwargs = {
-            'node_id': node_dto.node_id,
-            'url': node_dto.url,
-            'depth': node_dto.depth,
-            'should_scan': node_dto.should_scan,
-            'can_create_edges': node_dto.can_create_edges,
-            'scanned': node_dto.scanned,
-            'response_status': node_dto.response_status,
-            'metadata': node_dto.metadata.copy(),
-            'user_data': user_data,
-            'content_hash': node_dto.content_hash,
-            'simhash': node_dto.simhash,
-            'priority': node_dto.priority,
-            'created_at': node_dto.created_at,
-            'lifecycle_stage': lifecycle_stage,
-            'content_type': content_type,
+            "node_id": node_dto.node_id,
+            "url": node_dto.url,
+            "depth": node_dto.depth,
+            "should_scan": node_dto.should_scan,
+            "can_create_edges": node_dto.can_create_edges,
+            "scanned": node_dto.scanned,
+            "response_status": node_dto.response_status,
+            "metadata": node_dto.metadata.copy(),
+            "user_data": user_data,
+            "content_hash": node_dto.content_hash,
+            "simhash": node_dto.simhash,
+            "priority": node_dto.priority,
+            "created_at": node_dto.created_at,
+            "lifecycle_stage": lifecycle_stage,
+            "content_type": content_type,
             # Залежності з context (можуть бути None)
-            'plugin_manager': context.get("plugin_manager"),
-            'tree_parser': context.get("tree_parser"),
-            'hash_strategy': context.get("hash_strategy"),
-            'simhash_strategy': context.get("simhash_strategy"),
+            "plugin_manager": context.get("plugin_manager"),
+            "tree_parser": context.get("tree_parser"),
+            "hash_strategy": context.get("hash_strategy"),
+            "simhash_strategy": context.get("simhash_strategy"),
         }
 
         # Відновлюємо кастомні поля якщо node_class їх підтримує
@@ -240,24 +200,19 @@ class NodeMapper:
 
     @staticmethod
     def from_create_dto(
-            create_dto: CreateNodeDTO,
-            context: Optional[Dict[str, Any]] = None,
-            node_class: Type[Node] = Node,
+        create_dto: CreateNodeDTO,
+        context: Optional[Dict[str, Any]] = None,
+        node_class: Type[Node] = Node,
     ) -> Node:
         """
         Створює новий Domain Node з CreateNodeDTO.
-
-        Використовується для створення нових нод з мінімальних даних.
-        Інші поля (node_id, created_at, metadata, etc.) встановлюються автоматично.
 
         Args:
             create_dto: CreateNodeDTO з мінімальними даними
             context: Контекст з залежностями (plugin_manager, tree_parser, hash_strategy)
             node_class: Клас Node для створення (за замовчуванням Node)
-
         Returns:
             Новий Domain Node entity
-
         Example:
             >>> create_dto = CreateNodeDTO(
             ...     url="https://example.com",
@@ -338,9 +293,9 @@ class NodeMapper:
 
     @staticmethod
     def to_domain_list(
-            node_dtos: list[NodeDTO],
-            context: Optional[Dict[str, Any]] = None,
-            node_class: Type[Node] = Node,
+        node_dtos: list[NodeDTO],
+        context: Optional[Dict[str, Any]] = None,
+        node_class: Type[Node] = Node,
     ) -> list[Node]:
         """
         Конвертує список NodeDTO в список Node.
@@ -361,6 +316,5 @@ class NodeMapper:
             >>> nodes = NodeMapper.to_domain_list(node_dtos, context=context)
         """
         return [
-            NodeMapper.to_domain(dto, context=context, node_class=node_class)
-            for dto in node_dtos
+            NodeMapper.to_domain(dto, context=context, node_class=node_class) for dto in node_dtos
         ]

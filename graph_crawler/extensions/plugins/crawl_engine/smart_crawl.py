@@ -2,22 +2,31 @@
 
 Розширена версія SmartPageFinderPlugin, але працює на Engine рівні:
 - Приоритизує URL ПЕРЕД скануванням (не після)
-- Використовує g4f для аналізу URL patterns
 - Може блокувати нерелевантні URL без сканування
 
 Відмінності від Node плагіну:
 - Node плагін: аналізує HTML після сканування
 - Engine плагін: аналізує URL перед скануванням (економить ресурси)
+
+Note: g4f (GPT4Free) integration is deprecated and will be removed.
+Consider using official LLM APIs with proper API keys.
 """
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Optional
 
 from graph_crawler.extensions.plugins.crawl_engine.base import (
     BaseEnginePlugin,
     EnginePluginContext,
     EnginePluginType,
+)
+from graph_crawler.shared.utils.text_utils import extract_keywords
+from graph_crawler.shared.utils.url_patterns import (
+    CONTENT_PAGE_PATTERNS,
+    NAVIGATION_PATTERNS,
+    IGNORE_PATTERNS,
+    is_content_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,39 +34,18 @@ logger = logging.getLogger(__name__)
 
 class SmartCrawlEnginePlugin(BaseEnginePlugin):
     """
-    ML плагін для інтелектуального керування краулінгом.
+    ML plugin for intelligent crawl prioritization.
 
-    Використовує search_prompt для визначення пріоритетів URL без сканування.
-    Економить ресурси - не сканує нерелевантні сторінки.
+    Extended version of SmartPageFinderPlugin that works at Engine level:
+    - Prioritizes URLs BEFORE scanning (not after)
+    - Can block irrelevant URLs without scanning
 
-    Features:
-    - Keyword matching в URL для швидкої пріоритизації
-    - Підтримка g4f для ML аналізу (опціонально)
-    - Pattern matching для різних типів контенту
-    - Fallback на keyword-based аналіз якщо g4f недоступний
-
-    Параметри конфігурації:
-        enabled (bool): Чи увімкнено плагін (default: True)
-        min_relevance_score (float): Мінімальний score (default: 0.7)
-        priority_boost (int): Додатковий пріоритет (default: 5)
-        use_llm (bool): Використовувати g4f для аналізу (default: False, економніше)
-        aggressive_filtering (bool): Блокувати низькорелевантні URL (default: False)
-
-    Example:
-        >>> plugin = SmartCrawlEnginePlugin(
-        ...     search_prompt="Шукаю статті про Гаррі Поттера",
-        ...     config={
-        ...         'min_relevance_score': 0.6,
-        ...         'use_llm': False,  # keyword-based швидше
-        ...         'aggressive_filtering': True  # блокувати нерелевантні
-        ...     }
-        ... )
-        >>>
-        >>> provider = EnginePriorityProvider(plugins=[plugin])
-        >>> graph = gc.crawl("https://example.com", provider=provider)
+    Differences from Node plugin:
+    - Node plugin: analyzes HTML after scanning
+    - Engine plugin: analyzes URL before scanning (saves resources)
     """
 
-    def __init__(self, search_prompt: str, config: Dict[str, Any] = None):
+    def __init__(self, search_prompt: str, config: Optional[Dict[str, Any]] = None):
         """
         Ініціалізує SmartCrawlEnginePlugin.
 
@@ -86,10 +74,8 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
         self._g4f_available = None
 
         logger.info(
-            f"SmartCrawlEnginePlugin initialized: "
-            f"prompt='{self.search_prompt[:50]}...', "
-            f"keywords={self.keywords[:5]}, "
-            f"use_llm={self.use_llm}"
+            "SmartCrawlEnginePlugin initialized: prompt='%s...', keywords=%s, use_llm=%s",
+            self.search_prompt[:50], self.keywords[:5], self.use_llm
         )
 
     @property
@@ -144,16 +130,13 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
                 priority = llm_priority
 
         logger.debug(
-            f"Priority {priority} for {url} "
-            f"(keywords={keyword_matches}, parent_score={context.parent_score})"
+            "Priority %s for %s (keywords=%s, parent_score=%s)",
+            priority, url, keyword_matches, context.parent_score
         )
 
         return priority
 
-    def calculate_batch_priorities(
-        self,
-        contexts: List[EnginePluginContext]
-    ) -> Dict[str, int]:
+    def calculate_batch_priorities(self, contexts: List[EnginePluginContext]) -> Dict[str, int]:
         """
         Batch обробка URL для ефективності.
 
@@ -192,68 +175,37 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
 
         url_lower = context.url.lower()
 
-        # Блокуємо явно нерелевантні патерни
-        ignore_patterns = [
-            r'/login', r'/register', r'/signup', r'/signin',
-            r'/cart', r'/checkout', r'/payment',
-            r'/privacy', r'/terms', r'/cookie',
-            r'/profile/\d+$', r'/user/', r'/account',
-            r'/forums?/', r'/comment',
-            r'\.(pdf|doc|docx|zip|rar|exe)$',
-            r'/admin', r'/api/',
-        ]
-
-        for pattern in ignore_patterns:
+        # Use shared ignore patterns
+        for pattern in IGNORE_PATTERNS:
             if re.search(pattern, url_lower):
-                logger.debug(f"Blocked {context.url} by pattern {pattern}")
+                logger.debug("Blocked %s by pattern %s", context.url, pattern)
                 return False
 
         # Якщо немає жодного keyword і не content page - блокуємо
         keyword_matches = sum(1 for kw in self.keywords if kw.lower() in url_lower)
-        is_content_page = self._is_content_page(url_lower)
 
-        if keyword_matches == 0 and not is_content_page:
-            logger.debug(f"Blocked {context.url} - no keywords and not content page")
+        if keyword_matches == 0 and not is_content_url(url_lower):
+            logger.debug("Blocked %s - no keywords and not content page", context.url)
             return False
 
         return None
 
     def _extract_keywords(self, text: str) -> List[str]:
-        """Витягує ключові слова з тексту."""
-        stop_words = {
-            'і', 'та', 'або', 'а', 'але', 'що', 'як', 'це', 'на', 'в', 'у', 'з',
-            'до', 'від', 'про', 'для', 'по', 'за', 'шукаю', 'знайти', 'сторінки',
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'have', 'has',
-            'do', 'does', 'did', 'will', 'would', 'to', 'of', 'in', 'for', 'on',
-            'find', 'search', 'looking', 'pages', 'page', 'content'
-        }
-
-        words = re.findall(r'\b\w+\b', text.lower())
-        keywords = [w for w in words if len(w) >= 3 and w not in stop_words]
-        return list(set(keywords))[:10]  # Топ 10 унікальних
+        """Витягує ключові слова з тексту (uses shared utility)."""
+        return extract_keywords(text, max_keywords=10)
 
     def _adjust_priority_by_patterns(self, url: str, base_priority: int) -> int:
         """Коригує пріоритет на основі URL патернів."""
         priority = base_priority
 
-        # Контентні сторінки
-        content_patterns = [
-            r'/fiction/\d+', r'/book/\d+', r'/novel/\d+', r'/story/\d+',
-            r'/article/', r'/post/', r'/product/', r'/item/', r'/details/',
-        ]
-
-        for pattern in content_patterns:
+        # Use shared content patterns
+        for pattern in CONTENT_PAGE_PATTERNS:
             if re.search(pattern, url):
                 priority = min(15, priority + 2)
                 break
 
-        # Навігаційні сторінки (можуть вести до контенту)
-        navigation_patterns = [
-            r'\?page=\d+', r'/page/\d+', r'/category/', r'/tag/', r'/genre/',
-            r'/list', r'/browse', r'best-rated', r'popular',
-        ]
-
-        for pattern in navigation_patterns:
+        # Use shared navigation patterns
+        for pattern in NAVIGATION_PATTERNS:
             if re.search(pattern, url):
                 priority = min(13, priority + 1)
                 break
@@ -261,13 +213,8 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
         return priority
 
     def _is_content_page(self, url: str) -> bool:
-        """Перевіряє чи це контентна сторінка."""
-        content_indicators = [
-            r'/fiction/\d+', r'/book/\d+', r'/novel/\d+', r'/chapter/',
-            r'/article/', r'/post/', r'/story/', r'/details/',
-        ]
-
-        return any(re.search(pattern, url) for pattern in content_indicators)
+        """Перевіряє чи це контентна сторінка (uses shared utility)."""
+        return is_content_url(url)
 
     def _init_g4f(self) -> bool:
         """Ініціалізує g4f клієнт."""
@@ -275,12 +222,22 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
             return self._g4f_available
 
         try:
-            import g4f
-            from g4f.client import Client
+            import warnings
+            warnings.warn(
+                "g4f (GPT4Free) is deprecated and will be removed in future versions. "
+                "Consider using official LLM APIs with proper API keys.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            import g4f  # type: ignore[import-not-found]
+            from g4f.client import Client  # type: ignore[import-not-found]
 
             self._g4f_client = Client()
             self._g4f_available = True
-            logger.info("g4f initialized for SmartCrawlEnginePlugin")
+            logger.warning(
+                "[DEPRECATED] g4f initialized for SmartCrawlEnginePlugin. "
+                "Consider using official LLM APIs."
+            )
             return True
 
         except ImportError:
@@ -288,7 +245,7 @@ class SmartCrawlEnginePlugin(BaseEnginePlugin):
             self._g4f_available = False
             return False
         except Exception as e:
-            logger.error(f"Error initializing g4f: {e}")
+            logger.error("Error initializing g4f: %s", e)
             self._g4f_available = False
             return False
 
@@ -311,13 +268,13 @@ Rate priority 1-15 (15=highest). Respond with ONLY a number."""
 
             content = response.choices[0].message.content.strip()
             # Витягуємо число з відповіді
-            match = re.search(r'\b(\d+)\b', content)
+            match = re.search(r"\b(\d+)\b", content)
             if match:
                 priority = int(match.group(1))
                 return max(1, min(15, priority))  # Clamp 1-15
 
         except Exception as e:
-            logger.debug(f"LLM analysis failed: {e}")
+            logger.debug("LLM analysis failed: %s", e)
 
         return None
 

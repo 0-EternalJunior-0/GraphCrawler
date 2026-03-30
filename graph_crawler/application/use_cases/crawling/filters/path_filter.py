@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from graph_crawler.application.use_cases.crawling.filters.base import BaseURLFilter
@@ -52,10 +52,10 @@ class PathFilter(BaseURLFilter):
             try:
                 compiled.append(re.compile(pattern))
             except re.error as e:
-                logger.error(f"Invalid regex pattern '{pattern}': {e}")
+                logger.error("Invalid regex pattern '%s': %s", pattern, e)
         return compiled
 
-    def is_allowed(self, url: str, source_url: str = None) -> bool:
+    def is_allowed(self, url: str, source_url: Optional[str] = None) -> bool:
         """
         Перевіряє чи дозволений шлях.
 
@@ -76,10 +76,8 @@ class PathFilter(BaseURLFilter):
         # Перевірка excluded_patterns - якщо збігається, то блокуємо
         for pattern in self.excluded_patterns:
             if pattern.search(path):
-                logger.debug(f"Path excluded by pattern {pattern.pattern}: {path}")
-                self._publish_filtered_event(
-                    url, "path", "excluded_pattern", pattern.pattern
-                )
+                logger.debug("Path excluded by pattern %s: %s", pattern.pattern, path)
+                self._publish_filtered_event(url, "path", "excluded_pattern", pattern.pattern)
                 return False
 
         # Перевірка included_patterns - якщо задані, то дозволяємо тільки їх
@@ -87,8 +85,8 @@ class PathFilter(BaseURLFilter):
             for pattern in self.included_patterns:
                 if pattern.search(path):
                     return True
-            logger.debug(f"Path not in included patterns: {path}")
-            self._publish_filtered_event(url, "path", "not_included", None)
+            logger.debug("Path not in included patterns: %s", path)
+            self._publish_filtered_event(url, "path", "not_included", "")
             return False
 
         return True

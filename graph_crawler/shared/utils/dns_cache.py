@@ -1,40 +1,6 @@
 """DNS Cache для оптимізації швидкості запитів.
 
 DNS lookup на кожному запиті займає 50-100ms. Цей модуль кешує DNS відповіді
-щоб економити час на повторних запитах до того самого домену.
-
-Архітектура:
-- Використовує monkey patching socket.getaddrinfo
-- Працює з будь-якою HTTP бібліотекою (requests, aiohttp, httpx, urllib)
-- Не залежить від конкретних драйверів
-- Thread-safe через threading.Lock
-- TTL для автоматичного оновлення кешу
-
-Приклад використання:
-    >>> from graph_crawler.shared.utils.dns_cache import DNSCache
-    >>> from graph_crawler import crawl
-    >>>
-    >>> # Активувати DNS cache для краулінгу
-    >>> with DNSCache(ttl=3600, max_cache_size=1000) as dns_cache:
-    ...     graph = crawl("https://example.com", max_depth=3)
-    ...     stats = dns_cache.get_statistics()
-    ...     print(f"Cache hit rate: {stats['hit_rate']:.1%}")
-    Cache hit rate: 87.3%
-
-Як це працює:
-1. Патчить socket.getaddrinfo (низький рівень DNS lookup)
-2. Перехоплює всі DNS запити від будь-якої бібліотеки
-3. Якщо домен в кеші та не expired - повертає кешовану IP
-4. Якщо домену немає або TTL закінчився - робить real DNS lookup та кешує
-5. При виході з context manager - відновлює оригінальну функцію
-
-Переваги:
-Економія 50-100ms на кожному запиті (крім першого на домен)
-Працює з усіма HTTP драйверами автоматично
-Не ламається при створенні custom драйверів
-Thread-safe для багатопоточного краулінгу
-TTL запобігає використанню застарілих IP
-Статистика для моніторингу ефективності
 """
 
 import logging
@@ -88,47 +54,13 @@ class DNSCache:
     """DNS Cache для оптимізації швидкості HTTP запитів.
 
     Кешує DNS lookup результати щоб уникнути повторних запитів до DNS серверів.
-    Економія: 50-100ms на кожному запиті (крім першого на домен).
-
-    Використовує monkey patching socket.getaddrinfo, тому працює з:
-    - requests (HTTPDriver)
-    - aiohttp (AsyncDriver)
-    - httpx
-    - urllib
-    - будь-якою іншою HTTP бібліотекою
-
-    Thread-safe: Використовує threading.Lock для безпечної роботи в багатопоточному середовищі.
-
-    Приклади:
-        >>> # Базове використання
-        >>> with DNSCache() as dns_cache:
-        ...     # Всі HTTP запити автоматично використовують DNS cache
-        ...     driver = HTTPDriver()
-        ...     response = driver.fetch("https://example.com")
-
-        >>> # З custom налаштуваннями
-        >>> with DNSCache(ttl=7200, max_cache_size=5000) as cache:
-        ...     graph = crawl("https://example.com", max_depth=5)
-        ...     print(cache.get_summary())
-
-        >>> # Ручне управління (без context manager)
-        >>> cache = DNSCache(ttl=1800)
-        >>> cache.enable()
-        >>> try:
-        ...     # Ваш код з HTTP запитами
-        ...     pass
-        ... finally:
-        ...     cache.disable()
-
     Args:
         ttl: Time To Live в секундах (за замовчуванням 3600 = 1 година)
         max_cache_size: Максимальна кількість записів в кеші (за замовчуванням 10000)
         enabled: Чи активувати кеш відразу (за замовчуванням False, активується через enable())
     """
 
-    def __init__(
-        self, ttl: int = 3600, max_cache_size: int = 10000, enabled: bool = False
-    ):
+    def __init__(self, ttl: int = 3600, max_cache_size: int = 10000, enabled: bool = False):
         """
         Ініціалізує DNS Cache.
 
@@ -185,9 +117,7 @@ class DNSCache:
             try:
                 socket.inet_aton(host)
                 # Це IP адреса, не потрібно кешувати
-                return self._original_getaddrinfo(
-                    host, port, family, type, proto, flags
-                )
+                return self._original_getaddrinfo(host, port, family, type, proto, flags)
             except (socket.error, TypeError):
                 # Це доменне ім'я, продовжуємо з кешуванням
                 pass
@@ -201,17 +131,17 @@ class DNSCache:
                     # Cache HIT!
                     self._stats["cache_hits"] += 1
                     entry.hit_count += 1
-                    logger.debug(f"DNS Cache HIT: {host} -> {entry.ip_addresses[0]}")
+                    logger.debug("DNS Cache HIT: %s -> %s", host, entry.ip_addresses[0])
                     return entry.original_result
                 else:
                     # Expired, видаляємо
                     self._stats["expired_entries"] += 1
                     del self._cache[host]
-                    logger.debug(f"⏰ DNS Cache EXPIRED: {host}")
+                    logger.debug(" DNS Cache EXPIRED: %s", host)
 
             # Cache MISS - робимо real DNS lookup
             self._stats["cache_misses"] += 1
-            logger.debug(f" DNS Cache MISS: {host} - performing real DNS lookup")
+            logger.debug(" DNS Cache MISS: %s - performing real DNS lookup", host)
 
             result = self._original_getaddrinfo(host, port, family, type, proto, flags)
 
@@ -223,12 +153,10 @@ class DNSCache:
                 # Перевіряємо розмір кешу
                 if len(self._cache) >= self.max_cache_size:
                     # Evict найстарішій запис
-                    oldest_domain = min(
-                        self._cache.keys(), key=lambda k: self._cache[k].cached_at
-                    )
+                    oldest_domain = min(self._cache.keys(), key=lambda k: self._cache[k].cached_at)
                     del self._cache[oldest_domain]
                     self._stats["evictions"] += 1
-                    logger.debug(f" DNS Cache EVICTION: {oldest_domain} (cache full)")
+                    logger.debug(" DNS Cache EVICTION: %s (cache full)", oldest_domain)
 
                 # Додаємо новий запис
                 now = time.time()
@@ -240,9 +168,7 @@ class DNSCache:
                     original_result=result,
                 )
                 self._cache[host] = entry
-                logger.debug(
-                    f" DNS Cache STORED: {host} -> {ip_addresses[0]} (TTL: {self.ttl}s)"
-                )
+                logger.debug(" DNS Cache STORED: %s -> %s (TTL: %ss)", host, ip_addresses[0], self.ttl)
 
             return result
 
@@ -271,7 +197,7 @@ class DNSCache:
         with self._lock:
             cleared_count = len(self._cache)
             self._cache.clear()
-            logger.info(f" DNSCache cleared: {cleared_count} entries removed")
+            logger.info(" DNSCache cleared: %s entries removed", cleared_count)
 
     def invalidate(self, domain: str):
         """
@@ -285,9 +211,9 @@ class DNSCache:
         with self._lock:
             if domain in self._cache:
                 del self._cache[domain]
-                logger.info(f" DNSCache invalidated: {domain}")
+                logger.info(" DNSCache invalidated: %s", domain)
             else:
-                logger.debug(f" Domain not in cache: {domain}")
+                logger.debug(" Domain not in cache: %s", domain)
 
     def get_cached_domains(self) -> List[str]:
         """
@@ -407,7 +333,7 @@ class DNSCache:
                 del self._cache[domain]
 
             if expired_domains:
-                logger.info(f" Cleaned up {len(expired_domains)} expired DNS entries")
+                logger.info(" Cleaned up %s expired DNS entries", len(expired_domains))
 
             return len(expired_domains)
 

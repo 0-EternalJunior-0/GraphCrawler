@@ -8,7 +8,6 @@ Benchmark (1000 сторінок):
 - lxml: ~2.5 сек
 - html.parser: ~8 сек
 
-
 """
 
 import logging
@@ -27,8 +26,9 @@ def _check_selectolax() -> bool:
     if _selectolax_available is None:
         try:
             from selectolax.parser import HTMLParser
+
             _selectolax_available = True
-            logger.info("✅ Selectolax available - using fastest HTML parser!")
+            logger.info(" Selectolax available - using fastest HTML parser!")
         except ImportError:
             _selectolax_available = False
             logger.debug("Selectolax not installed. Install with: pip install selectolax")
@@ -39,37 +39,15 @@ class SelectolaxAdapter(BaseTreeAdapter):
     """
     Selectolax адаптер - НАЙШВИДШИЙ HTML парсер для Python!
 
-    Базується на Modest C бібліотеці, в 5-10x швидший за lxml.
-
-    Переваги:
-    - Найшвидший парсинг HTML (5-10x vs lxml)
-    - Низьке споживання пам'яті
-    - Підтримка CSS селекторів
-
-    Недоліки:
-    - Менш толерантний до зламаного HTML
-    - Немає XPath (тільки CSS)
-    - Менше документації
-
-    Використання:
-        >>> adapter = SelectolaxAdapter()
-        >>> adapter.parse('<html><title>Test</title></html>')
-        >>> elem = adapter.find('title')
-        >>> elem.text()
-        'Test'
-
-    Installation:
-        pip install selectolax
     """
 
     def __init__(self):
         """Ініціалізує Selectolax адаптер."""
         if not _check_selectolax():
-            raise ImportError(
-                "Selectolax not installed. Install with: pip install selectolax"
-            )
+            raise ImportError("Selectolax not installed. Install with: pip install selectolax")
 
         from selectolax.parser import HTMLParser
+
         self._parser_class = HTMLParser
         self._tree = None
 
@@ -89,25 +67,26 @@ class SelectolaxAdapter(BaseTreeAdapter):
     def text(self) -> str:
         """
         Повертає весь текст з документа БЕЗ script/style/noscript.
-        
+
         ВАЖЛИВО: Видаляємо script, style, noscript, svg перед витяганням тексту,
         інакше CSS/JS код потрапляє в text_content і псує SimHash.
         """
         if not self._tree:
             return ""
-        
+
         # Клонуємо дерево щоб не модифікувати оригінал
         # (важливо для plugins що можуть викликати text кілька разів)
         from selectolax.parser import HTMLParser
+
         html_copy = self._tree.html
         tree_copy = HTMLParser(html_copy)
-        
+
         # Видаляємо теги що містять код/стилі, а не контент
-        tags_to_remove = ['script', 'style', 'noscript', 'svg', 'head']
+        tags_to_remove = ["script", "style", "noscript", "svg", "head"]
         for tag in tags_to_remove:
             for element in tree_copy.css(tag):
                 element.decompose()
-        
+
         return tree_copy.text(separator=" ", strip=True) or ""
 
     def parse(self, html: str) -> Any:
@@ -160,9 +139,7 @@ class SelectolaxAdapter(BaseTreeAdapter):
             Selectolax підтримує тільки CSS селектори.
             Для XPath використовуйте lxml adapter.
         """
-        logger.warning(
-            "Selectolax does not support XPath. Use lxml adapter or convert to CSS."
-        )
+        logger.warning("Selectolax does not support XPath. Use lxml adapter or convert to CSS.")
         return []
 
     # Protected методи для TreeElement

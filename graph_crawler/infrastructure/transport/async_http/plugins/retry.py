@@ -15,6 +15,22 @@ from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
 logger = logging.getLogger(__name__)
 
 
+class _ConfigDescriptor:
+    """
+    Дескриптор для підтримки як статичного виклику AsyncRetryPlugin.config(...),
+    так і instance property self.config для доступу до _config.
+    """
+    
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            # Викликається на класі: AsyncRetryPlugin.config
+            # Повертаємо статичний метод
+            return objtype._create_config
+        # Викликається на instance: self.config
+        # Повертаємо _config з батьківського класу
+        return obj._config
+
+
 class AsyncRetryPlugin(BaseDriverPlugin):
     """
     Async плагін для автоматичного retry HTTP запитів.
@@ -32,6 +48,37 @@ class AsyncRetryPlugin(BaseDriverPlugin):
             backoff_factor=1.5
         ))
     """
+    
+    @staticmethod
+    def _create_config(
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+        retry_status_codes: List[int] = None,
+        backoff_factor: float = 2.0,
+    ) -> dict:
+        """
+        Створює конфігурацію для AsyncRetryPlugin.
+        
+        Args:
+            max_retries: Максимальна кількість спроб
+            retry_delay: Базова затримка між спробами в секундах
+            retry_status_codes: Список статус кодів для retry
+            backoff_factor: Мультиплікатор для експоненційної затримки
+            
+        Returns:
+            Dict з конфігурацією
+        """
+        if retry_status_codes is None:
+            retry_status_codes = [429, 500, 502, 503, 504]
+        return {
+            "max_retries": max_retries,
+            "retry_delay": retry_delay,
+            "retry_status_codes": retry_status_codes,
+            "backoff_factor": backoff_factor,
+        }
+    
+    # Дескриптор: клас.config(...) -> _create_config, instance.config -> _config
+    config = _ConfigDescriptor()
 
     @property
     def name(self) -> str:
@@ -67,7 +114,7 @@ class AsyncRetryPlugin(BaseDriverPlugin):
             ctx.data["should_retry"] = True
             ctx.data["retry_delay"] = delay
         else:
-            logger.warning(f"Max retries reached for {ctx.url}")
+            logger.warning("Max retries reached for %s", ctx.url)
             ctx.data["should_retry"] = False
 
         return ctx
@@ -82,9 +129,7 @@ class AsyncRetryPlugin(BaseDriverPlugin):
         Returns:
             Оновлений контекст
         """
-        retry_status_codes = self.config.get(
-            "retry_status_codes", [429, 500, 502, 503, 504]
-        )
+        retry_status_codes = self.config.get("retry_status_codes", [429, 500, 502, 503, 504])
 
         if ctx.status_code in retry_status_codes:
             retry_count = ctx.data.get("retry_count", 0)

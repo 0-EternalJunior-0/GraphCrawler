@@ -18,5 +18,5 @@ DEFAULT_PARSER_TIMEOUT: float = 2.0  # секунди
 # Regex patterns (компілюються один раз)
 JSONLD_PATTERN = re.compile(
     r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-    re.DOTALL | re.IGNORECASE
+    re.DOTALL | re.IGNORECASE,
 )

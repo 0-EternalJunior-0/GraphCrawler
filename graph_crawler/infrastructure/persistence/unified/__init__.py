@@ -1,24 +1,6 @@
 """Unified Storage System.
 
 Модуль надає єдину точку доступу до всіх типів storage:
-- Jobs (стан сканувань)
-- Queue (черга URL)
-- Graphs (результати)
-
-Приклад використання:
-    from graph_crawler.infrastructure.persistence.unified import UnifiedStorage
-
-    # Default - файлова система ./crawl_data/
-    storage = UnifiedStorage()
-
-    # SQLite
-    storage = UnifiedStorage(backend="sqlite", storage_path="./crawl.db")
-
-    # PostgreSQL
-    storage = UnifiedStorage(
-        backend="postgresql",
-        db_config={"host": "localhost", "database": "package_crawler"}
-    )
 """
 
 from graph_crawler.infrastructure.persistence.unified.file_job_storage import (

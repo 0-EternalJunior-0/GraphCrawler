@@ -27,8 +27,8 @@ class MetricsListener:
 
         # Отримати метрики
         stats = metrics.get_metrics()
-        logger.info(f"Total pages: {stats['total_pages']}")
-        logger.info(f"Average fetch time: {stats['avg_fetch_time']:.2f}s")
+        logger.info("Total pages: %s", stats['total_pages'])
+        logger.info("Average fetch time: %.2fs", stats['avg_fetch_time'])
     """
 
     def __init__(self, max_fetch_times: int = DEFAULT_MAX_FETCH_TIMES):

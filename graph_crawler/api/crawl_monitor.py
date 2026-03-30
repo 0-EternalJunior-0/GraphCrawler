@@ -48,9 +48,7 @@ class CrawlMonitor:
         await self.connection_manager.connect(websocket)
 
         # Відправити поточний стан новому клієнту
-        await websocket.send_json(
-            {"type": "initial_state", "data": self.get_current_stats()}
-        )
+        await websocket.send_json({"type": "initial_state", "data": self.get_current_stats()})
 
     async def disconnect(self, websocket: WebSocket) -> None:
         """

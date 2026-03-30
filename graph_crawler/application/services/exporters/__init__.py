@@ -11,6 +11,7 @@ Provides export functionality to various formats:
 
 from graph_crawler.application.services.exporters.csv_exporter import CSVExporter
 from graph_crawler.application.services.exporters.excel_exporter import ExcelExporter
+from graph_crawler.application.services.exporters.jsonl_exporter import JSONLExporter
 from graph_crawler.application.services.exporters.parquet_exporter import (
     ParquetExporter,
 )
@@ -19,6 +20,7 @@ from graph_crawler.application.services.exporters.sql_exporter import SQLExporte
 __all__ = [
     "CSVExporter",
     "ExcelExporter",
+    "JSONLExporter",
     "SQLExporter",
     "ParquetExporter",
 ]

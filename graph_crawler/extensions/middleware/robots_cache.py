@@ -53,10 +53,10 @@ class RobotsCache:
         try:
             parser.set_url(robots_url)
             parser.read()
-            logger.info(f"Loaded robots.txt from {robots_url}")
+            logger.info("Loaded robots.txt from %s", robots_url)
         except Exception as e:
-            logger.warning(f"Could not load robots.txt from {robots_url}: {e}")
-            logger.info(f"Allowing all URLs for {domain} (no robots.txt)")
+            logger.warning("Could not load robots.txt from %s: %s", robots_url, e)
+            logger.info("Allowing all URLs for %s (no robots.txt)", domain)
             # Якщо не вдалося завантажити - дозволяємо все
             parser.allow_all = True
 

@@ -8,19 +8,19 @@ DTO знаходяться в shared layer щоб:
 Всі DTO - Pydantic моделі для валідації та серіалізації.
 """
 
-from graph_crawler.shared.dto.node_dto import (
-    NodeDTO,
-    CreateNodeDTO,
-    NodeMetadataDTO,
-)
 from graph_crawler.shared.dto.edge_dto import (
-    EdgeDTO,
     CreateEdgeDTO,
+    EdgeDTO,
 )
 from graph_crawler.shared.dto.graph_dto import (
     GraphDTO,
     GraphStatsDTO,
     GraphSummaryDTO,
+)
+from graph_crawler.shared.dto.node_dto import (
+    CreateNodeDTO,
+    NodeDTO,
+    NodeMetadataDTO,
 )
 
 __all__ = [

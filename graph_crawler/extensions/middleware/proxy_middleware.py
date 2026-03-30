@@ -150,9 +150,7 @@ class ProxyRotationMiddleware(BaseMiddleware):
                 proxy.mark_failure()
 
                 if auto_failover and proxy.total_requests >= MIN_REQUESTS_FOR_STATS:
-                    min_success_rate = self.config.get(
-                        "min_success_rate", DEFAULT_MIN_SUCCESS_RATE
-                    )
+                    min_success_rate = self.config.get("min_success_rate", DEFAULT_MIN_SUCCESS_RATE)
                     if proxy.success_rate < min_success_rate:
                         proxy.is_alive = False
                         logger.warning(

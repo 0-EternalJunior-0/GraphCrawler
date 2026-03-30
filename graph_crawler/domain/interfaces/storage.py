@@ -1,11 +1,4 @@
-"""Protocol для систем зберігання графів.
-
-Розділено на менші інтерфейси:
-- IStorageReader - тільки читання
-- IStorageWriter - тільки запис
-- IStorageLifecycle - управління життєвим циклом
-- IStorage - повний інтерфейс (об'єднує всі)
-"""
+"""Protocol для систем зберігання графів (ISP)."""
 
 from typing import Dict, List, Protocol, runtime_checkable
 
@@ -59,20 +52,7 @@ class IStorageLifecycle(Protocol):
 
 @runtime_checkable
 class IStorage(IStorageReader, IStorageWriter, IStorageLifecycle, Protocol):
-    """
-    Повний Async-First інтерфейс для систем зберігання графів.
-
-    Тепер IStorage складається з менших інтерфейсів:
-    - IStorageReader - для клієнтів що тільки читають
-    - IStorageWriter - для клієнтів що тільки пишуть
-    - IStorageLifecycle - для управління ресурсами
-
-    Повністю async інтерфейс з використанням:
-    - aiofiles для файлового I/O
-    - aiosqlite для SQLite
-    - motor для MongoDB
-    - asyncpg для PostgreSQL
-    """
+    """Повний Async-First інтерфейс для систем зберігання графів."""
 
     pass
 

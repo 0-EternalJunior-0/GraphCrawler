@@ -63,7 +63,7 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
             # Швидкий рух - 3-5 кроків замість 5-15
             await page.mouse.move(x, y, steps=random.randint(3, 5))
         except Exception:
-            pass
+            pass  # Non-critical: mouse movement not essential
 
     async def _random_delay(self):
         """Мінімальна затримка (оптимізовано: 50-150ms замість 500-2000ms)."""
@@ -87,7 +87,7 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
         else:
             await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
 
-        logger.debug(f"Scrolled down {scroll_amount}px")
+        logger.debug("Scrolled down %spx", scroll_amount)
 
     async def on_page_created(self, ctx: BrowserContext) -> BrowserContext:
         """
@@ -108,7 +108,7 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
             logger.debug("Human behavior: initial delay applied")
 
         except Exception as e:
-            logger.error(f"Error in human behavior on page created: {e}")
+            logger.error("Error in human behavior on page created: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -130,7 +130,7 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
             ctx.data["human_behavior_applied"] = True
 
         except Exception:
-            pass  # Ігноруємо помилки
+            pass  # Non-critical: human behavior emulation
 
         return ctx
 
@@ -147,6 +147,6 @@ class HumanBehaviorPlugin(BaseDriverPlugin):
                 await self._random_mouse_movement(ctx.page)
 
         except Exception:
-            pass
+            pass  # Non-critical: human behavior emulation
 
         return ctx

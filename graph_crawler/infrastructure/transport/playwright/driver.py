@@ -1,23 +1,6 @@
 """Драйвер на основі Playwright з повною підтримкою плагінів.
 
 Features:
-- Всі методи async (fetch, fetch_many, close)
-- Async context manager (__aenter__, __aexit__)
-
-Архітектура:
-- Інтеграція з DriverPluginManager
-- Виклик async хуків на всіх етапах lifecycle
-- Доступ до browser, context, page через BrowserContext
-- Плагіни можуть створювати та публікувати події
-
-Етапи (BrowserStage):
-- BROWSER_LAUNCHING / BROWSER_LAUNCHED
-- CONTEXT_CREATING / CONTEXT_CREATED
-- PAGE_CREATING / PAGE_CREATED
-- NAVIGATION_STARTING / NAVIGATION_COMPLETED
-- WAITING_FOR_SELECTOR / SCROLLING / CONTENT_READY
-- BEFORE_SCREENSHOT / AFTER_SCREENSHOT
-- PAGE_CLOSING / CONTEXT_CLOSING
 """
 
 import asyncio
@@ -140,27 +123,6 @@ class PlaywrightDriver(BaseDriver):
     """
     Драйвер на основі Playwright з повною підтримкою плагінів.
 
-    Підтримує:
-    - Driver-specific плагіни через PluginManager
-    - Browser lifecycle hooks (browser_launching, context_created, navigation_completed, etc.)
-    - Доступ до browser, context, page через BrowserContext
-    - Комунікація між плагінами через події
-
-    Приклад:
-        >>> from graph_crawler.infrastructure.transport.playwright.plugins_new import (
-        ...     StealthPlugin, CaptchaDetectorPlugin, CaptchaSolverPlugin
-        ... )
-        >>> driver = PlaywrightDriver(`
-        ...     config={'browser': 'chromium', 'headless': True},
-        ...     CustomPlugins=[
-        ...         StealthPlugin(StealthPlugin.config(stealth_mode='high')),
-        ...         CaptchaDetectorPlugin(),
-        ...         CaptchaSolverPlugin(CaptchaSolverPlugin.config(
-        ...             service='2captcha', api_key='YOUR_KEY'
-        ...         ))
-        ...     ]
-        ... )
-        >>> response = driver.fetch('https://protected-site.com')
     """
 
     @staticmethod
@@ -186,7 +148,7 @@ class PlaywrightDriver(BaseDriver):
 
     def __init__(
         self,
-        config: dict[str, Any] = None,
+        config: Optional[dict[str, Any]] = None,
         event_bus: Optional[Any] = None,
         plugins: Optional[List[BaseDriverPlugin]] = None,
     ):
@@ -201,8 +163,6 @@ class PlaywrightDriver(BaseDriver):
         super().__init__(config, event_bus)
         self.browser = None
         self.playwright = None
-
-        # Створюємо Plugin Manager (async)
         self.plugin_manager = DriverPluginManager(is_async=True)
 
         # Реєструємо плагіни
@@ -225,9 +185,7 @@ class PlaywrightDriver(BaseDriver):
 
         # Timeout: приймаємо в секундах, конвертуємо в мілісекунди для Playwright
         timeout_seconds = self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
-        self.timeout = (
-            timeout_seconds * 1000 if timeout_seconds < 1000 else timeout_seconds
-        )
+        self.timeout = timeout_seconds * 1000 if timeout_seconds < 1000 else timeout_seconds
 
         self.user_agent = self.config.get("user_agent", DEFAULT_USER_AGENT)
         self.viewport = self.config.get(
@@ -243,9 +201,7 @@ class PlaywrightDriver(BaseDriver):
         self.wait_selector = self.config.get("wait_selector", None)
         wait_timeout_seconds = self.config.get("wait_timeout", 10)
         self.wait_timeout = (
-            wait_timeout_seconds * 1000
-            if wait_timeout_seconds < 1000
-            else wait_timeout_seconds
+            wait_timeout_seconds * 1000 if wait_timeout_seconds < 1000 else wait_timeout_seconds
         )
 
         # Scroll settings
@@ -271,12 +227,10 @@ class PlaywrightDriver(BaseDriver):
         # Retry settings
         self.max_retries = self.config.get("max_retries", 2)
         self.retry_delay = self.config.get("retry_delay", 1.0)
-        
+
         # Затримки після операцій (параметризовані замість hardcoded)
         self.post_selector_delay = self.config.get("post_selector_delay", 0.5)
         self.post_scroll_delay = self.config.get("post_scroll_delay", 0.3)
-
-        # Create screenshot directory if needed
         if self.screenshot_enabled:
             self.screenshot_path.mkdir(parents=True, exist_ok=True)
 
@@ -300,16 +254,12 @@ class PlaywrightDriver(BaseDriver):
         """
         if self.playwright is None:
             try:
-                from playwright.async_api import async_playwright
+                from playwright.async_api import async_playwright  # type: ignore[import-not-found]
             except ImportError:
                 raise ImportError(
                     "Playwright не встановлено. Виконайте: pip install playwright && playwright install"
                 )
-
-            # === ЕТАП: BROWSER_LAUNCHING ===
-            ctx = await self.plugin_manager.execute_hook_async(
-                BrowserStage.BROWSER_LAUNCHING, ctx
-            )
+            ctx = await self.plugin_manager.execute_hook_async(BrowserStage.BROWSER_LAUNCHING, ctx)
 
             if ctx.cancelled:
                 return ctx
@@ -325,17 +275,13 @@ class PlaywrightDriver(BaseDriver):
             # Додаємо memory optimization args якщо увімкнено
             if self.memory_optimization:
                 launch_args.extend(PLAYWRIGHT_MEMORY_ARGS)
-                logger.debug(f"Memory optimization enabled: {len(PLAYWRIGHT_MEMORY_ARGS)} extra args")
+                logger.debug(
+                    f"Memory optimization enabled: {len(PLAYWRIGHT_MEMORY_ARGS)} extra args"
+                )
 
-            self.browser = await browser_launcher.launch(
-                headless=self.headless, args=launch_args
-            )
+            self.browser = await browser_launcher.launch(headless=self.headless, args=launch_args)
             ctx.browser = self.browser
-
-            # === ЕТАП: BROWSER_LAUNCHED ===
-            ctx = await self.plugin_manager.execute_hook_async(
-                BrowserStage.BROWSER_LAUNCHED, ctx
-            )
+            ctx = await self.plugin_manager.execute_hook_async(BrowserStage.BROWSER_LAUNCHED, ctx)
 
             logger.info(
                 f"Playwright browser '{self.browser_type}' launched (memory_opt={self.memory_optimization})"
@@ -355,10 +301,7 @@ class PlaywrightDriver(BaseDriver):
         Returns:
             Playwright BrowserContext
         """
-        # === ЕТАП: CONTEXT_CREATING ===
-        ctx = await self.plugin_manager.execute_hook_async(
-            BrowserStage.CONTEXT_CREATING, ctx
-        )
+        ctx = await self.plugin_manager.execute_hook_async(BrowserStage.CONTEXT_CREATING, ctx)
 
         if ctx.cancelled:
             return ctx, None
@@ -374,12 +317,8 @@ class PlaywrightDriver(BaseDriver):
 
         pw_context = await self.browser.new_context(**context_options)
         ctx.context = pw_context
-
-        # === ЕТАП: CONTEXT_CREATED ===
         # Тут плагіни (StealthPlugin) можуть інжектити scripts!
-        ctx = await self.plugin_manager.execute_hook_async(
-            BrowserStage.CONTEXT_CREATED, ctx
-        )
+        ctx = await self.plugin_manager.execute_hook_async(BrowserStage.CONTEXT_CREATED, ctx)
 
         return ctx, pw_context
 
@@ -394,15 +333,12 @@ class PlaywrightDriver(BaseDriver):
         Returns:
             Оновлений контекст
         """
-        # === ЕТАП: SCROLLING ===
         ctx = await self.plugin_manager.execute_hook_async(BrowserStage.SCROLLING, ctx)
 
         if ctx.cancelled:
             return ctx
 
-        logger.debug(
-            f"Starting page scroll (step={self.scroll_step}, pause={self.scroll_pause})"
-        )
+        logger.debug("Starting page scroll (step=%s, pause=%s)", self.scroll_step, self.scroll_pause)
 
         start_time = time.time()
         last_height = 0
@@ -410,7 +346,7 @@ class PlaywrightDriver(BaseDriver):
 
         while True:
             if time.time() - start_time > self.scroll_timeout:
-                logger.debug(f"Scroll timeout reached after {self.scroll_timeout}s")
+                logger.debug("Scroll timeout reached after %ss", self.scroll_timeout)
                 break
 
             current_height = await page.evaluate("document.body.scrollHeight")
@@ -419,9 +355,7 @@ class PlaywrightDriver(BaseDriver):
                 await asyncio.sleep(self.scroll_pause * 2)
                 new_height = await page.evaluate("document.body.scrollHeight")
                 if new_height == current_height:
-                    logger.debug(
-                        f"Scroll complete: reached bottom after {scroll_count} scrolls"
-                    )
+                    logger.debug("Scroll complete: reached bottom after %s scrolls", scroll_count)
                     break
                 current_height = new_height
 
@@ -438,7 +372,7 @@ class PlaywrightDriver(BaseDriver):
                 break
 
         await page.evaluate("window.scrollTo(0, 0)")
-        logger.debug(f"Page scrolled: {scroll_count} scrolls, height={last_height}px")
+        logger.debug("Page scrolled: %s scrolls, height=%spx", scroll_count, last_height)
 
         ctx.data["scroll_count"] = scroll_count
         ctx.data["scroll_height"] = last_height
@@ -459,7 +393,7 @@ class PlaywrightDriver(BaseDriver):
         try:
             self._validate_url_security(url)
         except Exception as e:
-            logger.warning(f"SSRF blocked: {url} - {e}")
+            logger.warning("SSRF blocked: %s - %s", url, e)
             return FetchResponse(
                 url=url,
                 html=None,
@@ -481,11 +415,7 @@ class PlaywrightDriver(BaseDriver):
         self.plugin_manager.setup_event_subscriptions(ctx)
 
         # Подія: FETCH_STARTED
-        self._publish_fetch_started(
-            url, "playwright", extra_data={"browser": self.browser_type}
-        )
-
-        # Initialize Playwright if needed
+        self._publish_fetch_started(url, "playwright", extra_data={"browser": self.browser_type})
         ctx = await self._init_playwright(ctx)
 
         if ctx.cancelled:
@@ -498,7 +428,6 @@ class PlaywrightDriver(BaseDriver):
         # Retry loop
         for attempt in range(self.max_retries + 1):
             try:
-                # Create context
                 ctx, pw_context = await self._create_context(ctx)
 
                 if ctx.cancelled:
@@ -514,26 +443,14 @@ class PlaywrightDriver(BaseDriver):
                             await route.continue_()
 
                     await pw_context.route("**/*", route_handler)
-
-                # === ЕТАП: PAGE_CREATING ===
-                ctx = await self.plugin_manager.execute_hook_async(
-                    BrowserStage.PAGE_CREATING, ctx
-                )
+                ctx = await self.plugin_manager.execute_hook_async(BrowserStage.PAGE_CREATING, ctx)
 
                 if ctx.cancelled:
                     return self._create_cancelled_response(ctx)
-
-                # Create new page
                 page = await pw_context.new_page()
                 page.set_default_timeout(self.timeout)
                 ctx.page = page
-
-                # === ЕТАП: PAGE_CREATED ===
-                ctx = await self.plugin_manager.execute_hook_async(
-                    BrowserStage.PAGE_CREATED, ctx
-                )
-
-                # === ЕТАП: NAVIGATION_STARTING ===
+                ctx = await self.plugin_manager.execute_hook_async(BrowserStage.PAGE_CREATED, ctx)
                 ctx = await self.plugin_manager.execute_hook_async(
                     BrowserStage.NAVIGATION_STARTING, ctx
                 )
@@ -559,55 +476,43 @@ class PlaywrightDriver(BaseDriver):
 
                 ctx.response = response
                 ctx.status_code = response.status if response else None
-
-                # === ЕТАП: NAVIGATION_COMPLETED ===
                 ctx = await self.plugin_manager.execute_hook_async(
                     BrowserStage.NAVIGATION_COMPLETED, ctx
                 )
 
                 # Wait for selector if specified
                 if self.wait_selector:
-                    # === ЕТАП: WAITING_FOR_SELECTOR ===
                     ctx = await self.plugin_manager.execute_hook_async(
                         BrowserStage.WAITING_FOR_SELECTOR, ctx
                     )
 
                     try:
-                        await page.wait_for_selector(
-                            self.wait_selector, timeout=self.wait_timeout
-                        )
+                        await page.wait_for_selector(self.wait_selector, timeout=self.wait_timeout)
                     except Exception as e:
-                        logger.debug(
-                            f"Wait selector '{self.wait_selector}' timeout for {url}: {e}"
-                        )
-                
+                        logger.debug("Wait selector '%s' timeout for %s: %s", self.wait_selector, url, e)
+
                 # Параметризована затримка після селектора (замість hardcoded 2 сек)
                 if self.post_selector_delay > 0:
                     await asyncio.sleep(self.post_selector_delay)
-                
+
                 # Scroll page for lazy-loaded content
                 if self.scroll_page:
                     try:
                         ctx = await self._scroll_page(page, ctx)
                     except Exception as e:
-                        logger.warning(f"Scroll failed for {url}: {e}")
+                        logger.warning("Scroll failed for %s: %s", url, e)
                     # Параметризована затримка після скролу (замість hardcoded 2 сек)
                     if self.post_scroll_delay > 0:
                         await asyncio.sleep(self.post_scroll_delay)
                 # Get rendered HTML
                 html = await page.content()
                 ctx.html = html
-
-                # === ЕТАП: CONTENT_READY ===
                 # Тут плагіни (CaptchaDetector) детектять проблеми!
-                ctx = await self.plugin_manager.execute_hook_async(
-                    BrowserStage.CONTENT_READY, ctx
-                )
+                ctx = await self.plugin_manager.execute_hook_async(BrowserStage.CONTENT_READY, ctx)
 
                 # Capture screenshot if enabled
                 screenshot_path = None
                 if self.screenshot_enabled:
-                    # === ЕТАП: BEFORE_SCREENSHOT ===
                     ctx = await self.plugin_manager.execute_hook_async(
                         BrowserStage.BEFORE_SCREENSHOT, ctx
                     )
@@ -624,9 +529,7 @@ class PlaywrightDriver(BaseDriver):
                     await page.screenshot(
                         path=str(screenshot_path), full_page=self.screenshot_full_page
                     )
-                    logger.info(f"Screenshot saved: {screenshot_path}")
-
-                    # === ЕТАП: AFTER_SCREENSHOT ===
+                    logger.info("Screenshot saved: %s", screenshot_path)
                     ctx = await self.plugin_manager.execute_hook_async(
                         BrowserStage.AFTER_SCREENSHOT, ctx
                     )
@@ -671,10 +574,9 @@ class PlaywrightDriver(BaseDriver):
                     )
                     await asyncio.sleep(self.retry_delay)
                 else:
-                    logger.error(f"All attempts failed for {url}: {error_type}: {e}")
+                    logger.error("All attempts failed for %s: %s: %s", url, error_type, e)
 
             finally:
-                # === ЕТАП: PAGE_CLOSING ===
                 if page:
                     try:
                         ctx = await self.plugin_manager.execute_hook_async(
@@ -682,11 +584,9 @@ class PlaywrightDriver(BaseDriver):
                         )
                         await page.close()
                     except Exception:
-                        pass
+                        pass  # Non-critical: page cleanup
                     page = None
                     ctx.page = None
-
-                # === ЕТАП: CONTEXT_CLOSING ===
                 if pw_context:
                     try:
                         ctx = await self.plugin_manager.execute_hook_async(
@@ -694,7 +594,7 @@ class PlaywrightDriver(BaseDriver):
                         )
                         await pw_context.close()
                     except Exception:
-                        pass
+                        pass  # Non-critical: context cleanup
                     pw_context = None
                     ctx.context = None
 
@@ -710,7 +610,7 @@ class PlaywrightDriver(BaseDriver):
     def _create_cancelled_response(self, ctx: BrowserContext) -> FetchResponse:
         """Створює FetchResponse для скасованого запиту."""
         reason = ctx.data.get("cancellation_reason", "Unknown")
-        logger.warning(f"Request to {ctx.url} was cancelled: {reason}")
+        logger.warning("Request to %s was cancelled: %s", ctx.url, reason)
 
         return FetchResponse(
             url=ctx.url,
@@ -742,7 +642,16 @@ class PlaywrightDriver(BaseDriver):
         Returns:
             Список FetchResponse об'єктів
         """
-        tasks = [self._fetch_async(url) for url in urls]
+        hint_ctx = BrowserContext(url="<fetch_many>", data={"total_urls": len(urls)})
+        hint_ctx = await self.plugin_manager.execute_hook_async(BrowserStage.BEFORE_FETCH_MANY, hint_ctx)
+        limit = hint_ctx.data.get("suggested_concurrent", len(urls))
+        sem = asyncio.Semaphore(limit)
+
+        async def _guarded(url: str) -> FetchResponse:
+            async with sem:
+                return await self._fetch_async(url)
+
+        tasks = [_guarded(url) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         responses = []
@@ -778,14 +687,14 @@ class PlaywrightDriver(BaseDriver):
             try:
                 await self.browser.close()
             except Exception as e:
-                logger.warning(f"Error closing browser: {e}")
+                logger.warning("Error closing browser: %s", e)
             self.browser = None
 
         if self.playwright:
             try:
                 await self.playwright.stop()
             except Exception as e:
-                logger.warning(f"Error stopping playwright: {e}")
+                logger.warning("Error stopping playwright: %s", e)
             self.playwright = None
 
         await self.plugin_manager.teardown_all_async()

@@ -14,51 +14,12 @@ class AllowedDomains(str, Enum):
     """
     Спеціальні патерни для конфігурації allowed_domains.
 
-    Простими і зрозумілими константами.
-
-    Атрибути:
-        ALL: Сканувати куди завгодно (wildcard режим)
-        DOMAIN: Тільки основний домен без субдоменів
-        SUBDOMAINS: Тільки субдомени без основного домену
-        DOMAIN_WITH_SUB: Основний домен + всі субдомени (DEFAULT)
-
     Examples:
         >>> # Куди завгодно
         >>> config = CrawlerConfig(
         ...     url="https://company.com",
         ...     allowed_domains=[AllowedDomains.ALL]
         ... )
-
-        >>> # Тільки основний домен
-        >>> config = CrawlerConfig(
-        ...     url="https://company.com",
-        ...     allowed_domains=[AllowedDomains.DOMAIN]
-        ... )
-        >>> # company.com/page
-        >>> # jobs.company.com
-
-        >>> # Домен + субдомени (DEFAULT)
-        >>> config = CrawlerConfig(
-        ...     url="https://company.com",
-        ...     allowed_domains=[AllowedDomains.DOMAIN_WITH_SUB]
-        ... )
-        >>> # company.com/page
-        >>> # jobs.company.com
-        >>> # career.company.com
-
-        >>> # Комбінація з конкретними доменами
-        >>> config = CrawlerConfig(
-        ...     url="https://company.com",
-        ...     allowed_domains=[
-        ...         AllowedDomains.DOMAIN_WITH_SUB,  # company.com + субдомени
-        ...         "partner-site.com"  # + зовнішній сайт
-        ...     ]
-        ... )
-
-    See Also:
-        - CrawlerConfig.allowed_domains
-        - DomainFilterConfig.allowed_domains
-        - DomainFilter._check_allowed_domains()
     """
 
     ALL = "*"  # Wildcard - куди завгодно
@@ -106,7 +67,5 @@ class AllowedDomains(str, Enum):
         """
         return value in cls.get_special_patterns()
 
-
-# ==================== EXPORT ====================
 
 __all__ = ["AllowedDomains"]

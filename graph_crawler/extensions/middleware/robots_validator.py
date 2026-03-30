@@ -40,7 +40,7 @@ class RobotsValidator:
             URLBlockedError: Якщо URL заблокований robots.txt
         """
         if not parser.can_fetch(self.user_agent, url):
-            logger.warning(f"Blocked by robots.txt: {url}")
+            logger.warning("Blocked by robots.txt: %s", url)
             raise URLBlockedError(f"URL blocked by robots.txt: {url}")
 
     def can_fetch(self, parser: RobotFileParser, url: str) -> bool:
@@ -56,5 +56,5 @@ class RobotsValidator:
         """
         is_allowed = parser.can_fetch(self.user_agent, url)
         if not is_allowed:
-            logger.warning(f"Blocked by robots.txt: {url}")
+            logger.warning("Blocked by robots.txt: %s", url)
         return is_allowed

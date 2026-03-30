@@ -11,7 +11,17 @@ import asyncio
 import heapq
 import logging
 import re
-from typing import Any, List, Optional, Set, Union
+from typing import Any, List, Optional, Protocol, Set, Union
+
+
+class BloomFilterProtocol(Protocol):
+    """Protocol для BloomFilter для коректної типізації."""
+
+    def add(self, item: str) -> None: ...
+    def __contains__(self, item: str) -> bool: ...
+    def __len__(self) -> int: ...
+    def get_statistics(self) -> dict: ...
+
 
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.shared.constants import (
@@ -28,15 +38,17 @@ _BloomFilterClass = None
 try:
     # Централізований імпорт через graph_crawler.native (cross-platform)
     from graph_crawler.native import BloomFilterFast
+
     if BloomFilterFast is not None:
         _NATIVE_BLOOM_AVAILABLE = True
         _BloomFilterClass = BloomFilterFast
-        logger.info("✅ Native Cython BloomFilterFast loaded (2.7x faster)")
+        logger.info(" Native Cython BloomFilterFast loaded (2.7x faster)")
     else:
         raise ImportError("BloomFilterFast is None")
 except ImportError:
     # Fallback на pybloom-live
     from graph_crawler.shared.utils.bloom_filter import BloomFilter
+
     _BloomFilterClass = BloomFilter
     logger.debug("Native BloomFilterFast not available, using pybloom-live")
 
@@ -49,28 +61,11 @@ except ImportError:
     CrawlerEvent = None
     EventType = None
 
+
 class CrawlScheduler:
     """
     Планувальник для управління чергою вузлів для сканування.
 
-    - Використовує heapq для пріоритизації URL
-    - Підтримує url_rules для контролю поведінки
-    - Застосовує should_scan та should_follow_links з правил
-
-    - Використовує Native Cython BloomFilterFast (2.7x швидше)
-    - Автоматичний fallback на pybloom-live
-    - Економія пам'яті в 10x для великих краулінгів (1M+ URLs)
-    - Configurable: можна вимкнути (use_bloom_filter=False)
-    - При low_memory_mode=True Bloom Filter вимикається автоматично
-    - Використовується SQLite eviction storage для перевірки унікальності
-    - Економія ~12MB RAM на 10M URLs
-    - Черга тепер тримає тільки URLs замість повних Node об'єктів
-    - Економія: 1-3 KB на кожен елемент в черзі
-    - При 10k нод в черзі: ~10-30 MB економії RAM
-    - Lazy loading Node через Graph reference при get_next()
-
-    Стара версія використовувала BFS (Breadth-First Search).
-    Нова версія використовує Priority Queue для контрольованого обходу.
     """
 
     def __init__(
@@ -88,56 +83,39 @@ class CrawlScheduler:
         """
         Ініціалізує scheduler.
 
-        Args:
-            url_rules: Список URLRule об'єктів для контролю URL
-            event_bus: EventBus для публікації подій (опціонально)
-            use_bloom_filter: Використовувати Bloom Filter замість set (default: True)
-            bloom_capacity: Capacity Bloom Filter (default: 10M URLs)
-                           Обґрунтування: 10M URLs покриває більшість великих сайтів.
-                           При 1M URLs займає ~1.2MB RAM, при 10M URLs ~12MB RAM.
-                           Для більших сайтів можна збільшити до 100M.
-            bloom_error_rate: Error rate Bloom Filter (default: 0.1%)
-                             Обґрунтування: 0.1% false positive rate означає що
-                             на 10M URLs буде ~10k хибних спрацювань (URL буде
-                             вважатися переглянутим, хоча не був). Це прийнятний
-                             компроміс між пам'яттю та точністю.
-            low_memory_mode: Якщо True - вимикає Bloom Filter, використовує SQLite
-            eviction_storage: IEvictionStorage для перевірки унікальності URL
-            graph: Graph reference для lazy loading Node при get_next()
-            plugin_manager: Plugin manager для передачі в Node при створенні
         """
         # Економія: 1-3 KB на кожен елемент черги
         self.queue: List = []  # heapq priority queue з URLs
         self.counter: int = 0  # Для FIFO при однакових пріоритетах
-        
+
         self._graph = graph
-        
+
         self._plugin_manager = plugin_manager
 
         self._low_memory_mode = low_memory_mode
         self._eviction_storage = eviction_storage
-        
+
         # Bloom Filter або set для seen URLs
+        # Типізація: Union[Set[str], BloomFilterProtocol]
+        self.seen_urls: Union[Set[str], Any]  # Any для BloomFilter
         if low_memory_mode:
             self.use_bloom_filter = False
-            self.seen_urls: Union[object, Set[str]] = set()  # Мінімальний RAM set
+            self.seen_urls = set()  # Мінімальний RAM set
             logger.info(
                 "🚀 Scheduler initialized in LOW-MEMORY mode: "
                 "Bloom Filter DISABLED, using SQLite for URL uniqueness check"
             )
-        elif use_bloom_filter:
+        elif use_bloom_filter and _BloomFilterClass is not None:
             self.use_bloom_filter = True
-            self.seen_urls = _BloomFilterClass(
-                capacity=bloom_capacity, error_rate=bloom_error_rate
-            )
+            self.seen_urls = _BloomFilterClass(capacity=bloom_capacity, error_rate=bloom_error_rate)
             bloom_type = "Native Cython" if _NATIVE_BLOOM_AVAILABLE else "pybloom-live"
             logger.info(
                 f"🚀 Scheduler initialized with {bloom_type} Bloom Filter: "
-                f"capacity={bloom_capacity:,}, error_rate={bloom_error_rate*100}%"
+                f"capacity={bloom_capacity:,}, error_rate={bloom_error_rate * 100}%"
             )
         else:
             self.use_bloom_filter = False
-            self.seen_urls: Union[object, Set[str]] = set()
+            self.seen_urls = set()
             logger.debug("Scheduler initialized with Python set (not Bloom Filter)")
 
         # URL Rules для Smart Scheduling
@@ -160,9 +138,9 @@ class CrawlScheduler:
                 compiled_pattern = re.compile(rule.pattern)
                 self._compiled_rules.append((compiled_pattern, rule))
             except re.error as e:
-                logger.warning(f"Invalid regex pattern '{rule.pattern}': {e}")
+                logger.warning("Invalid regex pattern '%s': %s", rule.pattern, e)
 
-        logger.debug(f"Scheduler initialized with {len(self.url_rules)} URL rules")
+        logger.debug("Scheduler initialized with %s URL rules", len(self.url_rules))
 
     def add_node(self, node: Node, priority: Optional[int] = None) -> bool:
         """
@@ -189,15 +167,18 @@ class CrawlScheduler:
 
         # Знаходимо перше правило що матчить URL
         matched_rule = self._match_rule(node.url)
-
-        # Перевіряємо should_scan=False (exclude)
         # URLRule використовує should_scan замість action
         if matched_rule and matched_rule.should_scan is False:
-            logger.debug(f"Excluded by rule: {node.url}")
+            logger.debug("Excluded by rule: %s", node.url)
             self.seen_urls.add(node.url)  # Додаємо щоб не перевіряти знову
 
             # Подія про виключення URL
-            if self.event_bus and _EVENTS_AVAILABLE:
+            if (
+                self.event_bus
+                and _EVENTS_AVAILABLE
+                and CrawlerEvent is not None
+                and EventType is not None
+            ):
                 self.event_bus.publish(
                     CrawlerEvent.create(
                         EventType.URL_EXCLUDED,
@@ -213,7 +194,7 @@ class CrawlScheduler:
         #  ML PLUGIN SUPPORT: Використовуємо переданий priority якщо є
         if priority is not None:
             final_priority = priority
-            logger.debug(f"Using ML plugin priority: {final_priority} for {node.url}")
+            logger.debug("Using ML plugin priority: %s for %s", final_priority, node.url)
         else:
             # Застосовуємо правило до ноди (пріоритет, should_scan, should_follow_links)
             final_priority = self._calculate_priority(node.url, matched_rule, node)
@@ -233,7 +214,12 @@ class CrawlScheduler:
         )
 
         # Подія про додавання URL в чергу
-        if self.event_bus and _EVENTS_AVAILABLE:
+        if (
+            self.event_bus
+            and _EVENTS_AVAILABLE
+            and CrawlerEvent is not None
+            and EventType is not None
+        ):
             self.event_bus.publish(
                 CrawlerEvent.create(
                     EventType.URL_ADDED_TO_QUEUE,
@@ -245,8 +231,6 @@ class CrawlScheduler:
                     },
                 )
             )
-
-            # Якщо пріоритет нестандартний - додаткова подія
             if final_priority != DEFAULT_URL_PRIORITY:
                 self.event_bus.publish(
                     CrawlerEvent.create(
@@ -306,44 +290,74 @@ class CrawlScheduler:
             return None
 
         priority, counter, url = heapq.heappop(self.queue)
-        logger.debug(f"Getting next node: {url} (priority={-priority})")
-        
+        logger.debug("Getting next node: %s (priority=%s)", url, -priority)
+
         if self._graph is not None:
             node = self._graph.get_node_by_url(url, load_from_disk=True)
             if node is not None:
                 if node.plugin_manager is None and self._plugin_manager is not None:
                     node.plugin_manager = self._plugin_manager
                 return node
-            # Якщо Node не знайдено в Graph - це помилка (не повинно траплятись)
-            logger.warning(f"Node not found in Graph for URL: {url}")
-        
+            logger.warning("Node not found in Graph for URL: %s", url)
+
         # Fallback: Створюємо мінімальний Node якщо Graph недоступний
         # Це для backward compatibility коли scheduler використовується без Graph
         node = Node(url=url, plugin_manager=self._plugin_manager)
         return node
-    
+
     def set_graph(self, graph: Any) -> None:
         """Set the graph for lazy loading nodes.
-        
+
         Викликається при ініціалізації CrawlCoordinator.
-        
+
         Args:
             graph: Graph об'єкт для lazy loading нод
         """
         self._graph = graph
         logger.debug("Scheduler: Graph reference set for lazy loading")
-    
+
     def set_plugin_manager(self, plugin_manager: Any) -> None:
         """
-        
-        Викликається при ініціалізації Spider для забезпечення 
+
+        Викликається при ініціалізації Spider для забезпечення
         передачі plugin_manager в ноди створені через get_next().
-        
+
         Args:
             plugin_manager: Plugin manager для передачі в Node
         """
         self._plugin_manager = plugin_manager
         logger.debug("Scheduler: Plugin manager set for Node creation")
+
+    def reprioritize_url(self, url: str, priority: int) -> bool:
+        """
+        Змінює пріоритет URL в черзі.
+
+        Для AI Agent Integration - дозволяє AI підвищувати пріоритет
+        URL які він вважає релевантними для задачі.
+
+        Args:
+            url: URL для зміни пріоритету
+            priority: Новий пріоритет (вищий = раніше буде оброблено)
+
+        Returns:
+            True якщо URL знайдено і пріоритет змінено
+        """
+        # Шукаємо URL в черзі
+        for i, (old_priority, counter, queued_url) in enumerate(self.queue):
+            if queued_url == url:
+                # Видаляємо старий запис
+                self.queue[i] = self.queue[-1]
+                self.queue.pop()
+                heapq.heapify(self.queue)
+
+                # Додаємо з новим пріоритетом
+                self.counter += 1
+                heapq.heappush(self.queue, (-priority, self.counter, url))
+
+                logger.debug("Reprioritized URL: %s (new priority=%s)", url, priority)
+                return True
+
+        return False
 
     async def get_next_async(self) -> Optional[Node]:
         """
@@ -393,10 +407,9 @@ class CrawlScheduler:
         """
         # 1. НОВИЙ МЕХАНІЗМ: Перевіряємо чи Node має динамічний priority (від плагінів)
         # Правильна обробка @property у підкласах Pydantic
-        # Якщо priority це @property descriptor - потрібно отримати значення через __get__
         node_priority = self._get_node_priority(node)
         if node_priority is not None:
-            logger.debug(f"Using dynamic priority from node: {node_priority} for {url}")
+            logger.debug("Using dynamic priority from node: %s for %s", node_priority, url)
             return node_priority
 
         # 2. URLRule priority (статичний)
@@ -450,10 +463,10 @@ class CrawlScheduler:
         # Спочатку швидка перевірка в RAM
         if url in self.seen_urls:
             return True
-        
+
         if self._low_memory_mode and self._eviction_storage:
             return self._eviction_storage.url_exists(url)
-        
+
         return False
 
     def get_memory_statistics(self) -> dict:
@@ -481,13 +494,13 @@ class CrawlScheduler:
             "bloom_type": "native_cython" if _NATIVE_BLOOM_AVAILABLE else "pybloom_live",
         }
 
-        if self.use_bloom_filter:
-            # Обидві версії підтримують get_statistics() та len()
-            stats["seen_urls_count"] = len(self.seen_urls)
-            stats["bloom_statistics"] = self.seen_urls.get_statistics()
+        if self.use_bloom_filter and hasattr(self.seen_urls, "get_statistics"):
+            # Bloom filter версії підтримують get_statistics() та len()
+            stats["seen_urls_count"] = len(self.seen_urls)  # type: ignore
+            stats["bloom_statistics"] = self.seen_urls.get_statistics()  # type: ignore
         else:
             # Python set
-            stats["seen_urls_count"] = len(self.seen_urls)
+            stats["seen_urls_count"] = len(self.seen_urls)  # type: ignore
             stats["bloom_statistics"] = None
 
         return stats
@@ -520,9 +533,9 @@ class CrawlScheduler:
                     "",
                     " Bloom Filter Details:",
                     f"  Capacity:         {bloom_stats['capacity']:,}",
-                    f"  Fill Ratio:       {bloom_stats['fill_ratio']*100:.2f}%",
+                    f"  Fill Ratio:       {bloom_stats['fill_ratio'] * 100:.2f}%",
                     f"  Memory Usage:     {bloom_stats['memory_usage_mb']:.2f} MB",
-                    f"  Error Rate:       {bloom_stats['error_rate']*100:.2f}%",
+                    f"  Error Rate:       {bloom_stats['error_rate'] * 100:.2f}%",
                 ]
             )
 

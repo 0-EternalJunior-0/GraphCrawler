@@ -1,28 +1,6 @@
 """Structured JSON Logging для GraphCrawler.
 
 Features:
-- JSON format для Elasticsearch/Splunk/etc
-- Structured fields (timestamp, level, module, message)
-- Extra context fields
-- Correlation ID support
-- Performance-friendly (lazy formatting)
-
-Usage:
-    >>> from graph_crawler.observability.structured_logging import (
-    ...     setup_json_logging,
-    ...     get_logger,
-    ... )
-    >>>
-    >>> # Setup JSON logging
-    >>> setup_json_logging(level="INFO")
-    >>>
-    >>> # Get logger
-    >>> logger = get_logger(__name__)
-    >>> logger.info("Crawling started", extra={"url": "https://example.com", "depth": 2})
-
-Output:
-    {"timestamp": "2025-01-15T10:30:00.123Z", "level": "INFO", "module": "package_crawler",
-     "message": "Crawling started", "url": "https://example.com", "depth": 2}
 """
 
 import json
@@ -42,8 +20,14 @@ class JSONFormatter(logging.Formatter):
 
     # Standard fields always included
     STANDARD_FIELDS = {
-        "timestamp", "level", "logger", "module", "funcName",
-        "lineno", "message", "correlation_id"
+        "timestamp",
+        "level",
+        "logger",
+        "module",
+        "funcName",
+        "lineno",
+        "message",
+        "correlation_id",
     }
 
     def __init__(
@@ -69,9 +53,7 @@ class JSONFormatter(logging.Formatter):
         """Format log record as JSON."""
         # Timestamp
         if self.timestamp_format == "iso":
-            timestamp = datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat()
+            timestamp = datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat()
         else:
             timestamp = record.created
 
@@ -105,13 +87,16 @@ class JSONFormatter(logging.Formatter):
             log_data["exception"] = {
                 "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
                 "message": str(record.exc_info[1]) if record.exc_info[1] else None,
-                "traceback": traceback.format_exception(*record.exc_info) if self.include_traceback else None,
+                "traceback": traceback.format_exception(*record.exc_info)
+                if self.include_traceback
+                else None,
             }
 
         # Serialize to JSON
         try:
             # Try orjson for speed
             from graph_crawler.shared.utils.fast_json import dumps
+
             return dumps(log_data)
         except ImportError:
             return json.dumps(log_data, ensure_ascii=False, default=str)
@@ -120,8 +105,8 @@ class JSONFormatter(logging.Formatter):
 from contextvars import ContextVar
 
 # Context variables for async-safe correlation ID and log context
-_correlation_id_var: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
-_log_context_var: ContextVar[Dict[str, Any]] = ContextVar('log_context', default={})
+_correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
+_log_context_var: ContextVar[Dict[str, Any]] = ContextVar("log_context", default={})
 
 
 class CorrelationIDFilter(logging.Filter):
@@ -195,7 +180,7 @@ def setup_json_logging(
 
     logging.info(
         "JSON structured logging initialized",
-        extra={"log_level": level, "include_traceback": include_traceback}
+        extra={"log_level": level, "include_traceback": include_traceback},
     )
 
 

@@ -6,7 +6,7 @@ from graph_crawler.domain.events.events import (
     EventType,
 )
 
-# Алі аси для зручності
+# Аліаси для зручності
 DomainEvent = CrawlerEvent
 NodeCreatedEvent = CrawlerEvent
 NodeScannedEvent = CrawlerEvent

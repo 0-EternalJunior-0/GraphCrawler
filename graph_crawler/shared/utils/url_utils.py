@@ -90,7 +90,7 @@ class URLUtils:
             Абсолютний URL
         """
         # Fast path: якщо вже абсолютний
-        if relative_url.startswith(('http://', 'https://')):
+        if relative_url.startswith(("http://", "https://")):
             return relative_url
         return urljoin(base_url, relative_url)
 
@@ -190,9 +190,7 @@ class URLUtils:
             raise InvalidURLError("URL cannot be empty")
 
         if not url.startswith(("http://", "https://")):
-            raise InvalidURLError(
-                f"URL must start with http:// or https://, got: {url}"
-            )
+            raise InvalidURLError(f"URL must start with http:// or https://, got: {url}")
 
         try:
             parsed = urlparse(url)
@@ -218,11 +216,7 @@ class URLUtils:
             Очищений список унікальних валідних URL
         """
         return list(
-            dict.fromkeys(
-                URLUtils.normalize_url(url)
-                for url in urls
-                if URLUtils.is_valid_url(url)
-            )
+            dict.fromkeys(URLUtils.normalize_url(url) for url in urls if URLUtils.is_valid_url(url))
         )
 
     @staticmethod
@@ -251,30 +245,52 @@ class URLUtils:
             # Fallback на стандартну версію
             return URLUtils.clean_urls(urls)
 
-    # =========================================================================
     # SECURITY: URL Input Sanitization
-    # =========================================================================
-
     # Заборонені схеми (можуть бути небезпечними)
     _DANGEROUS_SCHEMES = (
-        "javascript:", "vbscript:", "data:", "file:",
-        "ftp:", "gopher:", "ldap:", "telnet:",
+        "javascript:",
+        "vbscript:",
+        "data:",
+        "file:",
+        "ftp:",
+        "gopher:",
+        "ldap:",
+        "telnet:",
     )
 
     # Максимальна довжина URL (захист від DoS)
     _MAX_URL_LENGTH = 8192
 
     # Заборонені символи в URL
-    _DANGEROUS_CHARS = ('\x00', '\n', '\r', '\t', '<', '>', '"', "'", '`')
+    _DANGEROUS_CHARS = ("\x00", "\n", "\r", "\t", "<", ">", '"', "'", "`")
 
     # Приватні IP діапазони (SSRF protection)
     _PRIVATE_IP_PREFIXES = (
-        '127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.',
-        '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
-        '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-        '169.254.',  # Link-local
-        '0.0.0.0', '0.',
-        'localhost', '[::1]', '[::]',
+        "127.",
+        "10.",
+        "192.168.",
+        "172.16.",
+        "172.17.",
+        "172.18.",
+        "172.19.",
+        "172.20.",
+        "172.21.",
+        "172.22.",
+        "172.23.",
+        "172.24.",
+        "172.25.",
+        "172.26.",
+        "172.27.",
+        "172.28.",
+        "172.29.",
+        "172.30.",
+        "172.31.",
+        "169.254.",  # Link-local
+        "0.0.0.0",
+        "0.",
+        "localhost",
+        "[::1]",
+        "[::]",
     )
 
     @staticmethod
@@ -282,19 +298,11 @@ class URLUtils:
         """
         Безпечна санітизація URL для захисту від атак.
 
-        Захищає від:
-        - XSS через javascript: URLs
-        - SSRF через приватні IP
-        - DoS через занадто довгі URL
-        - Injection через спецсимволи
-
         Args:
             url: URL для санітизації
             allow_private_ips: Дозволити приватні IP (за замовчуванням False)
-
         Returns:
             Санітизований URL або None якщо URL небезпечний
-
         Example:
             >>> URLUtils.sanitize_url("https://example.com/page")
             'https://example.com/page'
@@ -325,7 +333,7 @@ class URLUtils:
                 return None
 
         # Перевірка на валідну схему
-        if not url_lower.startswith(('http://', 'https://')):
+        if not url_lower.startswith(("http://", "https://")):
             return None
 
         # SSRF protection: перевірка на приватні IP
@@ -390,4 +398,3 @@ class URLUtils:
             return False
 
         return original_domain == redirect_domain
-

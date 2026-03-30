@@ -13,7 +13,6 @@ Bloom Filter - це імовірнісна структура даних що д
     >>> "https://not-added.com" in bloom
     False
 
-
 """
 
 import logging
@@ -28,35 +27,10 @@ class BloomFilter:
     """
     Bloom Filter для ефективної перевірки seen URLs.
 
-    Використовує pybloom-live для реалізації Scalable Bloom Filter,
-    який автоматично розширюється коли досягає capacity.
-
     Args:
         capacity: Очікувана кількість елементів (default: 10,000,000)
         error_rate: Ймовірність false positive (default: 0.001 = 0.1%)
         mode: Режим роботи (default: ScalableBloomFilter.SMALL_SET_GROWTH)
-
-    Attributes:
-        capacity: Поточна capacity
-        error_rate: Налаштований error rate
-        count: Кількість доданих елементів
-        bloom: Внутрішній ScalableBloomFilter
-
-    Example:
-        >>> # Створюємо Bloom Filter для 10M URLs з 0.1% false positive rate
-        >>> bloom = BloomFilter(capacity=10_000_000, error_rate=0.001)
-        >>>
-        >>> # Додаємо URLs
-        >>> bloom.add("https://example.com")
-        >>> bloom.add("https://example.com/page1")
-        >>>
-        >>> # Перевіряємо наявність
-        >>> "https://example.com" in bloom
-        True
-        >>>
-        >>> # Статистика
-        >>> stats = bloom.get_statistics()
-        >>> print(f"Count: {stats['count']}, Memory: {stats['memory_usage_mb']} MB")
     """
 
     def __init__(
@@ -90,7 +64,7 @@ class BloomFilter:
 
         logger.info(
             f" Bloom Filter initialized: "
-            f"capacity={capacity:,}, error_rate={error_rate*100}%, "
+            f"capacity={capacity:,}, error_rate={error_rate * 100}%, "
             f"mode={mode}"
         )
 
@@ -162,7 +136,6 @@ class BloomFilter:
                 - memory_usage_mb: використання пам'яті в MB
                 - fill_ratio: коефіцієнт заповнення (0.0 - 1.0)
                 - estimated_false_positive_rate: поточний FP rate
-
         Example:
             >>> bloom = BloomFilter(capacity=1_000_000)
             >>> for i in range(500_000):
@@ -220,10 +193,10 @@ class BloomFilter:
             "" * 42,
             f"URLs Added:         {stats['count']:,}",
             f"Capacity:           {stats['capacity']:,}",
-            f"Error Rate:         {stats['error_rate']*100:.2f}%",
+            f"Error Rate:         {stats['error_rate'] * 100:.2f}%",
             f"Memory Usage:       {stats['memory_usage_mb']:.2f} MB",
-            f"Fill Ratio:         {stats['fill_ratio']*100:.2f}%",
-            f"Estimated FP Rate:  {stats['estimated_false_positive_rate']*100:.2f}%",
+            f"Fill Ratio:         {stats['fill_ratio'] * 100:.2f}%",
+            f"Estimated FP Rate:  {stats['estimated_false_positive_rate'] * 100:.2f}%",
         ]
 
         # Додаємо warning якщо fill ratio високий
@@ -260,35 +233,19 @@ class BloomFilter:
 
         Args:
             set_memory_bytes: Розмір set з такою ж кількістю елементів
-
         Returns:
             dict з порівнянням:
                 - bloom_memory_mb: пам'ять Bloom Filter
                 - set_memory_mb: пам'ять set
                 - memory_saving_mb: економія пам'яті
                 - memory_saving_ratio: коефіцієнт економії (скільки разів менше)
-
-        Example:
-            >>> import sys
-            >>> urls = [f"https://example.com/page{i}" for i in range(100_000)]
-            >>> url_set = set(urls)
-            >>> set_memory = sys.getsizeof(url_set)
-            >>>
-            >>> bloom = BloomFilter()
-            >>> for url in urls:
-            ...     bloom.add(url)
-            >>>
-            >>> comparison = bloom.compare_with_set(set_memory)
-            >>> print(f"Memory saving: {comparison['memory_saving_ratio']:.1f}x")
         """
         stats = self.get_statistics()
         bloom_memory_mb = stats["memory_usage_mb"]
         set_memory_mb = set_memory_bytes / (1024 * 1024)
 
         memory_saving_mb = set_memory_mb - bloom_memory_mb
-        memory_saving_ratio = (
-            set_memory_mb / bloom_memory_mb if bloom_memory_mb > 0 else 0
-        )
+        memory_saving_ratio = set_memory_mb / bloom_memory_mb if bloom_memory_mb > 0 else 0
 
         return {
             "bloom_memory_mb": bloom_memory_mb,
@@ -328,6 +285,6 @@ def create_bloom_filter(size: str = "medium", error_rate: float = 0.001) -> Bloo
 
     capacity = sizes.get(size.lower(), 1_000_000)
 
-    logger.info(f"Creating Bloom Filter with preset '{size}': {capacity:,} URLs")
+    logger.info("Creating Bloom Filter with preset '%s': %s URLs", size, capacity)
 
     return BloomFilter(capacity=capacity, error_rate=error_rate)

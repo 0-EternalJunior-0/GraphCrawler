@@ -20,64 +20,24 @@ class NodeDTO(BaseModel):
     """
     Data Transfer Object для Node.
 
-    Використовується для передачі даних про Node між шарами.
-    НЕ містить бізнес-логіки (process_html, CustomPlugins) - тільки дані.
-
-    Attributes:
-        node_id: Унікальний ID ноди
-        url: URL сторінки
-        depth: Глибина від кореневої ноди
-        should_scan: Чи треба сканувати цю ноду
-        can_create_edges: Чи може нода створювати edges
-        scanned: Чи була нода просканована
-        response_status: HTTP статус код
-        metadata: Метадані сторінки (title, description, etc.)
-        user_data: Додаткові дані від плагінів
-        content_hash: Hash контенту для incremental crawling
-        priority: Пріоритет сканування (1-10)
-        created_at: Час створення ноди
-        lifecycle_stage: Етап життєвого циклу ("url_stage" або "html_stage")
-
-    Example:
-        >>> node_dto = NodeDTO(
-        ...     node_id="123",
-        ...     url="https://example.com",
-        ...     depth=0,
-        ...     should_scan=True,
-        ...     can_create_edges=True,
-        ...     scanned=False,
-        ...     metadata={"title": "Example"},
-        ...     created_at=datetime.now(),
-        ...     lifecycle_stage="url_stage"
-        ... )
     """
 
     node_id: str
     url: str
     depth: int = Field(ge=0, description="Глибина від кореневої ноди")
     should_scan: bool = Field(default=True, description="Чи треба сканувати")
-    can_create_edges: bool = Field(
-        default=True, description="Чи може створювати edges"
-    )
+    can_create_edges: bool = Field(default=True, description="Чи може створювати edges")
     scanned: bool = Field(default=False, description="Чи була просканована")
-    response_status: Optional[int] = Field(
-        default=None, description="HTTP статус код"
-    )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Метадані сторінки"
-    )
-    user_data: Dict[str, Any] = Field(
-        default_factory=dict, description="Дані від плагінів"
-    )
+    response_status: Optional[int] = Field(default=None, description="HTTP статус код")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Метадані сторінки")
+    user_data: Dict[str, Any] = Field(default_factory=dict, description="Дані від плагінів")
     content_hash: Optional[str] = Field(
         default=None, description="Hash контенту для change detection"
     )
     simhash: Optional[str] = Field(
         default=None, description="SimHash для пошуку подібних документів (near-duplicates)"
     )
-    priority: Optional[int] = Field(
-        default=None, ge=1, le=10, description="Пріоритет (1-10)"
-    )
+    priority: Optional[int] = Field(default=None, ge=1, le=10, description="Пріоритет (1-10)")
     created_at: datetime = Field(description="Час створення")
     lifecycle_stage: str = Field(
         default="url_stage", description='Етап: "url_stage" або "html_stage"'
@@ -92,9 +52,7 @@ class NodeDTO(BaseModel):
         """Валідація lifecycle_stage."""
         allowed_stages = ["url_stage", "html_stage"]
         if v not in allowed_stages:
-            raise ValueError(
-                f"lifecycle_stage must be one of {allowed_stages}, got: {v}"
-            )
+            raise ValueError(f"lifecycle_stage must be one of {allowed_stages}, got: {v}")
         return v
 
     @field_validator("content_type")
@@ -104,9 +62,7 @@ class NodeDTO(BaseModel):
         # Допустимі значення з ContentType enum
         allowed_types = [ct.value for ct in ContentType]
         if v not in allowed_types:
-            raise ValueError(
-                f"content_type must be one of {allowed_types}, got: {v}"
-            )
+            raise ValueError(f"content_type must be one of {allowed_types}, got: {v}")
         return v
 
     @field_validator("url")
@@ -199,19 +155,6 @@ class CreateNodeDTO(BaseModel):
 class NodeMetadataDTO(BaseModel):
     """
     DTO для метаданих Node (спрощена версія для API responses).
-
-    Містить тільки найважливіші поля для відображення.
-    Використовується коли потрібна легка версія NodeDTO.
-
-    Attributes:
-        node_id: Унікальний ID
-        url: URL сторінки
-        title: Title сторінки (з metadata)
-        description: Description (з metadata)
-        h1: H1 заголовок (з metadata)
-        keywords: Keywords (з metadata)
-        canonical_url: Canonical URL (з metadata)
-        language: Мова сторінки (з metadata)
 
     Example:
         >>> metadata_dto = NodeMetadataDTO(

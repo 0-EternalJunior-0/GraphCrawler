@@ -20,9 +20,7 @@ class BaseParser(Protocol):
         ...
 
     def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
+        self, source: Union[str, Any], options: StructuredDataOptions
     ) -> Union[List[Dict[str, Any]], Dict[str, str]]:
         """
         Парсить джерело.

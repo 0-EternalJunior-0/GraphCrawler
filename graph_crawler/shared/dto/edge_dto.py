@@ -17,16 +17,6 @@ class EdgeDTO(BaseModel):
     """
     Data Transfer Object для Edge.
 
-    Використовується для передачі даних про Edge між шарами.
-    Представляє зв'язок між двома нодами.
-
-    Attributes:
-        edge_id: Унікальний ID edge
-        source_node_id: ID ноди-джерела
-        target_node_id: ID цільової ноди
-        metadata: Додаткові метадані edge
-        created_at: Час створення edge
-
     Example:
         >>> edge_dto = EdgeDTO(
         ...     edge_id="edge-123",
@@ -40,9 +30,7 @@ class EdgeDTO(BaseModel):
     edge_id: str
     source_node_id: str = Field(description="ID ноди-джерела")
     target_node_id: str = Field(description="ID цільової ноди")
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Метадані edge"
-    )
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Метадані edge")
     created_at: datetime = Field(description="Час створення edge")
 
     model_config = ConfigDict(

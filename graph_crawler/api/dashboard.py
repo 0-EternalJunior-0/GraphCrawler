@@ -68,7 +68,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         await monitor.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error("WebSocket error: %s", e)
         await monitor.disconnect(websocket)
 
 
@@ -107,9 +107,7 @@ async def reset_stats():
         Dict з підтвердженням
     """
     monitor.reset_stats()
-    await monitor.broadcast(
-        {"type": "stats_reset", "data": monitor.get_current_stats()}
-    )
+    await monitor.broadcast({"type": "stats_reset", "data": monitor.get_current_stats()})
     return {"status": "reset", "message": "Statistics reset successfully"}
 
 

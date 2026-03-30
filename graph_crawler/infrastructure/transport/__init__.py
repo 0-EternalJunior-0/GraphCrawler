@@ -1,48 +1,7 @@
 """Модуль DRIVERS - Драйвери для завантаження веб-сторінок.
 
-
 - protocols.py: Protocol interfaces (IAsyncDriver, ISyncDriver, IBrowserDriver)
-- core/: Базові класи та mixins
-- factory.py: Factory для створення драйверів
-- async_http/: Async HTTP драйвер (aiohttp)
-- sync/: Sync драйвери (requests) - для legacy
-- playwright/: Browser драйвер
-
-**Рекомендовані драйвери:**
-
-1. **AsyncDriver** (DriverType.AIOHTTP) - РЕКОМЕНДОВАНИЙ
-   - Async HTTP через aiohttp
-   - Найшвидший для статичних сайтів
-   - Паралельне завантаження через fetch_many()
-
-2. **PlaywrightDriver** (DriverType.PLAYWRIGHT)
-   - Async браузер з JS рендерингом
-   - Для SPA та динамічного контенту
-   - Підтримка плагінів (stealth, captcha)
-
-3. **RequestsDriver** (DriverType.REQUESTS) - LEGACY
-   -  Sync, блокує виконання!
-   - Тільки для legacy коду
-
-**Приклад використання:**
-
-```python
-from graph_crawler.infrastructure.transport import create_driver, DriverType
-
-# Рекомендований спосіб - через factory
-driver = create_driver(DriverType.AIOHTTP)
-
-# Або напряму
-from graph_crawler.infrastructure.transport.async_http import AsyncDriver
-driver = AsyncDriver(config={'timeout': 30})
-
-async with driver:
-    response = await driver.fetch('https://example.com')
-    results = await driver.fetch_many([url1, url2, url3])
-```
 """
-
-
 
 # Драйвери
 from graph_crawler.infrastructure.transport.async_http import AsyncDriver
@@ -109,6 +68,12 @@ try:
 except ImportError:
     RequestsDriver = None
 
+# CloudScraper для обходу Cloudflare
+try:
+    from graph_crawler.infrastructure.transport.sync import CloudscraperDriver
+except ImportError:
+    CloudscraperDriver = None
+
 __all__ = [
     # Protocols
     "IAsyncDriver",
@@ -137,6 +102,7 @@ __all__ = [
     "HTTPDriver",  # Alias для AsyncDriver
     "PlaywrightDriver",
     "RequestsDriver",  # Legacy sync
+    "CloudscraperDriver",  # Для обходу Cloudflare
     # Utils
     "ConnectionPoolManager",
     "RequestsSessionAdapter",

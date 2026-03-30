@@ -34,9 +34,7 @@ class BaseRegistry(ABC):
         """
         name_lower = name.lower()
         if name_lower in cls._registry:
-            raise ValueError(
-                f"{cls.get_registry_name()}: Item '{name}' is already registered"
-            )
+            raise ValueError(f"{cls.get_registry_name()}: Item '{name}' is already registered")
         cls._registry[name_lower] = item
 
     @classmethod
@@ -100,8 +98,8 @@ class CrawlModeRegistry(BaseRegistry):
     Дозволяє додавати нові режими без зміни валідатора в configs.py.
 
     Example:
-        >>> from graph_crawler.application.use_cases.crawling.spider import SequentialSpider
-        >>> CrawlModeRegistry.register("sequential", SequentialSpider)
+        >>> from graph_crawler.application.use_cases.crawling.spider import GraphSpider
+        >>> CrawlModeRegistry.register("sequential", GraphSpider)
         >>> modes = CrawlModeRegistry.get_all_names()
         >>> print(modes)
         ['sequential', 'multiprocessing', 'celery']
@@ -162,15 +160,15 @@ class MergeStrategyRegistry(BaseRegistry):
 # Application layer calls register() during bootstrap.
 # See: graph_crawler/application/__init__.py for bootstrap example
 #
-# IMPORTANT: DO NOT import from Application/Infrastructure layers here!
+# Note: DO NOT import from Application/Infrastructure layers here!
 
 
 def _init_default_registries():
     """
     Initialize registries with placeholder factories.
-    
+
     in Application layer bootstrap, not here.
-    
+
     This function only registers placeholder factories that raise helpful errors
     if user tries to use uninitialized registry entries.
     """
@@ -203,7 +201,8 @@ def register_crawl_mode(name: str, spider_class: Type) -> None:
 
     Example:
         >>> from graph_crawler.domain.entities.registries import register_crawl_mode
-        >>> register_crawl_mode("distributed", DistributedSpider)
+        >>> from graph_crawler.application.use_cases.crawling.spider import GraphSpider
+        >>> register_crawl_mode("custom", GraphSpider)
     """
     CrawlModeRegistry.register(name, spider_class)
 

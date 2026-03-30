@@ -17,26 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class EmailExtractorPlugin(BaseNodePlugin):
-    """Витягує email адреси з HTML.
-
-    Features:
-    - RFC 5322 compliant regex
-    - mailto: links parsing
-    - Фільтрація fake emails (example.com, test.com, тощо)
-    - Deduplication (lowercase)
-
-    Attributes:
-        EMAIL_PATTERN: RFC 5322 compliant regex для email
-        FAKE_DOMAINS: Список fake domains для фільтрації
-        IMAGE_EXTENSIONS: Розширення файлів (помилково схожі на email)
-
-    Usage:
-        plugin = EmailExtractorPlugin()
-        context = plugin.execute(context)
-        emails = context.user_data['emails']
+    """Extract email addresses from HTML with fake domain filtering.
 
     Example:
-        >>> from graph_crawler.extensions.CustomPlugins.node.extractors import EmailExtractorPlugin
+        >>> from graph_crawler.extensions.plugins.node.extractors import EmailExtractorPlugin
         >>> plugin = EmailExtractorPlugin()
         >>> context = plugin.execute(context)
         >>> print(context.user_data['emails'])
@@ -110,13 +94,13 @@ class EmailExtractorPlugin(BaseNodePlugin):
                         if self._is_valid_email(normalized):
                             emails.add(normalized)
             except Exception as e:
-                logger.debug(f"Error parsing mailto: links: {e}")
+                logger.debug("Error parsing mailto: links: %s", e)
 
         context.user_data["emails"] = sorted(emails)
         context.user_data["email_count"] = len(emails)
 
         if emails:
-            logger.debug(f"Extracted {len(emails)} emails from {context.url}")
+            logger.debug("Extracted %s emails from %s", len(emails), context.url)
 
         return context
 

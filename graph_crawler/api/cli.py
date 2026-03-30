@@ -18,9 +18,6 @@
 import argparse
 import sys
 
-from graph_crawler import GraphCrawlerClient
-from graph_crawler.infrastructure.persistence.base import StorageType
-from graph_crawler.infrastructure.transport.base import DriverType
 from graph_crawler.shared.constants import MAX_DEPTH_DEFAULT, MAX_PAGES_DEFAULT
 
 
@@ -34,46 +31,31 @@ def main():
     graph-crawler init my_project              # Створити проект
     graph-crawler crawl https://example.com    # Сканувати сайт
     graph-crawler scan-urls urls.txt           # Сканувати список URL
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Доступні команди")
 
     # Команда: init (НОВА!)
     init_parser = subparsers.add_parser(
-        "init",
-        help="Створити новий проект (як scrapy startproject)"
+        "init", help="Створити новий проект (як scrapy startproject)"
     )
     init_parser.add_argument("name", help="Назва проекту")
     init_parser.add_argument(
-        "--dir",
-        type=str,
-        default=None,
-        help="Директорія для створення (default: поточна)"
+        "--dir", type=str, default=None, help="Директорія для створення (default: поточна)"
     )
 
     # Команда: scan-urls (НОВА!)
-    scan_urls_parser = subparsers.add_parser(
-        "scan-urls",
-        help="Сканувати список URL з файлу"
-    )
+    scan_urls_parser = subparsers.add_parser("scan-urls", help="Сканувати список URL з файлу")
     scan_urls_parser.add_argument("file", help="Файл зі списком URL")
     scan_urls_parser.add_argument(
-        "--no-follow",
-        action="store_true",
-        help="Не переходити за посиланнями"
+        "--no-follow", action="store_true", help="Не переходити за посиланнями"
     )
     scan_urls_parser.add_argument(
-        "--output",
-        type=str,
-        default="results.json",
-        help="Файл для результатів"
+        "--output", type=str, default="results.json", help="Файл для результатів"
     )
     scan_urls_parser.add_argument(
-        "--settings",
-        type=str,
-        default=None,
-        help="Файл налаштувань (settings.yaml)"
+        "--settings", type=str, default=None, help="Файл налаштувань (settings.yaml)"
     )
 
     # Команда: crawl
@@ -180,10 +162,10 @@ def scan_urls_command(args):
     # Читаємо URL з файлу
     urls = []
     try:
-        with open(args.file, 'r', encoding='utf-8') as f:
+        with open(args.file, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#'):
+                if line and not line.startswith("#"):
                     urls.append(line)
     except FileNotFoundError:
         print(f"❌ Файл не знайдено: {args.file}")
@@ -200,6 +182,7 @@ def scan_urls_command(args):
     if args.settings:
         try:
             from graph_crawler.domain.value_objects.settings import CrawlerSettings
+
             settings = CrawlerSettings.from_file(args.settings)
             settings_kwargs = settings.to_crawl_kwargs()
             print(f"📋 Налаштування: {args.settings}")
@@ -232,14 +215,16 @@ def scan_urls_command(args):
             results = []
             for node in graph:
                 if node.scanned:
-                    results.append({
-                        'url': node.url,
-                        'title': node.get_title(),
-                        'h1': node.get_h1(),
-                        'status': node.response_status,
-                    })
+                    results.append(
+                        {
+                            "url": node.url,
+                            "title": node.get_title(),
+                            "h1": node.get_h1(),
+                            "status": node.response_status,
+                        }
+                    )
 
-            with open(args.output, 'w', encoding='utf-8') as f:
+            with open(args.output, "w", encoding="utf-8") as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
 
             print(f"   💾 Результати: {args.output}")
@@ -251,39 +236,38 @@ def scan_urls_command(args):
 
 def crawl_command(args):
     """Виконує сканування."""
+    import graph_crawler as gc
+
     print(f"  Сканування: {args.url}")
     print(f"   Глибина: {args.max_depth}, Сторінок: {args.max_pages}")
     print(f"   Драйвер: {args.driver}, Storage: {args.storage}")
     print()
 
-    # Конвертуємо driver
+    # Маппінг драйверів (sync API підтримує string values)
     driver_map = {
-        "http": DriverType.HTTP,
-        "async": DriverType.ASYNC,
-        "scrapy": DriverType.SCRAPY,
-        "playwright": DriverType.PLAYWRIGHT,
+        "http": "http",
+        "async": "async",
+        "scrapy": "http",  # scrapy не підтримується, використовуємо HTTP
+        "playwright": "playwright",
     }
 
-    # Конвертуємо storage
+    # Маппінг storage (sync API підтримує string values)
     storage_map = {
-        "memory": StorageType.MEMORY,
-        "json": StorageType.JSON,
-        "sqlite": StorageType.SQLITE,
-        "auto": StorageType.AUTO,
+        "memory": "memory",
+        "json": "json",
+        "sqlite": "sqlite",
+        "auto": "memory",  # auto -> memory для простоти
     }
-
-    client = GraphCrawlerClient()
 
     try:
-        graph = client.crawl(
+        # Використовуємо sync API
+        graph = gc.crawl(
             url=args.url,
             max_depth=args.max_depth,
             max_pages=args.max_pages,
-            same_domain_only=args.same_domain,
-            driver_type=driver_map[args.driver],
-            storage_type=storage_map[args.storage],
-            workers=args.workers,
-            mode=args.mode,
+            same_domain=args.same_domain,
+            driver=driver_map.get(args.driver, "http"),
+            storage=storage_map.get(args.storage, "memory"),
         )
 
         stats = graph.get_stats()
@@ -295,105 +279,82 @@ def crawl_command(args):
 
         # Збереження
         if args.save:
-            full_name = client.save_graph(args.save, description=f"Скан {args.url}")
-            print(f"   Збережено як: {full_name}")
+            gc.save_graph(graph, args.save)
+            print(f"   Збережено як: {args.save}")
 
     except Exception as e:
         print(f" Помилка: {e}")
         sys.exit(1)
-    finally:
-        client.close()
 
 
 def list_command(args):
     """Виводить список збережених графів."""
-    client = GraphCrawlerClient()
-
-    try:
-        graphs = client.list_graphs()
-
-        if not graphs:
-            print(" Немає збережених графів")
-            return
-
-        print(f" Збережені графи ({len(graphs)}):")
-        print()
-
-        for i, meta in enumerate(graphs, 1):
-            print(f"{i}. {meta.name}")
-            print(f"   Повне ім'я: {meta.full_name}")
-            print(f"   Створено: {meta.created_at}")
-            print(
-                f"   Вузлів: {meta.stats.total_nodes}, Ребер: {meta.stats.total_edges}"
-            )
-            if meta.description:
-                print(f"   Опис: {meta.description}")
-            print()
-
-    except Exception as e:
-        print(f" Помилка: {e}")
-        sys.exit(1)
-    finally:
-        client.close()
+    print(" Функція list_graphs() ще не реалізована в поточній версії")
+    print(" Використовуйте gc.load_graph(filepath) для завантаження конкретного графу")
+    sys.exit(0)
 
 
 def info_command(args):
     """Виводить інформацію про граф."""
-    client = GraphCrawlerClient()
+    import graph_crawler as gc
 
     try:
-        meta = client.get_graph_metadata(args.name)
+        graph = gc.load_graph(args.name)
 
-        if not meta:
-            print(f" Граф '{args.name}' не знайдено")
-            sys.exit(1)
-
-        print(f" Інформація про граф: {meta.name}")
-        print(f"   Повне ім'я: {meta.full_name}")
-        print(f"   Створено: {meta.created_at}")
-        print(f"   Опис: {meta.description or 'N/A'}")
+        stats = graph.get_stats()
+        print(f" Інформація про граф: {args.name}")
         print()
         print("   Статистика:")
-        print(f"      Всього вузлів: {meta.stats.total_nodes}")
-        print(f"      Просканованих: {meta.stats.scanned_nodes}")
-        print(f"      Непросканованих: {meta.stats.unscanned_nodes}")
-        print(f"      Всього ребер: {meta.stats.total_edges}")
+        print(f"      Всього вузлів: {stats.get('total_nodes', 0)}")
+        print(f"      Просканованих: {stats.get('scanned_nodes', 0)}")
+        print(f"      Непросканованих: {stats.get('unscanned_nodes', 0)}")
+        print(f"      Всього ребер: {stats.get('total_edges', 0)}")
 
-        if meta.metadata:
-            print()
-            print("   Додаткові метадані:")
-            for key, value in meta.metadata.items():
-                print(f"      {key}: {value}")
-
+    except FileNotFoundError:
+        print(f" Граф '{args.name}' не знайдено")
+        sys.exit(1)
     except Exception as e:
         print(f" Помилка: {e}")
         sys.exit(1)
-    finally:
-        client.close()
 
 
 def compare_command(args):
     """Порівнює два графи."""
-    client = GraphCrawlerClient()
+    import graph_crawler as gc
 
     try:
         print(f" Порівняння графів: {args.name1} vs {args.name2}")
         print()
 
-        result = client.compare_graphs(args.name1, args.name2)
+        graph1 = gc.load_graph(args.name1)
+        graph2 = gc.load_graph(args.name2)
+
+        if not graph1:
+            raise FileNotFoundError(f"Граф '{args.name1}' не знайдено")
+        if not graph2:
+            raise FileNotFoundError(f"Граф '{args.name2}' не знайдено")
+
+        # Базове порівняння (streaming через iter_nodes)
+        nodes1 = {n.url for n in graph1.iter_nodes()}
+        nodes2 = {n.url for n in graph2.iter_nodes()}
+
+        added = len(nodes2 - nodes1)
+        removed = len(nodes1 - nodes2)
+        common = len(nodes1 & nodes2)
+        total = len(nodes1 | nodes2)
+        similarity = common / total if total > 0 else 0
 
         print(" Результати порівняння:")
-        print(f"   Нових вузлів: {result.added_nodes}")
-        print(f"   Видалених вузлів: {result.removed_nodes}")
-        print(f"   Нових ребер: {result.added_edges}")
-        print(f"   Видалених ребер: {result.removed_edges}")
-        print(f"   Схожість: {result.similarity:.2%}")
+        print(f"   Нових вузлів: {added}")
+        print(f"   Видалених вузлів: {removed}")
+        print(f"   Схожість: {similarity:.2%}")
 
+    except FileNotFoundError as e:
+        print(f" Граф не знайдено: {e}")
+        sys.exit(1)
     except Exception as e:
         print(f" Помилка: {e}")
         sys.exit(1)
-    finally:
-        client.close()
 
 
 if __name__ == "__main__":

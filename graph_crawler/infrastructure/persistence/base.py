@@ -2,11 +2,11 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.domain.events.event_bus import EventBus
 from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.shared.utils.event_publisher_mixin import EventPublisherMixin
 
 
@@ -41,14 +41,14 @@ class BaseStorage(EventPublisherMixin, ABC, IStorage):
         self.event_bus = event_bus
 
     @abstractmethod
-    async def save_graph(self, graph_dto: GraphDTO) -> bool:
+    async def save_graph(self, graph_dto: Any) -> bool:
         """
         Async зберігає граф у сховище .
 
         Приймає GraphDTO для ізоляції Domain Layer.
 
         Args:
-            graph_dto: GraphDTO для збереження
+            graph_dto: GraphDTO або Graph для збереження
 
         Returns:
             True якщо успішно
@@ -56,7 +56,7 @@ class BaseStorage(EventPublisherMixin, ABC, IStorage):
         pass
 
     @abstractmethod
-    async def load_graph(self, context: Optional[Dict[str, Any]] = None) -> Optional[GraphDTO]:
+    async def load_graph(self, context: Optional[Dict[str, Any]] = None) -> Optional[Any]:
         """
         Async завантажує граф зі сховища .
 
@@ -67,7 +67,7 @@ class BaseStorage(EventPublisherMixin, ABC, IStorage):
                     але може бути корисний для кастомних storage)
 
         Returns:
-            GraphDTO або None якщо не знайдено
+            GraphDTO або Graph або None якщо не знайдено
         """
         pass
 

@@ -23,13 +23,9 @@ class TwitterCardsParser:
 
     def can_parse(self, source: Union[str, Any]) -> bool:
         """Перевіряє чи джерело є parser adapter."""
-        return hasattr(source, 'find_all')
+        return hasattr(source, "find_all")
 
-    def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
-    ) -> Dict[str, str]:
+    def parse(self, source: Union[str, Any], options: StructuredDataOptions) -> Dict[str, str]:
         """
         Парсить Twitter Cards теги.
 
@@ -40,7 +36,7 @@ class TwitterCardsParser:
         Returns:
             Dict з Twitter властивостями (без "twitter:" префіксу)
         """
-        if not hasattr(source, 'find_all'):
+        if not hasattr(source, "find_all"):
             raise ParserError(self.name, "Source must be parser adapter")
 
         result = {}
@@ -48,16 +44,16 @@ class TwitterCardsParser:
         try:
             # Шукаємо всі meta теги з name="twitter:*"
             for elem in source.find_all('meta[name^="twitter:"]'):
-                name = elem.get_attribute('name')
-                content = elem.get_attribute('content')
+                name = elem.get_attribute("name")
+                content = elem.get_attribute("content")
 
                 if name and content:
                     # Видаляємо "twitter:" префікс
-                    key = name.replace('twitter:', '')
+                    key = name.replace("twitter:", "")
                     result[key] = self._sanitize_value(content)
 
         except Exception as e:
-            logger.warning(f"Error parsing Twitter Cards: {e}")
+            logger.warning("Error parsing Twitter Cards: %s", e)
 
         return result
 

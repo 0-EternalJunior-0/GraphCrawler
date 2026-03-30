@@ -2,8 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
+from graph_crawler.shared.dto import GraphDTO
 
 if TYPE_CHECKING:
     from graph_crawler.domain.events.event_bus import EventBus
@@ -17,29 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryStorage(BaseStorage):
-    """
-    Async збереження GraphDTO у пам'яті.
-
-    Використовує GraphDTO для ізоляції Domain Layer.
-
-    Використовується для малих сайтів (<1000 сторінок).
-    GraphDTO зберігається тільки в пам'яті, без файлів.
-
-    Обмеження: максимум 1000 вузлів. Всі методи async для сумісності з async інтерфейсом,
-    хоча операції в пам'яті виконуються миттєво.
-
-    Example:
-        >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>>
-        >>> # Серіалізація Domain → DTO → Memory
-        >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> await storage.save_graph(graph_dto)
-        >>>
-        >>> # Десеріалізація Memory → DTO → Domain
-        >>> graph_dto = await storage.load_graph()
-        >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-    """
+    """Async збереження GraphDTO у пам'яті (до 1000 нод)."""
 
     MAX_NODES = 1000  # Жорсткий ліміт для запобігання memory overflow
 
@@ -104,7 +82,7 @@ class MemoryStorage(BaseStorage):
 
                 raise MemoryError(error_msg)
 
-            logger.debug(f"Storing GraphDTO in memory: {len(graph_dto.nodes)} nodes")
+            logger.debug("Storing GraphDTO in memory: %s nodes", len(graph_dto.nodes))
             self.graph_dto = graph_dto
 
             duration = time.time() - start_time
@@ -155,9 +133,7 @@ class MemoryStorage(BaseStorage):
         """
         start_time = time.time()
 
-        self.publish_event(
-            EventType.STORAGE_LOAD_STARTED, data={"storage_type": "memory"}
-        )
+        self.publish_event(EventType.STORAGE_LOAD_STARTED, data={"storage_type": "memory"})
 
         if self.graph_dto is not None:
             duration = time.time() - start_time

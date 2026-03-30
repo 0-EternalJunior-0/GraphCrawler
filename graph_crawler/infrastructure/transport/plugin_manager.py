@@ -55,7 +55,10 @@ class DriverPluginManager:
         # Індексація плагінів по подіям
         self.event_plugins: Dict[str, List[BaseDriverPlugin]] = defaultdict(list)
 
-        logger.info(f"DriverPluginManager initialized (async={is_async}, compat_check={check_compatibility})")
+        logger.info(
+            "DriverPluginManager initialized (async=%s, compat_check=%s)",
+            is_async, check_compatibility
+        )
 
     def register(self, plugin: BaseDriverPlugin):
         """
@@ -63,12 +66,12 @@ class DriverPluginManager:
 
         Args:
             plugin: Екземпляр плагіна для реєстрації
-            
+
         Raises:
             ValueError: Якщо плагін несумісний з вже зареєстрованими
         """
         if not plugin.enabled:
-            logger.debug(f"Plugin '{plugin.name}' is disabled, skipping registration")
+            logger.debug("Plugin '%s' is disabled, skipping registration", plugin.name)
             return
 
         # Перевіряємо сумісність з існуючими плагінами
@@ -98,18 +101,18 @@ class DriverPluginManager:
         # Виконуємо setup
         try:
             plugin.setup()
-            logger.info(f"Plugin '{plugin.name}' registered successfully")
+            logger.info("Plugin '%s' registered successfully", plugin.name)
         except Exception as e:
-            logger.error(f"Error in plugin '{plugin.name}' setup: {e}")
+            logger.error("Error in plugin '%s' setup: %s", plugin.name, e)
             plugin.enabled = False
 
     def _check_plugin_compatibility(self, new_plugin: BaseDriverPlugin):
         """
         Перевіряє сумісність нового плагіна з існуючими.
-        
+
         Args:
             new_plugin: Новий плагін для перевірки
-            
+
         Raises:
             ValueError: Якщо є несумісність
         """
@@ -117,17 +120,17 @@ class DriverPluginManager:
             from graph_crawler.infrastructure.transport.playwright.plugins.compatibility import (
                 check_plugin_compatibility,
             )
-            
+
             # Перевіряємо новий плагін разом з існуючими
             all_plugins = self.plugins + [new_plugin]
             check_plugin_compatibility(all_plugins, raise_on_conflict=True)
-            
+
         except ImportError:
             # Якщо модуль сумісності недоступний - пропускаємо перевірку
             logger.debug("Compatibility module not available, skipping check")
         except ValueError as e:
             # Логуємо попередження замість помилки (для м'якого режиму)
-            logger.warning(f"Plugin compatibility issue: {e}")
+            logger.warning("Plugin compatibility issue: %s", e)
             # Можна розкоментувати для строгого режиму:
             # raise
 
@@ -150,9 +153,7 @@ class DriverPluginManager:
                 if hasattr(plugin, handler_name):
                     handler = getattr(plugin, handler_name)
                     context.subscribe(event_name, handler)
-                    logger.debug(
-                        f"Plugin '{plugin.name}' subscribed to event '{event_name}'"
-                    )
+                    logger.debug("Plugin '%s' subscribed to event '%s'", plugin.name, event_name)
 
     def execute_hook(self, hook_name: str, context: DriverContext) -> DriverContext:
         """
@@ -172,7 +173,7 @@ class DriverPluginManager:
         if not plugins:
             return context
 
-        logger.debug(f"Executing hook '{hook_key}' with {len(plugins)} plugin(s)")
+        logger.debug("Executing hook '%s' with %s plugin(s)", hook_key, len(plugins))
 
         for plugin in plugins:
             if not plugin.enabled:
@@ -180,16 +181,15 @@ class DriverPluginManager:
 
             if context.cancelled:
                 logger.info(
-                    f"Execution cancelled, skipping remaining CustomPlugins for '{hook_key}'"
+                    "Execution cancelled, skipping remaining plugins for '%s'",
+                    hook_key
                 )
                 break
 
             # Перевіряємо наявність handler методу
-            handler_name = f"on_{hook_key}"
+            handler_name = "on_%s" % hook_key
             if not hasattr(plugin, handler_name):
-                logger.warning(
-                    f"Plugin '{plugin.name}' has no handler for '{hook_key}'"
-                )
+                logger.warning("Plugin '%s' has no handler for '%s'", plugin.name, hook_key)
                 continue
 
             handler = getattr(plugin, handler_name)
@@ -200,27 +200,21 @@ class DriverPluginManager:
                 duration = time.time() - start_time
 
                 plugin._record_execution(duration)
-                logger.debug(
-                    f"Plugin '{plugin.name}' executed '{hook_key}' in {duration:.3f}s"
-                )
+                logger.debug("Plugin '%s' executed '%s' in %.3fs", plugin.name, hook_key, duration)
 
             except Exception as e:
                 logger.error(
-                    f"Error in plugin '{plugin.name}' on hook '{hook_key}': {e}",
-                    exc_info=True,
+                    "Error in plugin '%s' on hook '%s': %s",
+                    plugin.name, hook_key, e, exc_info=True
                 )
                 context.errors.append(e)
                 plugin._record_execution(0, error=True)
 
-                context.emit(
-                    "plugin_error", plugin_name=plugin.name, hook=hook_key, error=str(e)
-                )
+                context.emit("plugin_error", plugin_name=plugin.name, hook=hook_key, error=str(e))
 
         return context
 
-    async def execute_hook_async(
-        self, hook_name: str, context: DriverContext
-    ) -> DriverContext:
+    async def execute_hook_async(self, hook_name: str, context: DriverContext) -> DriverContext:
         """
         Виконує всі плагіни для вказаного хуку (асинхронна версія).
 
@@ -238,7 +232,7 @@ class DriverPluginManager:
         if not plugins:
             return context
 
-        logger.debug(f"Executing async hook '{hook_key}' with {len(plugins)} plugin(s)")
+        logger.debug("Executing async hook '%s' with %s plugin(s)", hook_key, len(plugins))
 
         for plugin in plugins:
             if not plugin.enabled:
@@ -246,16 +240,15 @@ class DriverPluginManager:
 
             if context.cancelled:
                 logger.info(
-                    f"Execution cancelled, skipping remaining CustomPlugins for '{hook_key}'"
+                    "Execution cancelled, skipping remaining plugins for '%s'",
+                    hook_key
                 )
                 break
 
             # Перевіряємо наявність handler методу
-            handler_name = f"on_{hook_key}"
+            handler_name = "on_%s" % hook_key
             if not hasattr(plugin, handler_name):
-                logger.warning(
-                    f"Plugin '{plugin.name}' has no handler for '{hook_key}'"
-                )
+                logger.warning("Plugin '%s' has no handler for '%s'", plugin.name, hook_key)
                 continue
 
             handler = getattr(plugin, handler_name)
@@ -273,21 +266,17 @@ class DriverPluginManager:
                 duration = time.time() - start_time
 
                 plugin._record_execution(duration)
-                logger.debug(
-                    f"Plugin '{plugin.name}' executed '{hook_key}' in {duration:.3f}s"
-                )
+                logger.debug("Plugin '%s' executed '%s' in %.3fs", plugin.name, hook_key, duration)
 
             except Exception as e:
                 logger.error(
-                    f"Error in plugin '{plugin.name}' on hook '{hook_key}': {e}",
-                    exc_info=True,
+                    "Error in plugin '%s' on hook '%s': %s",
+                    plugin.name, hook_key, e, exc_info=True
                 )
                 context.errors.append(e)
                 plugin._record_execution(0, error=True)
 
-                context.emit(
-                    "plugin_error", plugin_name=plugin.name, hook=hook_key, error=str(e)
-                )
+                context.emit("plugin_error", plugin_name=plugin.name, hook=hook_key, error=str(e))
 
         return context
 
@@ -317,24 +306,24 @@ class DriverPluginManager:
             "total_plugins": len(self.plugins),
             "enabled_plugins": sum(1 for p in self.plugins if p.enabled),
             "is_async": self.is_async,
-            "CustomPlugins": [p.get_stats() for p in self.plugins],
+            "plugins": [p.get_stats() for p in self.plugins],
         }
 
     def teardown_all(self):
         """Виконує teardown для всіх плагінів."""
-        logger.info("Tearing down all CustomPlugins...")
+        logger.info("Tearing down all plugins...")
 
         for plugin in self.plugins:
             try:
                 plugin.teardown()
             except Exception as e:
-                logger.error(f"Error in plugin '{plugin.name}' teardown: {e}")
+                logger.error("Error in plugin '%s' teardown: %s", plugin.name, e)
 
-        logger.info("All CustomPlugins torn down")
+        logger.info("All plugins torn down")
 
     async def teardown_all_async(self):
         """Async виконує teardown для всіх плагінів."""
-        logger.info("Tearing down all CustomPlugins (async)...")
+        logger.info("Tearing down all plugins (async)...")
 
         for plugin in self.plugins:
             try:
@@ -345,11 +334,9 @@ class DriverPluginManager:
                 else:
                     plugin.teardown()
             except Exception as e:
-                logger.error(f"Error in plugin '{plugin.name}' teardown: {e}")
+                logger.error("Error in plugin '%s' teardown: %s", plugin.name, e)
 
-        logger.info("All CustomPlugins torn down")
+        logger.info("All plugins torn down")
 
     def __repr__(self):
-        return (
-            f"DriverPluginManager(CustomPlugins={len(self.plugins)}, async={self.is_async})"
-        )
+        return "DriverPluginManager(plugins=%s, async=%s)" % (len(self.plugins), self.is_async)

@@ -1,9 +1,12 @@
 """Базовий клас для всіх плагінів."""
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class PluginType(str, Enum):
@@ -55,34 +58,34 @@ class BasePlugin(ABC):
                 return context
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
         self.enabled = True
 
     @property
     @abstractmethod
     def plugin_type(self) -> PluginType:
-        """Тип плагіну."""
-        pass
+        """Return the plugin type."""
+        ...
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """Назва плагіну."""
-        pass
+        """Return the plugin name."""
+        ...
 
     @abstractmethod
     def execute(self, context: PluginContext) -> PluginContext:
         """
-        Виконує логіку плагіну.
+        Execute the plugin logic.
 
         Args:
-            context: Контекст з даними
+            context: Context with data
 
         Returns:
-            Оновлений контекст
+            Updated context
         """
-        pass
+        ...
 
     def setup(self):
         """Ініціалізація плагіну."""
@@ -104,7 +107,7 @@ class PluginManager:
     """
 
     def __init__(self):
-        self.plugins: Dict[PluginType, list[BasePlugin]] = {
+        self.plugins: Dict[PluginType, List[BasePlugin]] = {
             plugin_type: [] for plugin_type in PluginType
         }
 
@@ -125,7 +128,7 @@ class PluginManager:
                 try:
                     context = plugin.execute(context)
                 except Exception as e:
-                    print(f"Plugin {plugin.name} error: {e}")
+                    logger.error("Plugin %s error: %s", plugin.name, e, exc_info=True)
                     context.error = e
         return context
 

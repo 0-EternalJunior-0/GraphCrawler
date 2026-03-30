@@ -58,9 +58,9 @@ class MarkdownResult(BaseModel):
     def model_post_init(self, __context) -> None:
         """Обчислює статистику після створення."""
         if self.text and not self.word_count:
-            object.__setattr__(self, 'word_count', len(self.text.split()))
+            object.__setattr__(self, "word_count", len(self.text.split()))
         if self.text and not self.char_count:
-            object.__setattr__(self, 'char_count', len(self.text))
+            object.__setattr__(self, "char_count", len(self.text))
 
     def to_dict(self) -> Dict:
         """Конвертує в dictionary (alias для model_dump)."""

@@ -2,21 +2,24 @@
 - Переписано на asyncpg для async операцій
 - Всі методи тепер async
 - Використовує asyncpg connection pool
+
+Note: pool може бути None до виклику init().
+      Методи повинні викликатись тільки після init().
 """
 
 import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
 
 # Check for asyncpg availability
 try:
-    import asyncpg
+    import asyncpg  # type: ignore[import-not-found]
 
     ASYNCPG_AVAILABLE = True
 except ImportError:
@@ -28,38 +31,6 @@ class PostgreSQLStorage(BaseStorage):
     """
     Async збереження GraphDTO у PostgreSQL.
 
-    Використовує GraphDTO для ізоляції Domain Layer.
-
-    Використовується для великих графів (>20k сторінок).
-    Використовує asyncpg для async операцій.
-
-    Приклад конфігурації:
-        config = {
-            'connection_string': 'postgresql://user:password@localhost:5432/graph_crawler'
-            # АБО окремі параметри:
-            'host': 'localhost',
-            'port': 5432,
-            'database': 'graph_crawler',
-            'user': 'postgres',
-            'password': 'password'
-        }
-
-    Приклад використання:
-        >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>>
-        >>> storage = PostgreSQLStorage(config)
-        >>> await storage.init()  # Async ініціалізація
-        >>>
-        >>> # Серіалізація Domain → DTO → PostgreSQL
-        >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> await storage.save_graph(graph_dto)
-        >>>
-        >>> # Десеріалізація PostgreSQL → DTO → Domain
-        >>> graph_dto = await storage.load_graph()
-        >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>>
-        >>> await storage.close()
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -74,14 +45,13 @@ class PostgreSQLStorage(BaseStorage):
         """
         super().__init__()
         self.config = config
-        self.pool = None
+        self.pool: Any = None  # asyncpg.Pool after init()
         self._initialized = False
 
         if not ASYNCPG_AVAILABLE:
             logger.error("asyncpg not installed. Install it: pip install asyncpg")
             raise ImportError(
-                "PostgreSQL async storage requires asyncpg. "
-                "Install it: pip install asyncpg"
+                "PostgreSQL async storage requires asyncpg. Install it: pip install asyncpg"
             )
 
         # Зберігаємо параметри для async init
@@ -92,9 +62,7 @@ class PostgreSQLStorage(BaseStorage):
             database = config.get("database", "graph_crawler")
             user = config.get("user", "postgres")
             password = config.get("password", "")
-            self.connection_string = (
-                f"postgresql://{user}:{password}@{host}:{port}/{database}"
-            )
+            self.connection_string = f"postgresql://{user}:{password}@{host}:{port}/{database}"
 
     async def init(self) -> None:
         """
@@ -108,14 +76,14 @@ class PostgreSQLStorage(BaseStorage):
             return
 
         try:
-            self.pool = await asyncpg.create_pool(
+            self.pool = await asyncpg.create_pool(  # type: ignore[union-attr]
                 self.connection_string, min_size=2, max_size=10
             )
             logger.info(
-                f"Connected to PostgreSQL (async): {self.connection_string.split('@')[1] if '@' in self.connection_string else 'local'}"
+                f"Connected to PostgreSQL (async): {self.connection_string.split('@')[1] if self.connection_string and '@' in self.connection_string else 'local'}"
             )
         except Exception as e:
-            logger.error(f"Failed to connect to PostgreSQL: {e}")
+            logger.error("Failed to connect to PostgreSQL: %s", e)
             raise ConnectionError(f"Cannot connect to PostgreSQL: {e}") from e
 
         # Ініціалізуємо схему
@@ -219,21 +187,23 @@ class PostgreSQLStorage(BaseStorage):
                     if graph_dto.nodes:
                         nodes_data = []
                         for node_dto in graph_dto.nodes:
-                            nodes_data.append((
-                                node_dto.node_id,
-                                node_dto.url,
-                                node_dto.depth,
-                                node_dto.scanned,
-                                node_dto.should_scan,
-                                node_dto.can_create_edges,
-                                node_dto.response_status,
-                                json.dumps(node_dto.metadata),
-                                json.dumps(node_dto.user_data),
-                                node_dto.content_hash,
-                                node_dto.priority,
-                                node_dto.created_at,
-                                node_dto.lifecycle_stage,
-                            ))
+                            nodes_data.append(
+                                (
+                                    node_dto.node_id,
+                                    node_dto.url,
+                                    node_dto.depth,
+                                    node_dto.scanned,
+                                    node_dto.should_scan,
+                                    node_dto.can_create_edges,
+                                    node_dto.response_status,
+                                    json.dumps(node_dto.metadata),
+                                    json.dumps(node_dto.user_data),
+                                    node_dto.content_hash,
+                                    node_dto.priority,
+                                    node_dto.created_at,
+                                    node_dto.lifecycle_stage,
+                                )
+                            )
 
                         await conn.executemany(
                             """
@@ -250,13 +220,15 @@ class PostgreSQLStorage(BaseStorage):
                     if graph_dto.edges:
                         edges_data = []
                         for edge_dto in graph_dto.edges:
-                            edges_data.append((
-                                edge_dto.edge_id,
-                                edge_dto.source_node_id,
-                                edge_dto.target_node_id,
-                                json.dumps(edge_dto.metadata),
-                                edge_dto.created_at,
-                            ))
+                            edges_data.append(
+                                (
+                                    edge_dto.edge_id,
+                                    edge_dto.source_node_id,
+                                    edge_dto.target_node_id,
+                                    json.dumps(edge_dto.metadata),
+                                    edge_dto.created_at,
+                                )
+                            )
 
                         await conn.executemany(
                             """
@@ -281,17 +253,12 @@ class PostgreSQLStorage(BaseStorage):
         """
         Async завантажує GraphDTO з PostgreSQL.
 
-        Повертає GraphDTO.
-
         Args:
             context: Контекст (не використовується в PostgreSQLStorage, але залишений для сумісності)
-
         Returns:
             GraphDTO або None якщо не знайдено
-
         Raises:
             LoadError: Якщо не вдалося завантажити граф
-
         Example:
             >>> graph_dto = await storage.load_graph()
             >>> # Конвертація в Domain Graph (якщо потрібно)
@@ -429,7 +396,7 @@ class PostgreSQLStorage(BaseStorage):
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save partial graph to PostgreSQL: {e}")
+            logger.error("Failed to save partial graph to PostgreSQL: %s", e)
             return False
 
     async def clear(self) -> bool:
@@ -449,7 +416,7 @@ class PostgreSQLStorage(BaseStorage):
             logger.info("PostgreSQL storage cleared (async)")
             return True
         except Exception as e:
-            logger.error(f"Failed to clear PostgreSQL storage: {e}")
+            logger.error("Failed to clear PostgreSQL storage: %s", e)
             return False
 
     async def exists(self) -> bool:
@@ -467,7 +434,7 @@ class PostgreSQLStorage(BaseStorage):
                 count = await conn.fetchval("SELECT COUNT(*) FROM graph_nodes")
                 return count > 0
         except Exception as e:
-            logger.error(f"Failed to check PostgreSQL storage: {e}")
+            logger.error("Failed to check PostgreSQL storage: %s", e)
             return False
 
     async def close(self) -> None:

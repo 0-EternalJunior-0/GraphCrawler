@@ -7,7 +7,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -40,7 +40,7 @@ class TextExtractorPlugin(BaseNodePlugin):
         )
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Ініціалізує TextExtractorPlugin."""
         super().__init__(config)
         # За замовчуванням УВІМКНЕНИЙ (потрібен для SimHash)
@@ -67,9 +67,9 @@ class TextExtractorPlugin(BaseNodePlugin):
                 text = text[:max_length]
 
             context.user_data["text_content"] = text
-            logger.debug(f"Extracted {len(text)} characters of text from {context.url}")
+            logger.debug("Extracted %s characters of text from %s", len(text), context.url)
 
         except Exception as e:
-            logger.error(f"Error extracting text for {context.url}: {e}")
+            logger.error("Error extracting text for %s: %s", context.url, e)
 
         return context

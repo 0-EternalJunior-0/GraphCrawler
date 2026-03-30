@@ -1,39 +1,13 @@
 """Celery Batch Tasks - ефективні batch задачі для distributed crawling.
 
 Цей модуль вирішує проблему неефективності стандартного celery_app.py:
-- Стара архітектура: 1 task = 1 URL (AsyncDriver з 24 concurrent не використовується)
-- Нова архітектура: 1 task = N URLs (AsyncDriver використовується на повну)
-
-Архітектура:
-```
-
-  BATCH TASK ARCHITECTURE
-
-
-  Redis Queue: [Batch(24 URLs)] [Batch(24 URLs)] ...
-
-  Worker 1:     fetch_many(24)   fetch_many(24)
-
-  AsyncDriver:   24 parallel      24 parallel
-
-  РЕЗУЛЬТАТ: 24x ефективніше!
-
-
-```
-
-Використання:
-    # Worker
-    celery -A graph_crawler.celery_batch worker --loglevel=info
-
-    # Master (CelerySpider з batch mode)
-    spider = CelerySpider(config, driver, storage, use_batch_mode=True)
 """
 
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from celery import Celery
+from celery import Celery  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -71,20 +45,10 @@ def crawl_batch_task(
     """
     Celery task для краулінгу BATCH сторінок.
 
-     КЛЮЧОВА ВІДМІННІСТЬ від crawl_page_task:
-    - crawl_page_task: 1 URL per task (AsyncDriver idle)
-    - crawl_batch_task: N URLs per task (AsyncDriver fully utilized)
-
-    Алгоритм:
-    1. Worker отримує batch з N URLs
-    2. AsyncDriver.fetch_many() обробляє всі паралельно
-    3. Результати повертаються як один response
-
     Args:
         urls_with_depth: Список [(url, depth), ...] для краулінгу
         config_dict: Серіалізована конфігурація краулера
         batch_size: Розмір batch (опціонально, береться з driver config)
-
     Returns:
         Dict з:
         - results: List[{node_data, edges_data, new_urls}]
@@ -105,9 +69,7 @@ def crawl_batch_task(
 
     try:
         batch_len = len(urls_with_depth)
-        logger.info(f" Batch task started: {batch_len} URLs")
-
-        # ========== ОТРИМУЄМО TIMEOUT INFO ==========
+        logger.info(" Batch task started: %s URLs", batch_len)
         crawl_timeout = config_dict.pop("_crawl_timeout", None)
         crawl_start_time = config_dict.pop("_crawl_start_time", None)
 
@@ -127,15 +89,11 @@ def crawl_batch_task(
                     "skipped": True,
                     "reason": "timeout_reached",
                 }
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ КОНФІГУ ==========
         plugin_paths = config_dict.pop("_plugin_paths", [])
         custom_node_class_path = config_dict.pop("_custom_node_class", None)
         driver_config = config_dict.pop("_driver_config", None)
 
         config = CrawlerConfig(**config_dict)
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ ПЛАГІНІВ ==========
         plugins = []
         for plugin_path in plugin_paths:
             plugin = _import_plugin(plugin_path)
@@ -143,16 +101,12 @@ def crawl_batch_task(
                 plugins.append(plugin)
 
         config.node_plugins = plugins if plugins else None
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ CUSTOM NODE CLASS ==========
         if custom_node_class_path:
             node_class = _import_class(custom_node_class_path)
             if not node_class:
                 node_class = Node
         else:
             node_class = config.custom_node_class if config.custom_node_class else Node
-
-        # ========== СТВОРЕННЯ ДРАЙВЕРА ==========
         if driver_config:
             driver = _create_driver_from_config(driver_config)
         else:
@@ -165,19 +119,15 @@ def crawl_batch_task(
 
         # Визначаємо batch_size з драйвера
         if batch_size is None:
-            batch_size = getattr(
-                driver, "max_concurrent", DEFAULT_MAX_CONCURRENT_REQUESTS
-            )
+            batch_size = getattr(driver, "max_concurrent", DEFAULT_MAX_CONCURRENT_REQUESTS)
 
-        logger.info(f"Using batch_size={batch_size} from driver")
+        logger.info("Using batch_size=%s from driver", batch_size)
 
         # Storage для воркера
         storage = MemoryStorage()
 
         # Spider для сканування
         spider = GraphSpider(config, driver, storage)
-
-        # ========== BATCH PROCESSING ==========
         results = []
         success_count = 0
         error_count = 0
@@ -192,7 +142,7 @@ def crawl_batch_task(
             nonlocal success_count, error_count
 
             # Fetch all URLs in parallel
-            logger.info(f"Fetching {len(urls_only)} URLs in parallel...")
+            logger.info("Fetching %s URLs in parallel...", len(urls_only))
             responses = await driver.fetch_many(urls_only)
 
             # Process each response
@@ -202,11 +152,9 @@ def crawl_batch_task(
 
                 try:
                     if response.error:
-                        logger.warning(f"Fetch error for {url}: {response.error}")
+                        logger.warning("Fetch error for %s: %s", url, response.error)
                         error_count += 1
-                        results.append(
-                            {"url": url, "success": False, "error": response.error}
-                        )
+                        results.append({"url": url, "success": False, "error": response.error})
                         continue
 
                     # Створюємо Node
@@ -237,9 +185,7 @@ def crawl_batch_task(
                         normalized_url = URLUtils.normalize_url(link_url)
 
                         # Edge
-                        edge = Edge(
-                            source_node_id=node.node_id, target_node_id=normalized_url
-                        )
+                        edge = Edge(source_node_id=node.node_id, target_node_id=normalized_url)
                         edges_data.append(edge.model_dump())
 
                         # New URL
@@ -257,7 +203,7 @@ def crawl_batch_task(
                     success_count += 1
 
                 except Exception as e:
-                    logger.error(f"Error processing {url}: {e}")
+                    logger.error("Error processing %s: %s", url, e)
                     error_count += 1
                     results.append({"url": url, "success": False, "error": str(e)})
 
@@ -282,7 +228,7 @@ def crawl_batch_task(
         }
 
     except Exception as e:
-        logger.error(f"Batch task failed: {e}")
+        logger.error("Batch task failed: %s", e)
         raise self.retry(exc=e, countdown=2**self.request.retries)
 
 

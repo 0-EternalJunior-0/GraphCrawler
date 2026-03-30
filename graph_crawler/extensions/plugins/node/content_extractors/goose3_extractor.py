@@ -28,7 +28,7 @@ class Goose3Extractor(BaseContentExtractor):
     def __init__(self):
         """Ініціалізує Goose3Extractor."""
         try:
-            from goose3 import Goose
+            from goose3 import Goose  # type: ignore[import-not-found]
 
             self._goose = Goose()
             self._available = True
@@ -70,14 +70,10 @@ class Goose3Extractor(BaseContentExtractor):
                 keywords=[],
                 top_image=article.top_image.src if article.top_image else None,
                 images=[],
-                videos=(
-                    [article.movies[0] if article.movies else None]
-                    if article.movies
-                    else []
-                ),
+                videos=([article.movies[0] if article.movies else None] if article.movies else []),
                 extractor_name=self.extractor_name,
             )
 
         except Exception as e:
-            logger.error(f"Error extracting article with goose3: {e}")
+            logger.error("Error extracting article with goose3: %s", e)
             return None

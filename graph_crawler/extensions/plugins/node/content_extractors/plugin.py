@@ -1,7 +1,7 @@
 """Content Extraction Plugin для Node."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Optional
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -45,7 +45,7 @@ class ContentExtractionPlugin(BaseNodePlugin):
     - context.metadata['article_text'] - текст (перші 1000 символів)
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Ініціалізує ContentExtractionPlugin."""
         super().__init__(config)
 
@@ -61,7 +61,7 @@ class ContentExtractionPlugin(BaseNodePlugin):
         elif extractor_name == "readability":
             self.extractor = ReadabilityExtractor()
         else:
-            logger.error(f"Unknown extractor: {extractor_name}")
+            logger.error("Unknown extractor: %s", extractor_name)
             self.enabled = False
 
     @property
@@ -108,9 +108,7 @@ class ContentExtractionPlugin(BaseNodePlugin):
                 if article.text:
                     # Обмежуємо текст до 1000 символів для metadata
                     text_preview = (
-                        article.text[:1000] + "..."
-                        if len(article.text) > 1000
-                        else article.text
+                        article.text[:1000] + "..." if len(article.text) > 1000 else article.text
                     )
                     context.set_metadata("article_text", text_preview)
 
@@ -118,17 +116,15 @@ class ContentExtractionPlugin(BaseNodePlugin):
                     context.set_metadata("article_authors", article.authors)
 
                 if article.publish_date:
-                    context.set_metadata(
-                        "article_publish_date", article.publish_date.isoformat()
-                    )
+                    context.set_metadata("article_publish_date", article.publish_date.isoformat())
 
                 logger.debug(
                     f"Extracted article from {context.url} using {self.extractor.extractor_name}"
                 )
             else:
-                logger.warning(f"Could not extract article from {context.url}")
+                logger.warning("Could not extract article from %s", context.url)
 
         except Exception as e:
-            logger.error(f"Error in ContentExtractionPlugin for {context.url}: {e}")
+            logger.error("Error in ContentExtractionPlugin for %s: %s", context.url, e)
 
         return context

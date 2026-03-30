@@ -1,31 +1,6 @@
 """CeleryBatchSpider - ефективний distributed краулер з batch tasks.
 
 Це оновлена версія CelerySpider, яка використовує batch tasks
-для максимальної ефективності AsyncDriver.
-
-Порівняння:
-
-           CelerySpider vs CeleryBatchSpider
-
-  CelerySpider (стара архітектура):
-  - 1 task = 1 URL
-  - AsyncDriver.max_concurrent=24 НЕ використовується
-  - Ефективність: ~4% (prefetch=4, але 1 URL per fetch)
-
-  CeleryBatchSpider (нова архітектура):
-  - 1 task = N URLs (N = driver.max_concurrent)
-  - AsyncDriver.fetch_many() повністю задіяний
-  - Ефективність: ~100%
-
-  РЕЗУЛЬТАТ: до 24x швидше!
-
-Використання:
-```python
-from graph_crawler.application.use_cases.crawling.celery_batch_spider import CeleryBatchSpider
-
-spider = CeleryBatchSpider(config, driver, storage)
-graph = spider.crawl()
-```
 """
 
 import asyncio
@@ -33,7 +8,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from celery import group
+from celery import group  # type: ignore[import-not-found]
 
 from graph_crawler.application.use_cases.crawling.serialization_mixin import (
     ConfigSerializationMixin,
@@ -42,10 +17,10 @@ from graph_crawler.application.use_cases.crawling.spider import GraphSpider
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.interfaces.storage import IStorage
-from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.value_objects.configs import CrawlerConfig
 from graph_crawler.shared.constants import (
     DEFAULT_CELERY_RESULTS_TIMEOUT,
     DEFAULT_MAX_CONCURRENT_REQUESTS,
@@ -61,33 +36,6 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
     """
     Ефективний distributed краулер з batch tasks.
 
-    Ключова інновація: драйвер визначає batch size!
-    - AsyncDriver: batch_size = max_concurrent (default 24)
-    - PlaywrightDriver: batch_size = browsers × tabs (наприклад 3×5=15)
-    - HTTPDriver: batch_size = 1 (sync драйвер)
-
-    Архітектура:
-    ```
-
-                       CeleryBatchSpider
-
-
-      1. Визначаємо batch_size з драйвера
-
-
-      2. Групуємо URLs в batches по batch_size
-
-
-      3. Кожен batch → окрема Celery task
-
-
-      4. Worker обробляє batch через driver.fetch_many()
-
-
-      5. Результати збираються та об'єднуються
-
-
-    ```
     """
 
     def __init__(
@@ -116,8 +64,6 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
 
         # Визначаємо batch_size з драйвера
         self.batch_size = batch_size or self._get_driver_batch_size()
-
-        # Ініціалізуємо Celery app
         self._init_celery_app()
 
         # Локальний граф (для збірки результатів)
@@ -138,8 +84,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         logger.info(
             f"CeleryBatchSpider initialized: "
             f"batch_size={self.batch_size}, "
-            f"broker={self._get_celery_broker_url()}"
-            + (f", timeout={timeout}s" if timeout else "")
+            f"broker={self._get_celery_broker_url()}" + (f", timeout={timeout}s" if timeout else "")
         )
 
     def _get_driver_batch_size(self) -> int:
@@ -160,28 +105,22 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         # AsyncDriver - використовуємо max_concurrent
         if hasattr(self.driver, "max_concurrent"):
             batch_size = self.driver.max_concurrent
-            logger.info(f"Batch size from {driver_class}.max_concurrent: {batch_size}")
+            logger.info("Batch size from %s.max_concurrent: %s", driver_class, batch_size)
             return batch_size
 
         # PooledPlaywrightDriver - browsers × tabs
-        if hasattr(self.driver, "max_browsers") and hasattr(
-            self.driver, "max_tabs_per_browser"
-        ):
+        if hasattr(self.driver, "max_browsers") and hasattr(self.driver, "max_tabs_per_browser"):
             batch_size = self.driver.max_browsers * self.driver.max_tabs_per_browser
-            logger.info(f"Batch size from {driver_class} pool: {batch_size}")
+            logger.info("Batch size from %s pool: %s", driver_class, batch_size)
             return batch_size
 
         # Sync драйвери - batch size 1
-        if (
-            "Sync" in driver_class
-            or "Requests" in driver_class
-            or "HTTP" in driver_class
-        ):
-            logger.info(f"Sync driver {driver_class}: batch_size=1")
+        if "Sync" in driver_class or "Requests" in driver_class or "HTTP" in driver_class:
+            logger.info("Sync driver %s: batch_size=1", driver_class)
             return 1
 
         # Default fallback
-        logger.info(f"Using default batch_size for {driver_class}")
+        logger.info("Using default batch_size for %s", driver_class)
         return DEFAULT_MAX_CONCURRENT_REQUESTS
 
     def _get_celery_broker_url(self) -> str:
@@ -215,8 +154,6 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
 
         self.celery_app = celery
         self.crawl_batch_task = crawl_batch_task
-
-        # Встановлюємо environment variables
         celery_config = self.config.celery
         os.environ["CELERY_BROKER_URL"] = celery_config.broker_url
         os.environ["CELERY_RESULT_BACKEND"] = celery_config.backend_url
@@ -238,8 +175,6 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         """
         try:
             inspect = self.celery_app.control.inspect()
-
-            # Отримуємо активних воркерів (timeout 2 секунди)
             active = inspect.active() or {}
             stats = inspect.stats() or {}
 
@@ -253,7 +188,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
                 "online": worker_count > 0,
             }
         except Exception as e:
-            logger.warning(f" Could not check workers: {e}")
+            logger.warning(" Could not check workers: %s", e)
             return {
                 "workers": 0,
                 "active_tasks": 0,
@@ -279,9 +214,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         remaining = ""
         if self.timeout:
             time_left = self.timeout - elapsed
-            remaining = (
-                f", залишилось {time_left:.0f}s" if time_left > 0 else ", timeout!"
-            )
+            remaining = f", залишилось {time_left:.0f}s" if time_left > 0 else ", timeout!"
 
         logger.info(
             f" Прогрес: {self.pages_crawled} сторінок | "
@@ -328,9 +261,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
 
         def handle_shutdown(signum, frame):
             signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-            logger.warning(
-                f" Shutdown signal received ({signal_name}), stopping gracefully..."
-            )
+            logger.warning(" Shutdown signal received (%s), stopping gracefully...", signal_name)
             self._shutdown_requested = True
 
             # Відміняємо pending tasks
@@ -339,9 +270,8 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
                     logger.info("Revoking pending tasks...")
                     self._pending_results.revoke(terminate=True)
                 except Exception as e:
-                    logger.warning(f"Error revoking tasks: {e}")
+                    logger.warning("Error revoking tasks: %s", e)
 
-        # Встановлюємо handlers тільки в main thread
         try:
             signal.signal(signal.SIGINT, handle_shutdown)
             signal.signal(signal.SIGTERM, handle_shutdown)
@@ -390,23 +320,24 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         """
         self.start_time = time.time()
 
-        logger.info(f" Starting CeleryBatchSpider crawl: {self._get_start_url()}")
+        logger.info(" Starting CeleryBatchSpider crawl: %s", self._get_start_url())
         logger.info(
             f"Config: batch_size={self.batch_size}, "
             f"max_depth={self._get_max_depth()}, "
             f"max_pages={self._get_max_pages()}"
             + (f", timeout={self.timeout}s" if self.timeout else "")
         )
-
-        # Перевіряємо воркерів на старті
         worker_info = self._check_workers()
         if worker_info["online"]:
+            worker_names = worker_info["worker_names"][:3]
+            suffix = "..." if len(worker_info["worker_names"]) > 3 else ""
             logger.info(
-                f" Workers online: {worker_info['workers']} ({', '.join(worker_info['worker_names'][:3])}{'...' if len(worker_info['worker_names']) > 3 else ''})"
+                f" Workers online: {worker_info['workers']} ({', '.join(worker_names)}{suffix})"
             )
         else:
             logger.warning(
-                " No workers detected! Tasks will be queued but may not execute until workers start."
+                " No workers detected! Tasks will be queued but may not "
+                "execute until workers start."
             )
 
         # Крок 1: Ініціалізація
@@ -424,9 +355,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
                 if self._shutdown_requested:
                     logger.warning(" Shutdown requested, stopping crawl gracefully")
                 else:
-                    logger.warning(
-                        f"⏱ Timeout reached ({self.timeout}s), stopping crawl"
-                    )
+                    logger.warning(" Timeout reached (%ss), stopping crawl", self.timeout)
                 break
 
             round_num += 1
@@ -461,9 +390,9 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         # Фінальний лог
         self._log_progress(force=True)
         elapsed = time.time() - self.start_time
-        logger.info(f" Crawl finished: {self.pages_crawled} pages in {elapsed:.1f}s")
+        logger.info(" Crawl finished: %s pages in %.1fs", self.pages_crawled, elapsed)
         stats = self.graph.get_stats()
-        logger.info(f"Graph stats: {stats}")
+        logger.info("Graph stats: %s", stats)
 
         return self.graph
 
@@ -507,14 +436,14 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         Returns:
             Список результатів від воркерів
         """
-        from celery.exceptions import TimeoutError as CeleryTimeoutError
+        from celery.exceptions import (
+            TimeoutError as CeleryTimeoutError,  # type: ignore[import-not-found]
+        )
 
         # Перевірка shutdown перед відправкою
         if self._shutdown_requested:
             logger.warning("Shutdown requested, skipping batch execution")
             return []
-
-        # Створюємо tasks
         tasks = []
         for batch in batches:
             task = self.crawl_batch_task.s(batch, config_dict, self.batch_size)
@@ -526,7 +455,7 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
 
         self._pending_results = result_group
 
-        logger.info(f" Sent {len(tasks)} batch tasks to workers")
+        logger.info(" Sent %s batch tasks to workers", len(tasks))
 
         # Визначаємо timeout для очікування результатів
         remaining_timeout = self._get_remaining_timeout()
@@ -536,13 +465,13 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         else:
             wait_timeout = DEFAULT_CELERY_RESULTS_TIMEOUT
 
-        logger.info(f"⏳ Waiting for results (timeout={wait_timeout:.1f}s)...")
+        logger.info(" Waiting for results (timeout=%.1fs)...", wait_timeout)
 
         # Чекаємо результати - простий підхід без polling
         try:
             results = result_group.get(timeout=wait_timeout)
             self._pending_results = None  # Очищаємо після успішного отримання
-            logger.info(f" Received {len(results)} batch results")
+            logger.info(" Received %s batch results", len(results))
             return results
 
         except CeleryTimeoutError:
@@ -558,27 +487,25 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
                         result = async_result.get(timeout=1)
                         partial_results.append(result)
                 except Exception:
-                    pass
+                    pass  # Non-critical: cleanup/fallback
 
             if partial_results:
-                logger.info(f" Got {len(partial_results)} partial results")
+                logger.info(" Got %s partial results", len(partial_results))
                 return partial_results
 
             # Відміняємо незавершені tasks
             try:
                 result_group.revoke(terminate=True)
             except Exception:
-                pass
+                pass  # Non-critical: cleanup/fallback
 
             return []
 
         except Exception as e:
-            logger.error(f" Error waiting for batch results: {type(e).__name__}: {e}")
+            logger.error(" Error waiting for batch results: %s: %s", type(e).__name__, e)
             return []
 
-    def _process_batch_results(
-        self, batch_results: List[Dict]
-    ) -> List[Tuple[str, int]]:
+    def _process_batch_results(self, batch_results: List[Dict]) -> List[Tuple[str, int]]:
         """
         Обробляє результати від batch tasks.
 
@@ -590,17 +517,16 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         """
         urls_to_process = []
 
-        logger.debug(f"Processing {len(batch_results)} batch results")
+        logger.debug("Processing %s batch results", len(batch_results))
 
         for batch_idx, batch_result in enumerate(batch_results):
             if not batch_result:
-                logger.warning(f"Batch {batch_idx}: empty result")
+                logger.warning("Batch %s: empty result", batch_idx)
                 continue
 
             results = batch_result.get("results", [])
-            logger.debug(
-                f"Batch {batch_idx}: {len(results)} results, success={batch_result.get('success_count', 0)}"
-            )
+            success_count = batch_result.get("success_count", 0)
+            logger.debug("Batch %s: %s results, success=%s", batch_idx, len(results), success_count)
 
             for result in results:
                 if not result.get("success"):
@@ -616,10 +542,8 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
                     if node.url not in self.graph.nodes:
                         self.graph.add_node(node)
                         self.pages_crawled += 1
-
-                        # Перевіряємо ліміт
                         if not self._should_continue():
-                            logger.info(f"Limit reached at {self.pages_crawled} pages")
+                            logger.info("Limit reached at %s pages", self.pages_crawled)
                             break
 
                 # Додаємо ребра
@@ -678,19 +602,19 @@ class CeleryBatchSpider(ConfigSerializationMixin, IDistributedSpider):
         # Перевірка max_pages
         max_pages = self._get_max_pages()
         if max_pages and self.pages_crawled >= max_pages:
-            logger.info(f"Reached max_pages limit: {max_pages}")
+            logger.info("Reached max_pages limit: %s", max_pages)
             return False
 
         # Перевірка timeout
         if self._is_timeout_reached():
-            logger.info(f"Reached timeout limit: {self.timeout}s")
+            logger.info("Reached timeout limit: %ss", self.timeout)
             return False
 
         return True
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> Dict[str, Any]:
         """Повертає статистику краулінгу."""
-        stats = self.graph.get_stats()
+        stats: Dict[str, Any] = self.graph.get_stats()
         stats["pages_crawled"] = self.pages_crawled
         stats["batch_size"] = self.batch_size
         stats["mode"] = "celery_batch"

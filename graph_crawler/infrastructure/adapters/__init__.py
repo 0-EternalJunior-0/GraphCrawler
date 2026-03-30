@@ -1,6 +1,5 @@
 """Модуль для абстракції HTML парсерів.
 
-
 Пріоритет: selectolax (5-10x) > lxml (2-3x) > html.parser
 
 - get_default_parser() - singleton для найшвидшого доступного адаптера
@@ -35,7 +34,8 @@ def _detect_best_parser() -> str:
     # Пробуємо selectolax (найшвидший)
     try:
         from selectolax.parser import HTMLParser
-        logger.info("✅ Selectolax detected - using FASTEST HTML parser (+40% speed)")
+
+        logger.info(" Selectolax detected - using FASTEST HTML parser (+40% speed)")
         return "selectolax"
     except ImportError:
         pass
@@ -43,7 +43,8 @@ def _detect_best_parser() -> str:
     # Пробуємо lxml
     try:
         import lxml
-        logger.info("✅ lxml detected - using fast HTML parser")
+
+        logger.info(" lxml detected - using fast HTML parser")
         return "lxml"
     except ImportError:
         pass
@@ -82,12 +83,14 @@ def get_default_parser() -> BaseTreeAdapter:
             from graph_crawler.infrastructure.adapters.selectolax_adapter import (
                 SelectolaxAdapter,
             )
+
             _default_parser_instance = SelectolaxAdapter()
         else:
             # BeautifulSoup з lxml або html.parser backend
             from graph_crawler.infrastructure.adapters.beautifulsoup_adapter import (
                 BeautifulSoupAdapter,
             )
+
             _default_parser_instance = BeautifulSoupAdapter(parser_backend=parser_type)
 
     return _default_parser_instance
@@ -97,18 +100,8 @@ def create_parser_instance() -> BaseTreeAdapter:
     """
     Створює НОВИЙ instance парсера для thread-safe паралельного парсингу.
 
-    🔒 THREAD-SAFE: Кожен виклик створює новий незалежний instance.
-    Використовуйте цей метод замість get_default_parser() при:
-    - Паралельному парсингу в ThreadPoolExecutor
-    - Async краулінгу з asyncio.gather()
-    - Будь-якому concurrent доступі до парсера
-
-    Це вирішує race condition коли кілька threads/tasks одночасно
-    викликають parser.parse() і перезаписують self._tree один одному.
-
     Returns:
         НОВИЙ BaseTreeAdapter instance (thread-safe)
-
     Example:
         >>> # В ThreadPoolExecutor
         >>> def parse_html(html):
@@ -131,12 +124,14 @@ def create_parser_instance() -> BaseTreeAdapter:
         from graph_crawler.infrastructure.adapters.selectolax_adapter import (
             SelectolaxAdapter,
         )
+
         return SelectolaxAdapter()
     else:
         # BeautifulSoup з lxml або html.parser backend
         from graph_crawler.infrastructure.adapters.beautifulsoup_adapter import (
             BeautifulSoupAdapter,
         )
+
         return BeautifulSoupAdapter(parser_backend=parser_type)
 
 
@@ -168,12 +163,14 @@ def get_parser(name: str = "auto") -> BaseTreeAdapter:
         from graph_crawler.infrastructure.adapters.selectolax_adapter import (
             SelectolaxAdapter,
         )
+
         return SelectolaxAdapter()
 
     if name in ("beautifulsoup", "html.parser", "lxml"):
         from graph_crawler.infrastructure.adapters.beautifulsoup_adapter import (
             BeautifulSoupAdapter,
         )
+
         backend = "lxml" if name == "lxml" else "html.parser"
         return BeautifulSoupAdapter(parser_backend=backend)
 

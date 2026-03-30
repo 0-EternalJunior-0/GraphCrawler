@@ -7,10 +7,10 @@ class BaseErrorListener:
     """
     Базовий listener для обробки помилок.
 
-        Відповідальність: події помилок під час краулінгу.
+    Відповідальність: події помилок під час краулінгу.
 
-        Події:
-        - on_error_occurred() - виникнення помилки
+    Eventi:
+    - on_error_occurred() - виникнення помилки
     """
 
     def on_error_occurred(self, event: CrawlerEvent) -> None:

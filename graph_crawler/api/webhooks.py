@@ -102,27 +102,6 @@ class WebhookManager:
     """
     Async-First manager для webhook notifications .
 
-    Features:
-    - Multiple webhook endpoints
-    - Event filtering
-    - Async retry logic з exponential backoff
-    - Async delivery (asyncio.Task)
-    - Event history tracking Використовує aiohttp та asyncio.sleep() замість blocking операцій.
-
-    Example:
-        >>> from graph_crawler.api.webhooks import WebhookManager, WebhookEvent
-        >>>
-        >>> manager = WebhookManager()
-        >>> manager.add_webhook(
-        ...     url='https://example.com/webhook',
-        ...     events=[WebhookEvent.CRAWL_STARTED, WebhookEvent.CRAWL_FINISHED]
-        ... )
-        >>>
-        >>> # Start async delivery
-        >>> await manager.start()
-        >>>
-        >>> # Integrate з EventBus
-        >>> event_bus.subscribe('crawl_started', manager.handle_event)
     """
 
     def __init__(self):
@@ -131,7 +110,7 @@ class WebhookManager:
         self._event_queue: asyncio.Queue = asyncio.Queue()
         self._delivery_task: Optional[asyncio.Task] = None
         self._running = False
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: Optional["aiohttp.ClientSession"] = None  # type: ignore
         self._stats = {
             "total_sent": 0,
             "total_failed": 0,
@@ -155,7 +134,7 @@ class WebhookManager:
         config = WebhookConfig(url, events, **kwargs)
         self.webhooks.append(config)
 
-        logger.info(f"Added webhook: {url} for events: {events}")
+        logger.info("Added webhook: %s for events: %s", url, events)
 
     def remove_webhook(self, url: str):
         """
@@ -165,7 +144,7 @@ class WebhookManager:
             url: Webhook URL to remove
         """
         self.webhooks = [w for w in self.webhooks if w.url != url]
-        logger.info(f"Removed webhook: {url}")
+        logger.info("Removed webhook: %s", url)
 
     async def start(self):
         """
@@ -182,7 +161,7 @@ class WebhookManager:
             return
 
         self._running = True
-        self._session = aiohttp.ClientSession()
+        self._session = aiohttp.ClientSession()  # type: ignore[name-defined]
         self._delivery_task = asyncio.create_task(self._delivery_worker())
 
         logger.info("WebhookManager delivery started")
@@ -249,9 +228,7 @@ class WebhookManager:
             try:
                 # Чекаємо подію з таймаутом
                 try:
-                    event_data = await asyncio.wait_for(
-                        self._event_queue.get(), timeout=0.1
-                    )
+                    event_data = await asyncio.wait_for(self._event_queue.get(), timeout=0.1)
                 except asyncio.TimeoutError:
                     continue
 
@@ -266,7 +243,7 @@ class WebhookManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Webhook delivery worker error: {e}")
+                logger.error("Webhook delivery worker error: %s", e)
 
     async def _send_webhook(self, webhook: WebhookConfig, payload: Dict[str, Any]):
         """
@@ -301,34 +278,26 @@ class WebhookManager:
         # Async retry logic з exponential backoff
         for attempt in range(webhook.max_retries):
             try:
-                async with self._session.post(
+                async with self._session.post(  # type: ignore[union-attr]
                     webhook.url,
                     json=payload,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=webhook.timeout),
+                    timeout=aiohttp.ClientTimeout(total=webhook.timeout),  # type: ignore[name-defined]
                 ) as response:
-
                     if response.status < 300:
                         # Success
                         self._stats["total_sent"] += 1
 
-                        logger.debug(
-                            f"Webhook delivered to {webhook.url}: "
-                            f"{payload['event']}"
-                        )
+                        logger.debug("Webhook delivered to %s: %s", webhook.url, payload['event'])
                         return
                     else:
-                        logger.warning(
-                            f"Webhook failed (status {response.status}): "
-                            f"{webhook.url}"
-                        )
+                        logger.warning("Webhook failed (status %s): %s", response.status, webhook.url)
 
             except asyncio.TimeoutError:
-                logger.warning(f"Webhook timeout: {webhook.url}")
-            except aiohttp.ClientError as e:
-                logger.error(f"Webhook client error: {webhook.url} - {e}")
+                logger.warning("Webhook timeout: %s", webhook.url)
             except Exception as e:
-                logger.error(f"Webhook error: {webhook.url} - {e}")
+                # Catch aiohttp.ClientError and other exceptions
+                logger.error("Webhook error: %s - %s", webhook.url, e)
 
             if attempt < webhook.max_retries - 1:
                 delay = webhook.retry_delay * (2**attempt)
@@ -339,9 +308,7 @@ class WebhookManager:
         # All retries failed
         self._stats["total_failed"] += 1
 
-        logger.error(
-            f"Webhook failed after {webhook.max_retries} attempts: " f"{webhook.url}"
-        )
+        logger.error("Webhook failed after %s attempts: %s", webhook.max_retries, webhook.url)
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -398,9 +365,7 @@ def get_webhook_manager() -> Optional[WebhookManager]:
     return _webhook_manager
 
 
-async def integrate_webhooks_with_crawler(
-    event_bus, webhook_configs: List[Dict[str, Any]]
-):
+async def integrate_webhooks_with_crawler(event_bus, webhook_configs: List[Dict[str, Any]]):
     """
     Async integrate webhooks з GraphCrawler EventBus .
 
@@ -433,4 +398,4 @@ async def integrate_webhooks_with_crawler(
     for event_type in WebhookEvent:
         event_bus.subscribe(event_type.value, manager.handle_event)
 
-    logger.info(f"Webhooks integrated with {len(webhook_configs)} endpoints")
+    logger.info("Webhooks integrated with %s endpoints", len(webhook_configs))

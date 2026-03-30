@@ -113,9 +113,7 @@ class CrawlProgressTracker:
             return
 
         self.event_bus.publish(
-            CrawlerEvent.create(
-                EventType.NODE_SCAN_STARTED, data={"url": url, "depth": depth}
-            )
+            CrawlerEvent.create(EventType.NODE_SCAN_STARTED, data={"url": url, "depth": depth})
         )
 
     def publish_node_scanned(
@@ -212,7 +210,7 @@ class CrawlProgressTracker:
         elapsed = self.elapsed_time
         return self.pages_crawled / elapsed if elapsed > 0 else 0.0
 
-    def publish_crawl_completed(self) -> None:
+    def publish_crawl_completed(self, edges_count: int = 0) -> None:
         """Публікує подію про завершення краулінгу."""
         if not self.event_bus:
             return
@@ -222,6 +220,8 @@ class CrawlProgressTracker:
                 EventType.CRAWL_COMPLETED,
                 data={
                     "total_pages": self.pages_crawled,
+                    "pages_crawled": self.pages_crawled,
+                    "edges_created": edges_count,
                     "scanned_pages": self.pages_crawled,
                     "duration": self.elapsed_time,
                     "avg_time_per_page": self.avg_time_per_page,

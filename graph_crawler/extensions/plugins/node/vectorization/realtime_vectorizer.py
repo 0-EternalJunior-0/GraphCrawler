@@ -1,26 +1,6 @@
 """Real-time векторизатор тексту для Node плагінів.
 
 Векторизує текст під час краулінгу (ON_AFTER_SCAN).
-Працює для кожної ноди окремо відразу після сканування.
-
-
-CPU-bound операція vectorize_text() виконується в ThreadPoolExecutor.
-
-Приклад використання:
-    >>> from graph_crawler.extensions.CustomPlugins.node.vectorization import RealTimeVectorizerPlugin
-    >>>
-    >>> realtime = RealTimeVectorizerPlugin(config={
-    ...     'enabled': True,
-    ...     'model_name': 'paraphrase-multilingual-MiniLM-L12-v2',
-    ...     'vector_size': 512,
-    ...     'field_name': 'text'
-    ... })
-    >>>
-    >>> # Використання з GraphCrawler
-    >>> graph = package_crawler.crawl(
-    ...     url="https://example.com",
-    ...     node_plugins=[realtime]
-    ... )
 """
 
 import asyncio
@@ -28,7 +8,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Optional
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -42,8 +22,7 @@ from graph_crawler.extensions.plugins.node.vectorization.utils import (
 
 # ThreadPoolExecutor для CPU-bound векторизації (не блокує event loop!)
 _vectorization_executor = ThreadPoolExecutor(
-    max_workers=min(4, (os.cpu_count() or 2)),
-    thread_name_prefix="vectorizer_"
+    max_workers=min(4, (os.cpu_count() or 2)), thread_name_prefix="vectorizer_"
 )
 
 logger = logging.getLogger(__name__)
@@ -53,40 +32,9 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
     """
     Real-time векторизатор тексту для Node.
 
-    Працює на етапі ON_AFTER_SCAN - після сканування HTML.
-    Витягує текст з ноди, векторизує його та зберігає результат.
-
-    Параметри конфігурації:
-        enabled (bool): Чи увімкнено плагін (за замовчуванням True)
-        model_name (str): Назва моделі sentence-transformers
-            (за замовчуванням 'paraphrase-multilingual-MiniLM-L12-v2')
-        vector_size (int): Розмір вектору (за замовчуванням 512)
-        field_name (str): Ім'я поля в ноді з текстом (за замовчуванням 'text')
-        skip_field (str): Ім'я поля-прапорця для пропуску векторизації
-            (за замовчуванням 'not_vector')
-        vector_key (str): Ключ для збереження вектору в user_data
-            (за замовчуванням 'vector_512_realtime')
-
-    Контроль виконання:
-        Плагін пропускає ноду якщо:
-        - node.not_vector == True (або інше поле зазначене в skip_field)
-        - Поле з текстом відсутнє або порожнє
-
-    Приклад з кастомною Node:
-        >>> class MyCustomNode(Node):
-        ...     not_vector: Optional[bool] = Field(default=False)
-        ...     text: Optional[str] = Field(default=None)
-        ...
-        ...     def _update_from_context(self, context):
-        ...         super()._update_from_context(context)
-        ...         if context.html_tree:
-        ...             self.text = context.html_tree.text
-        >>>
-        >>> # Векторизація буде працювати тільки якщо not_vector=False
-        >>> realtime = RealTimeVectorizerPlugin()
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Ініціалізує RealTimeVectorizerPlugin.
 
@@ -96,9 +44,7 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
         super().__init__(config)
 
         # Параметри векторизації
-        self.model_name = self.config.get(
-            "model_name", "paraphrase-multilingual-MiniLM-L12-v2"
-        )
+        self.model_name = self.config.get("model_name", "paraphrase-multilingual-MiniLM-L12-v2")
         self.vector_size = self.config.get("vector_size", 512)
 
         # Параметри полів
@@ -107,9 +53,8 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
         self.vector_key = self.config.get("vector_key", "vector_512_realtime")
 
         logger.info(
-            f"RealTimeVectorizerPlugin initialized: "
-            f"model={self.model_name}, size={self.vector_size}, "
-            f"field={self.field_name}, skip_field={self.skip_field}"
+            "RealTimeVectorizerPlugin initialized: model=%s, size=%s, field=%s, skip_field=%s",
+            self.model_name, self.vector_size, self.field_name, self.skip_field
         )
 
     @property
@@ -126,7 +71,6 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
         """
         ASYNC виконує векторизацію тексту з ноди.
 
-
         CPU-bound vectorize_text() виконується в ThreadPoolExecutor,
         не блокуючи async event loop.
 
@@ -139,9 +83,7 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
         try:
             # Перевірка чи не потрібно пропустити векторизацію
             if self._should_skip(context):
-                logger.debug(
-                    f"Skipping vectorization for {context.url}: skip flag is set"
-                )
+                logger.debug("Skipping vectorization for %s: skip flag is set", context.url)
                 return context
 
             # Отримуємо текст з ноди
@@ -149,14 +91,13 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
 
             if not text:
                 logger.debug(
-                    f"No text found in field '{self.field_name}' for {context.url}, skipping"
+                    "No text found in field '%s' for %s, skipping",
+                    self.field_name, context.url
                 )
                 return context
 
             # ASYNC Векторизація через ThreadPoolExecutor (НЕ БЛОКУЄ event loop!)
-            logger.debug(
-                f"Vectorizing text for {context.url} (length: {len(text)} chars)"
-            )
+            logger.debug("Vectorizing text for %s (length: %s chars)", context.url, len(text))
 
             loop = asyncio.get_event_loop()
 
@@ -169,26 +110,23 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
             )
 
             # Виконуємо CPU-bound операцію в окремому потоці
-            vector = await loop.run_in_executor(
-                _vectorization_executor,
-                vectorize_func
-            )
+            vector = await loop.run_in_executor(_vectorization_executor, vectorize_func)
 
             context.user_data[self.vector_key] = vector.tolist()
 
             logger.info(
-                f"✅ Vectorized {context.url}: "
-                f"text_len={len(text)}, vector_size={len(vector)}"
+                "[VECTORIZE] Completed %s: text_len=%s, vector_size=%s",
+                context.url, len(text), len(vector)
             )
 
         except VectorizationError as e:
-            logger.error(f"Vectorization error for {context.url}: {e}")
+            logger.error("Vectorization error for %s: %s", context.url, e)
             # Не падаємо - продовжуємо краулінг
 
         except Exception as e:
             logger.error(
-                f"Unexpected error in RealTimeVectorizerPlugin for {context.url}: {e}",
-                exc_info=True,
+                "Unexpected error in RealTimeVectorizerPlugin for %s: %s",
+                context.url, e, exc_info=True
             )
 
         return context
@@ -244,8 +182,9 @@ class RealTimeVectorizerPlugin(BaseNodePlugin):
 
         # Якщо поле не знайдено
         logger.debug(
-            f"Field '{self.field_name}' not found in node {context.url}. "
-            f"Available node attributes: {[attr for attr in dir(node) if not attr.startswith('_')]}"
+            "Field '%s' not found in node %s. Available node attributes: %s",
+            self.field_name, context.url,
+            [attr for attr in dir(node) if not attr.startswith('_')]
         )
 
         return None

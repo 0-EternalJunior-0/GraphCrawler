@@ -3,7 +3,10 @@
 import logging
 from typing import Any, List, Optional
 
-from scrapy.selector import Selector
+try:
+    from scrapy.selector import Selector  # type: ignore[import-not-found]
+except ImportError:
+    Selector = None  # type: ignore[misc,assignment]
 
 from graph_crawler.infrastructure.adapters.base import BaseTreeAdapter, TreeElement
 
@@ -14,24 +17,6 @@ class ScrapyAdapter(BaseTreeAdapter):
     """
     Scrapy Selector адаптер.
 
-    Переваги:
-    - Швидкий (базується на lxml)
-    - Підтримка CSS та XPath
-    - Знайомий для Scrapy користувачів
-
-    Недоліки:
-    - Додаткова залежність (Scrapy)
-
-    Рекомендації:
-    - Для користувачів знайомих з Scrapy
-    - Для проектів де вже використовується Scrapy
-
-    Використання:
-        >>> adapter = ScrapyAdapter()
-        >>> adapter.parse('<html><title>Test</title></html>')
-        >>> elem = adapter.find('title')
-        >>> elem.text()
-        'Test'
     """
 
     def __init__(self):
@@ -55,9 +40,9 @@ class ScrapyAdapter(BaseTreeAdapter):
             return ""
         return " ".join(self._tree.css("*::text").getall()).strip()
 
-    def parse(self, html: str) -> Selector:
+    def parse(self, html: str) -> "Selector":  # type: ignore[name-defined]
         """Парсить HTML в Scrapy Selector."""
-        self._tree = Selector(text=html)
+        self._tree = Selector(text=html)  # type: ignore[misc]
         return self._tree
 
     def find(self, selector: str) -> Optional[TreeElement]:
@@ -68,7 +53,7 @@ class ScrapyAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.css(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return None
 
         if not elements:
@@ -84,7 +69,7 @@ class ScrapyAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.css(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return []
 
         return [TreeElement(elem, self) for elem in elements]
@@ -105,7 +90,7 @@ class ScrapyAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.xpath(query)
         except Exception as e:
-            logger.error(f"XPath query error: {e}")
+            logger.error("XPath query error: %s", e)
             return []
 
         return [TreeElement(elem, self) for elem in elements]
@@ -118,8 +103,10 @@ class ScrapyAdapter(BaseTreeAdapter):
             return ""
         try:
             return element.get().strip() if element.get() else ""
-        except:
+        except (AttributeError, TypeError):
             return ""
+        except Exception:
+            return ""  # Fallback для невідомих помилок
 
     def _get_element_attribute(self, element: Any, name: str) -> Optional[str]:
         """Повертає атрибут елемента."""
@@ -127,8 +114,10 @@ class ScrapyAdapter(BaseTreeAdapter):
             return None
         try:
             return element.xpath(f"@{name}").get()
-        except:
+        except (AttributeError, TypeError):
             return None
+        except Exception:
+            return None  # Fallback для невідомих помилок
 
     def _find_in_element(self, element: Any, selector: str) -> Optional[TreeElement]:
         """Знаходить дочірній елемент."""
@@ -138,7 +127,7 @@ class ScrapyAdapter(BaseTreeAdapter):
         try:
             children = element.css(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return None
 
         if not children:
@@ -154,7 +143,7 @@ class ScrapyAdapter(BaseTreeAdapter):
         try:
             children = element.css(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return []
 
         return [TreeElement(child, self) for child in children]

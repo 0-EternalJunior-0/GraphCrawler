@@ -1,7 +1,5 @@
 """Оптимізована JSON серіалізація з orjson.
 
-
-
 orjson (Rust-based) є в 5-10x швидшим за стандартний json.
 Автоматичний fallback на стандартний json якщо orjson не встановлено.
 
@@ -34,10 +32,12 @@ _orjson = None
 
 try:
     import orjson as _orjson
+
     _orjson_available = True
-    logger.info("✅ orjson available - using fastest JSON serialization (+50% speed)")
+    logger.info(" orjson available - using fastest JSON serialization (+50% speed)")
 except ImportError:
     import json as _json_fallback
+
     logger.debug("orjson not installed. Install with: pip install orjson")
 
 
@@ -59,8 +59,8 @@ def _default_serializer(obj: Any) -> Any:
     if isinstance(obj, set):
         return list(obj)
     if isinstance(obj, bytes):
-        return obj.decode('utf-8', errors='replace')
-    if hasattr(obj, '__dict__'):
+        return obj.decode("utf-8", errors="replace")
+    if hasattr(obj, "__dict__"):
         return obj.__dict__
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
@@ -104,9 +104,9 @@ def dumps(
 
         try:
             # orjson повертає bytes, конвертуємо в str
-            return _orjson.dumps(obj, default=serializer, option=options).decode('utf-8')
+            return _orjson.dumps(obj, default=serializer, option=options).decode("utf-8")
         except TypeError as e:
-            logger.warning(f"orjson serialization failed: {e}, using fallback")
+            logger.warning("orjson serialization failed: %s, using fallback", e)
 
     # Fallback на стандартний json
     return _json_fallback.dumps(
@@ -141,7 +141,7 @@ def dumps_bytes(obj: Any, *, default: Any = None) -> bytes:
         return _orjson.dumps(obj, default=serializer)
 
     # Fallback
-    return _json_fallback.dumps(obj, default=serializer, ensure_ascii=False).encode('utf-8')
+    return _json_fallback.dumps(obj, default=serializer, ensure_ascii=False).encode("utf-8")
 
 
 def loads(s: Union[str, bytes]) -> Any:
@@ -165,7 +165,7 @@ def loads(s: Union[str, bytes]) -> Any:
 
     # Fallback
     if isinstance(s, bytes):
-        s = s.decode('utf-8')
+        s = s.decode("utf-8")
     return _json_fallback.loads(s)
 
 
@@ -182,7 +182,6 @@ def is_orjson_available() -> bool:
 # Backward compatibility з стандартним json API
 dump = None  # Не підтримуємо file-based для оптимізації
 load = None
-
 
 __all__ = [
     "dumps",

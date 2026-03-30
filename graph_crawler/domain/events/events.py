@@ -15,17 +15,11 @@ class EventType(str, Enum):
 
     # Node події
     NODE_CREATED = "node_created"
-    NODE_SCAN_STARTED = (
-        "node_scan_started"  # перед початком скану ноди
-    )
+    NODE_SCAN_STARTED = "node_scan_started"  # перед початком скану ноди
     NODE_SCANNED = "node_scanned"
     NODE_FAILED = "node_failed"
-    NODE_SKIPPED_UNCHANGED = (
-        "node_skipped_unchanged"  # incremental skip
-    )
-    NODE_DETECTED_CHANGED = (
-        "node_detected_changed"  # incremental changed
-    )
+    NODE_SKIPPED_UNCHANGED = "node_skipped_unchanged"  # incremental skip
+    NODE_DETECTED_CHANGED = "node_detected_changed"  # incremental changed
 
     # Edge події
     EDGE_CREATED = "edge_created"
@@ -35,6 +29,7 @@ class EventType(str, Enum):
     CRAWL_COMPLETED = "crawl_completed"
     CRAWL_PAUSED = "crawl_paused"
     CRAWL_RESUMED = "crawl_resumed"
+    CRAWL_CHECKPOINT = "crawl_checkpoint"  # Checkpoint saved by StateManager
     BATCH_COMPLETED = "batch_completed"  # після обробки batch
 
     # Scheduler події (Додано)
@@ -45,6 +40,8 @@ class EventType(str, Enum):
 
     # Error події
     ERROR_OCCURRED = "error_occurred"
+    MEMORY_WARNING = "memory_warning"  # Memory approaching limit (MemoryGuard)
+    MEMORY_LIMIT_EXCEEDED = "memory_limit_exceeded"  # Memory limit exceeded (MemoryGuard)
     RETRY_ATTEMPTED = "retry_attempted"
 
     # Storage події (Додано)
@@ -114,6 +111,29 @@ class EventType(str, Enum):
     EXPORT_PROGRESS = "export_progress"  # Прогрес експорту
     EXPORT_SUCCESS = "export_success"  # Успішний експорт
     EXPORT_ERROR = "export_error"  # Помилка експорту
+    # Goal tracking
+    GOAL_PROGRESS = "goal_progress"  # Прогрес досягнення мети
+    GOAL_ACHIEVED = "goal_achieved"  # Мета досягнута
+    GOAL_FAILED = "goal_failed"  # Не вдалося досягти мети
+
+    # Data extraction
+    DATA_EXTRACTED = "data_extracted"  # Витягнуто дані
+    DATA_VALIDATED = "data_validated"  # Дані валідовані
+    DATA_AGGREGATED = "data_aggregated"  # Дані агреговані
+
+    # Navigation decisions
+    NAVIGATION_DECISION = "navigation_decision"  # Рішення куди йти
+    URL_SCORED = "url_scored"  # URL оцінено (relevance)
+    STRATEGY_CHANGED = "strategy_changed"  # Змінено стратегію
+
+    # Stop conditions
+    STOP_CONDITION_MET = "stop_condition_met"  # Умова зупинки досягнута
+    STOP_REQUESTED = "stop_requested"  # Запит на зупинку
+
+    # LLM interactions (для моніторингу та дебагу)
+    LLM_REQUEST_STARTED = "llm_request_started"  # Запит до LLM
+    LLM_REQUEST_COMPLETED = "llm_request_completed"  # LLM відповів
+    LLM_REQUEST_FAILED = "llm_request_failed"  # Помилка LLM
 
 
 @dataclass
@@ -137,8 +157,8 @@ class CrawlerEvent:
     def create(
         cls,
         event_type: EventType,
-        data: Dict[str, Any] = None,
-        metadata: Dict[str, Any] = None,
+        data: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> "CrawlerEvent":
         """Створює нову подію."""
         return cls(
@@ -186,8 +206,8 @@ class CrawlerEvent:
             return data
         except (TypeError, ValueError) as e:
             # Є несеріалізовані об'єкти - конвертуємо їх
-            logger.warning(f"Event data contains non-serializable objects: {e}")
-            safe_data = {}
+            logger.warning("Event data contains non-serializable objects: %s", e)
+            safe_data: Dict[str, Any] = {}
             for key, value in data.items():
                 if isinstance(value, (int, float, str, bool, type(None))):
                     # Прості типи - залишаємо як є
@@ -195,11 +215,7 @@ class CrawlerEvent:
                 elif isinstance(value, (list, tuple)):
                     # Списки - конвертуємо елементи
                     safe_data[key] = [
-                        (
-                            str
-                            if not isinstance(v, (int, float, str, bool, type(None)))
-                            else v
-                        )
+                        (str(v) if not isinstance(v, (int, float, str, bool, type(None))) else v)
                         for v in value
                     ]
                 elif isinstance(value, dict):

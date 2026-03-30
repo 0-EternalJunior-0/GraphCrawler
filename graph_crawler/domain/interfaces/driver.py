@@ -1,16 +1,13 @@
 """Protocol для драйверів завантаження сторінок ."""
 
-from typing import List, Protocol, runtime_checkable
+from typing import Any, List, Optional, Protocol, runtime_checkable
 
 from graph_crawler.domain.value_objects.models import FetchResponse
 
 
 @runtime_checkable
 class IDriver(Protocol):
-    """
-    Async-First інтерфейс для драйвера завантаження сторінок. Повністю async інтерфейс без sync методів.
-    Всі операції виконуються асинхронно для максимальної продуктивності.
-    """
+    """Async-First інтерфейс для драйвера завантаження сторінок."""
 
     async def fetch(self, url: str) -> FetchResponse:
         """
@@ -50,6 +47,6 @@ class IDriver(Protocol):
         """Async context manager entry."""
         ...
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Optional[bool]:
         """Async context manager exit - автоматично закриває драйвер."""
         ...

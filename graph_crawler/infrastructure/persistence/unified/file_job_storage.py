@@ -61,7 +61,7 @@ class FileJobStorage:
 
         # Ініціалізація БД
         self._init_db()
-        logger.info(f"FileJobStorage initialized: {self.db_path}")
+        logger.info("FileJobStorage initialized: %s", self.db_path)
 
     def _init_db(self):
         """Створює таблиці якщо не існують."""
@@ -96,9 +96,7 @@ class FileJobStorage:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, func, *args)
 
-    def _sync_create_job(
-        self, job_id: str, config: Dict[str, Any], status: str
-    ) -> None:
+    def _sync_create_job(self, job_id: str, config: Dict[str, Any], status: str) -> None:
         """Sync версія create_job."""
         conn = self._get_conn()
         try:
@@ -130,7 +128,7 @@ class FileJobStorage:
     ) -> None:
         """Створює новий job."""
         await self._run_in_executor(self._sync_create_job, job_id, config, status)
-        logger.debug(f"Created job {job_id} in SQLite")
+        logger.debug("Created job %s in SQLite", job_id)
 
     def _sync_get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Sync версія get_job."""

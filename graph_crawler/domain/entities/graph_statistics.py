@@ -11,26 +11,6 @@ class GraphStatistics:
     """
     Static методи для аналізу та статистики графів.
 
-        Відповідальність: обчислення метрик, статистики та аналіз структури графа.
-        Винесено з класу Graph для дотримання Single Responsibility Principle.
-
-        Методи:
-        - get_stats() - загальна статистика
-        - get_degree() - ступінь вузла
-        - get_in_degree() - вхідний ступінь
-        - get_out_degree() - вихідний ступінь
-        - get_neighbors() - сусідні вузли
-        - is_connected() - перевірка зв'язності
-        - get_nodes_by_depth() - вузли на певній глибині
-
-        Приклад:
-            >>> from graph_crawler.domain.entities.graph import Graph
-            >>> from graph_crawler.domain.entities.graph_statistics import GraphStatistics
-            >>>
-            >>> graph = Graph()
-            >>> stats = GraphStatistics.get_stats(graph)
-            >>> degree = GraphStatistics.get_degree(graph, node_id)
-            >>> is_conn = GraphStatistics.is_connected(graph)
     """
 
     @staticmethod
@@ -40,20 +20,21 @@ class GraphStatistics:
 
         Args:
             graph: Граф для аналізу
-
         Returns:
             Словник зі статистикою:
-            - total_nodes: загальна кількість вузлів
-            - scanned_nodes: кількість просканованих вузлів
-            - unscanned_nodes: кількість непросканованих вузлів
+            - total_nodes: загальна кількість вузлів (RAM only, без evicted)
+            - scanned_nodes: кількість просканованих вузлів в RAM
+            - unscanned_nodes: кількість непросканованих вузлів в RAM
             - total_edges: кількість ребер
         """
-        scanned = sum(1 for node in graph._nodes.values() if node.scanned)
+        # Крок 32: Backend-compatible - використовуємо iter_nodes() та nodes property
+        scanned = sum(1 for node in graph.iter_nodes() if node.scanned)
+        total_nodes = len(graph.nodes)
         return {
-            "total_nodes": len(graph._nodes),
+            "total_nodes": total_nodes,
             "scanned_nodes": scanned,
-            "unscanned_nodes": len(graph._nodes) - scanned,
-            "total_edges": len(graph._edges),
+            "unscanned_nodes": total_nodes - scanned,
+            "total_edges": len(graph.edges),
         }
 
     @staticmethod
@@ -123,11 +104,12 @@ class GraphStatistics:
         """
         # O(1) lookup замість O(E) ітерації через всі edges!
         # Об'єднуємо вхідних та вихідних сусідів
-        neighbor_ids = graph._adjacency_list_out.get(
+        neighbor_ids = graph._adjacency_list_out.get(node_id, set()) | graph._adjacency_list_in.get(
             node_id, set()
-        ) | graph._adjacency_list_in.get(node_id, set())
+        )
 
-        return [graph._nodes[nid] for nid in neighbor_ids if nid in graph._nodes]
+        # Крок 32: Backend-compatible - використовуємо nodes property
+        return [graph.nodes[nid] for nid in neighbor_ids if nid in graph.nodes]
 
     @staticmethod
     def is_connected(graph: "Graph") -> bool:
@@ -143,14 +125,19 @@ class GraphStatistics:
         Returns:
             True якщо граф зв'язаний
         """
-        if len(graph._nodes) == 0:
+        # Крок 32: Backend-compatible - використовуємо nodes property
+        if not graph.nodes:
             return True
 
         # BFS для перевірки зв'язності
         from collections import deque
 
         visited = set()
-        queue = deque([next(iter(graph._nodes.keys()))])  # Почати з першого вузла
+        # Крок 32: Backend-compatible - використовуємо iter_nodes() для отримання першого node_id
+        first_node = next(graph.iter_nodes(), None)
+        if first_node is None:
+            return True
+        queue = deque([first_node.node_id])  # Почати з першого вузла
 
         while queue:
             node_id = queue.popleft()  # O(1) замість O(n)!
@@ -164,7 +151,7 @@ class GraphStatistics:
             ) | graph._adjacency_list_in.get(node_id, set())
             queue.extend(nid for nid in neighbor_ids if nid not in visited)
 
-        return len(visited) == len(graph._nodes)
+        return len(visited) == len(graph.nodes)
 
     @staticmethod
     def get_nodes_by_depth(graph: "Graph", depth: int) -> List["Node"]:
@@ -178,7 +165,8 @@ class GraphStatistics:
         Returns:
             Список вузлів на заданій глибині
         """
-        return [node for node in graph._nodes.values() if node.depth == depth]
+        # Крок 32: Backend-compatible - використовуємо iter_nodes()
+        return [node for node in graph.iter_nodes() if node.depth == depth]
 
     @staticmethod
     def get_unscanned_nodes(graph: "Graph") -> List["Node"]:
@@ -191,4 +179,5 @@ class GraphStatistics:
         Returns:
             Список вузлів зі scanned=False
         """
-        return [node for node in graph._nodes.values() if not node.scanned]
+        # Крок 32: Backend-compatible - використовуємо iter_nodes()
+        return [node for node in graph.iter_nodes() if not node.scanned]

@@ -1,24 +1,10 @@
 """Observability Module для GraphCrawler.
 
 Includes:
-- Structured JSON Logging
-- Prometheus-compatible Metrics
-- Error Tracing with context
-
-Usage:
-    >>> from graph_crawler.observability import (
-    ...     # Logging
-    ...     setup_json_logging,
-    ...     get_logger,
-    ...
-    ...     # Metrics
-    ...     get_metrics,
-    ...     CrawlerMetrics,
-    ...
-    ...     # Error tracing
-    ...     trace_error,
-    ...     get_error_summary,
-    ... )
+- Structured logging з JSON format
+- Metrics collection (Counter, Gauge, Histogram)
+- Error tracing з context
+- Extensions: MemoryGuard, StateManager
 """
 
 from graph_crawler.observability.error_tracing import (
@@ -27,6 +13,11 @@ from graph_crawler.observability.error_tracing import (
     get_error_summary,
     get_error_tracer,
     trace_error,
+)
+from graph_crawler.observability.extensions import (
+    MemoryGuard,
+    MemoryGuardConfig,
+    StateManager,
 )
 from graph_crawler.observability.metrics_core import (
     Counter,
@@ -51,7 +42,6 @@ __all__ = [
     "JSONFormatter",
     "CorrelationIDFilter",
     "LogContext",
-
     # Metrics
     "get_metrics",
     "MetricsRegistry",
@@ -59,11 +49,14 @@ __all__ = [
     "Gauge",
     "Histogram",
     "CrawlerMetrics",
-
     # Error tracing
     "trace_error",
     "get_error_summary",
     "get_error_tracer",
     "ErrorTracer",
     "ErrorContext",
+    # Extensions
+    "MemoryGuard",
+    "MemoryGuardConfig",
+    "StateManager",
 ]

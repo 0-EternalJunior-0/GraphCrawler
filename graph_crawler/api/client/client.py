@@ -6,21 +6,20 @@
 
 import asyncio
 import logging
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from graph_crawler.application.use_cases.crawling.filters.domain_patterns import (
-    AllowedDomains,
-)
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.interfaces.driver import IDriver
-from graph_crawler.domain.interfaces.event_bus import IEventBus
-from graph_crawler.domain.interfaces.spider import ISpider
 from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.value_objects.models import GraphStats, URLRule
+from graph_crawler.domain.value_objects.domain_patterns import AllowedDomains
+from graph_crawler.domain.value_objects.models import Rule
 from graph_crawler.infrastructure.persistence.graph_repository import GraphRepository
+
+if TYPE_CHECKING:
+    from graph_crawler.domain.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +37,29 @@ class GraphCrawlerClient:
     @classmethod
     async def create(cls, **kwargs) -> "GraphCrawlerClient":
         """
-        Async factory метод через ApplicationContainer.
+        Async factory метод для створення клієнта.
         """
-        from graph_crawler.application.services.application_container import (
-            ApplicationContainer,
-        )
+        from graph_crawler.application.services import create_driver, create_storage
+        from graph_crawler.domain.events import EventBus
+        from graph_crawler.infrastructure.persistence.graph_repository import GraphRepository
 
-        container = ApplicationContainer()
-        return container.client()
+        driver = create_driver(kwargs.get("driver", "async"), kwargs.get("driver_config"))
+        storage = create_storage(kwargs.get("storage", "memory"), kwargs.get("storage_config"))
+        event_bus = EventBus()
+        repository = GraphRepository()  # Використовуємо default директорію
+
+        return cls(
+            driver=driver,
+            storage=storage,
+            event_bus=event_bus,
+            repository=repository,
+        )
 
     def __init__(
         self,
         driver: IDriver,
         storage: IStorage,
-        event_bus: IEventBus,
+        event_bus: "EventBus",
         repository: GraphRepository,
         logger_instance: Optional[logging.Logger] = None,
     ):
@@ -86,19 +94,19 @@ class GraphCrawlerClient:
 
     def add_listener(self, listener) -> None:
         """Додати event listener."""
+        from graph_crawler.domain.events.events import EventType
+
         self.listeners.append(listener)
-        event_methods = [
-            "on_crawl_started",
-            "on_node_scanned",
-            "on_progress_update",
-            "on_crawl_completed",
-            "on_error_occurred",
-        ]
-        for method_name in event_methods:
-            if hasattr(listener, method_name) and callable(
-                getattr(listener, method_name)
-            ):
-                event_type = method_name[3:]
+        # Маппінг методів на EventType
+        event_method_map = {
+            "on_crawl_started": EventType.CRAWL_STARTED,
+            "on_node_scanned": EventType.NODE_SCANNED,
+            "on_progress_update": EventType.PROGRESS_UPDATE,
+            "on_crawl_completed": EventType.CRAWL_COMPLETED,
+            "on_error_occurred": EventType.ERROR_OCCURRED,
+        }
+        for method_name, event_type in event_method_map.items():
+            if hasattr(listener, method_name) and callable(getattr(listener, method_name)):
                 self.event_bus.subscribe(event_type, getattr(listener, method_name))
 
     async def crawl(
@@ -107,7 +115,7 @@ class GraphCrawlerClient:
         max_depth: int = 3,
         max_pages: Optional[int] = 100,
         allowed_domains: Optional[List[str]] = None,
-        url_rules: Optional[list[URLRule]] = None,
+        url_rules: Optional[list[Rule]] = None,
         custom_node_class: Optional[type[Node]] = None,
         custom_edge_class: Optional[type[Edge]] = None,
         timeout: Optional[int] = None,
@@ -121,28 +129,12 @@ class GraphCrawlerClient:
         low_memory_mode: bool = False,
         evict_threshold: int = 500,
         eviction_storage_path: Optional[str] = None,
+        # AI Agent Integration
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
     ) -> Graph:
         """
         Async запускає краулінг веб-сайту з підтримкою множинних seed URLs та incremental crawling.
-
-        Args:
-            url: Початковий URL (base URL для конфігурації)
-            max_depth: Максимальна глибина
-            max_pages: Максимальна кількість сторінок
-            allowed_domains: Дозволені домени
-            url_rules: Правила URL
-            custom_node_class: Кастомний клас Node
-            custom_edge_class: Кастомний клас Edge
-            timeout: Максимальний час краулінгу
-            edge_strategy: Стратегія створення edges
-            max_in_degree_threshold: Поріг для max in-degree
-            node_plugins: Список плагінів
-            seed_urls: Список URL для початку краулінгу (NEW)
-            base_graph: Існуючий граф для продовження (NEW)
-            follow_links: Переходити за посиланнями (True) чи сканувати тільки вказані URL (False)
-            low_memory_mode: Активувати eviction scanned нод на диск
-            evict_threshold: Максимум нод в RAM перед eviction
-            eviction_storage_path: Директорія для eviction storage
 
         Returns:
             Побудований граф
@@ -150,15 +142,15 @@ class GraphCrawlerClient:
         if self._closed:
             raise RuntimeError("Client is closed. Create a new instance.")
 
-        self.logger.info(f"Starting async crawl: {url}")
+        self.logger.info("Starting async crawl: %s", url)
         if seed_urls:
-            self.logger.info(f"Seed URLs: {len(seed_urls)} URLs")
+            self.logger.info("Seed URLs: %s URLs", len(seed_urls))
         if base_graph:
-            self.logger.info(f"Base graph: {len(base_graph.nodes)} nodes")
+            self.logger.info("Base graph: %s nodes", len(base_graph.nodes))
         if not follow_links:
             self.logger.info("follow_links=False: will scan only specified URLs, no link following")
         if low_memory_mode:
-            self.logger.info(f"LOW-MEMORY MODE: evict_threshold={evict_threshold}")
+            self.logger.info("LOW-MEMORY MODE: evict_threshold=%s", evict_threshold)
 
         domains = (
             allowed_domains
@@ -202,48 +194,46 @@ class GraphCrawlerClient:
         )
 
         try:
-            # Створюємо async spider
-            spider = self._create_spider(config)
+            # Створюємо async spider з AI Agent Integration
+            spider = self._create_spider(
+                config,
+                crawl_context=crawl_context,
+                control_channel=control_channel,
+            )
 
             # Конвертуємо base_graph → GraphDTO якщо передано
             base_graph_dto = None
             if base_graph:
                 from graph_crawler.application.dto.mappers import GraphMapper
+
                 base_graph_dto = GraphMapper.to_dto(base_graph)
-                self.logger.info(f"Converted base graph to DTO: {len(base_graph.nodes)} nodes")
+                self.logger.info("Converted base graph to DTO: %s nodes", len(base_graph.nodes))
 
             # Spider тепер сам обробляє timeout через Coordinator
             # Це забезпечує коректну зупинку краулінгу без orphan tasks
             graph_dto = await spider.crawl(
-                base_graph_dto=base_graph_dto,
-                seed_urls=seed_urls,
-                timeout=timeout
+                base_graph_dto=base_graph_dto, seed_urls=seed_urls, timeout=timeout
             )
 
             # Конвертуємо GraphDTO → Domain Graph для backward compatibility публічного API
             from graph_crawler.application.dto.mappers import GraphMapper
 
             context = {
-                'plugin_manager': spider.node_plugin_manager,
-                'node_class': custom_node_class,
-                'edge_class': custom_edge_class,
+                "plugin_manager": spider.node_plugin_manager,
+                "node_class": custom_node_class,
+                "edge_class": custom_edge_class,
             }
             graph = GraphMapper.to_domain(graph_dto, context=context)
 
             self._last_graph = graph
 
-            self.event_bus.publish(
-                CrawlerEvent.create(
-                    event_type=EventType.CRAWL_COMPLETED,
-                    data={"total_pages": len(graph.nodes), "stats": graph.get_stats()},
-                )
-            )
-
-            self.logger.info(f"Crawl completed: {len(graph.nodes)} nodes")
+            # Подія CRAWL_COMPLETED вже публікується в spider.py через progress_tracker
+            # Тут тільки логуємо
+            self.logger.info("Crawl completed: %s nodes", len(graph.nodes))
             return graph
 
         except asyncio.TimeoutError:
-            self.logger.error(f"Crawl timeout after {timeout} seconds")
+            self.logger.error("Crawl timeout after %s seconds", timeout)
             self.event_bus.publish(
                 CrawlerEvent.create(
                     event_type=EventType.ERROR_OCCURRED,
@@ -255,7 +245,7 @@ class GraphCrawlerClient:
             )
             raise
         except Exception as e:
-            self.logger.error(f"Crawl failed: {e}")
+            self.logger.error("Crawl failed: %s", e)
             self.event_bus.publish(
                 CrawlerEvent.create(
                     event_type=EventType.ERROR_OCCURRED,
@@ -277,33 +267,44 @@ class GraphCrawlerClient:
         if not graph_to_save:
             raise ValueError("No graph to save. Run crawl() first.")
 
-        graph_id = await self.storage.save_graph(
-            graph=graph_to_save, name=name, description=description
-        )
+        # IStorage.save_graph приймає тільки graph
+        result = await self.storage.save_graph(graph_to_save)
 
-        self.logger.info(f"Graph saved: {graph_id}")
-        return graph_id
+        self.logger.info("Graph saved: %s", name)
+        return name if result else ""
 
     async def load_graph(self, name: str) -> Optional[Graph]:
         """
         Async завантажує граф.
         """
-        graph = await self.storage.load_graph(name)
-        if graph:
-            self._last_graph = graph
-            self.logger.info(f"Graph loaded: {name}")
-        return graph
+        result = await self.storage.load_graph()
+        if result:
+            # result може бути Graph або GraphDTO залежно від storage
+            if isinstance(result, Graph):
+                self._last_graph = result
+            else:
+                # Якщо це не Graph - конвертуємо
+                from graph_crawler.application.dto.mappers import GraphMapper
 
-    def get_stats(self, graph: Optional[Graph] = None) -> GraphStats:
+                self._last_graph = GraphMapper.to_domain(result)
+            self.logger.info("Graph loaded: %s", name)
+        return self._last_graph
+
+    def get_stats(self, graph: Optional[Graph] = None) -> dict[str, int]:
         """Отримує статистику графа (sync - in-memory)."""
         graph_to_check = graph or self._last_graph
         if not graph_to_check:
             raise ValueError("No graph available. Run crawl() first.")
         return graph_to_check.get_stats()
 
-    def _create_spider(self, config: CrawlerConfig) -> "ISpider":
+    def _create_spider(
+        self,
+        config: CrawlerConfig,
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
+    ) -> Any:
         """
-        Створює async Spider.
+        Створює async Spider з підтримкою AI Agent Integration.
         """
         from graph_crawler.application.use_cases.crawling.spider import GraphSpider
 
@@ -312,10 +313,12 @@ class GraphCrawlerClient:
             driver=self.driver,
             storage=self.storage,
             event_bus=self.event_bus,
+            crawl_context=crawl_context,
+            control_channel=control_channel,
         )
 
         self._graph = spider.graph
-        self.logger.debug(f"Spider created: {type(spider).__name__}")
+        self.logger.debug("Spider created: %s", type(spider).__name__)
         return spider
 
     async def close(self) -> None:
@@ -346,7 +349,7 @@ class GraphCrawlerClient:
             self.logger.info("Client closed successfully")
 
         except Exception as e:
-            self.logger.error(f"Error during client cleanup: {e}")
+            self.logger.error("Error during client cleanup: %s", e)
             self._closed = True
             raise
 

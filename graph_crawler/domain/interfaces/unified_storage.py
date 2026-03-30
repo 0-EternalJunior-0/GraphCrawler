@@ -126,7 +126,9 @@ class IQueueStorage(Protocol):
     """
 
     async def push_urls(
-        self, scan_id: str, urls: List[Tuple[str, int, int]]  # (url, depth, priority)
+        self,
+        scan_id: str,
+        urls: List[Tuple[str, int, int]],  # (url, depth, priority)
     ) -> int:
         """Додає URLs до черги.
 
@@ -158,9 +160,7 @@ class IQueueStorage(Protocol):
         """Позначає URLs як оброблені."""
         ...
 
-    async def mark_failed(
-        self, scan_id: str, urls: List[str], error: Optional[str] = None
-    ) -> None:
+    async def mark_failed(self, scan_id: str, urls: List[str], error: Optional[str] = None) -> None:
         """Позначає URLs як failed."""
         ...
 
@@ -191,25 +191,6 @@ class StorageConfig:
     """Конфігурація Unified Storage.
 
     Example:
-        # Default - файлова система
-        config = StorageConfig()
-
-        # SQLite з явним шляхом
-        config = StorageConfig(
-            backend=StorageBackend.SQLITE,
-            storage_path="./my_crawl.db"
-        )
-
-        # PostgreSQL
-        config = StorageConfig(
-            backend=StorageBackend.POSTGRESQL,
-            db_config={
-                'host': 'localhost',
-                'database': 'package_crawler',
-                'user': 'user',
-                'password': 'pass'
-            }
-        )
     """
 
     def __init__(

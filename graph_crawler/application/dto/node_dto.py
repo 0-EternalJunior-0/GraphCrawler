@@ -15,8 +15,8 @@ DTO для передачі даних про Node між шарами.
 
 # Re-export from shared layer for backward compatibility
 from graph_crawler.shared.dto.node_dto import (
-    NodeDTO,
     CreateNodeDTO,
+    NodeDTO,
     NodeMetadataDTO,
 )
 

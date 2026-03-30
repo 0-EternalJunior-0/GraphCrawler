@@ -1,4 +1,8 @@
-"""Збереження графу у SQLite базі даних через GraphDTO. Використовує aiosqlite для async database I/O."""
+"""Збереження графу у SQLite базі даних через GraphDTO. Використовує aiosqlite для async database I/O.
+
+Note: conn та _async_conn можуть бути None до ініціалізації.
+      Методи повинні викликатись після _init_db().
+"""
 
 import json
 import time
@@ -19,7 +23,6 @@ if TYPE_CHECKING:
 
 import logging
 
-from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.domain.events.events import EventType
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 from graph_crawler.shared.constants import (
@@ -27,6 +30,7 @@ from graph_crawler.shared.constants import (
     SQLITE_JOURNAL_MODE,
     SQLITE_SYNCHRONOUS,
 )
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
@@ -56,18 +60,20 @@ class SQLiteStorage(BaseStorage):
 
     def __init__(
         self,
-        storage_dir: str = "/tmp/graph_crawler",
+        storage_dir: Optional[str] = None,
         event_bus: Optional["EventBus"] = None,
     ):
         """
         Ініціалізує SQLiteStorage.
 
         Args:
-            storage_dir: Директорія для збереження SQLite БД
+            storage_dir: Директорія для збереження SQLite БД (default: ./crawler_data/db)
             event_bus: EventBus для публікації подій (опціонально)
         """
+        from graph_crawler.shared.constants import DEFAULT_DB_DIR
+
         super().__init__(event_bus=event_bus)
-        self.storage_dir = Path(storage_dir)
+        self.storage_dir = Path(storage_dir or DEFAULT_DB_DIR)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = self.storage_dir / "graph.db"
         self.conn: Optional[sqlite3.Connection] = None
@@ -83,12 +89,8 @@ class SQLiteStorage(BaseStorage):
             if self._async_conn is None:
                 self._async_conn = await aiosqlite.connect(str(self.db_file))
                 self._async_conn.row_factory = aiosqlite.Row
-                await self._async_conn.execute(
-                    f"PRAGMA journal_mode={SQLITE_JOURNAL_MODE}"
-                )
-                await self._async_conn.execute(
-                    f"PRAGMA synchronous={SQLITE_SYNCHRONOUS}"
-                )
+                await self._async_conn.execute(f"PRAGMA journal_mode={SQLITE_JOURNAL_MODE}")
+                await self._async_conn.execute(f"PRAGMA synchronous={SQLITE_SYNCHRONOUS}")
                 await self._async_conn.execute(f"PRAGMA cache_size={SQLITE_CACHE_SIZE}")
             return self._async_conn
         return None
@@ -148,39 +150,26 @@ class SQLiteStorage(BaseStorage):
 
             # Індекси для швидкого пошуку
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_url ON nodes(url)")
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_nodes_scanned ON nodes(scanned)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_node_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_node_id)"
-            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_scanned ON nodes(scanned)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_node_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_node_id)")
 
             conn.commit()
-            logger.info(f"SQLiteStorage database initialized at: {self.db_file}")
+            logger.info("SQLiteStorage database initialized at: %s", self.db_file)
         except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error("Failed to initialize database: %s", e)
             raise
 
     async def save_graph(self, graph_dto: GraphDTO) -> bool:
         """
         Async зберігає GraphDTO у SQLite.
 
-        Приймає GraphDTO.
-
-        Використовує aiosqlite для async database I/O.
-
         Args:
             graph_dto: GraphDTO для збереження
-
         Returns:
             True якщо успішно
-
         Raises:
             SaveError: Якщо не вдалося зберегти граф
-
         Example:
             >>> from graph_crawler.application.dto.mappers import GraphMapper
             >>> graph_dto = GraphMapper.to_dto(graph)
@@ -200,7 +189,7 @@ class SQLiteStorage(BaseStorage):
         try:
             if AIOSQLITE_AVAILABLE:
                 conn = await self._get_async_connection()
-                cursor = await conn.cursor()
+                cursor = await conn.cursor()  # type: ignore[union-attr]
 
                 # Очищаємо існуючі дані
                 await cursor.execute("DELETE FROM edges")
@@ -259,7 +248,7 @@ class SQLiteStorage(BaseStorage):
                     edges_data,
                 )
 
-                await conn.commit()
+                await conn.commit()  # type: ignore[union-attr]
             else:
                 # Fallback до sync
                 conn = self._get_connection()
@@ -334,9 +323,7 @@ class SQLiteStorage(BaseStorage):
                 },
             )
 
-            logger.info(
-                f"Graph saved: {len(nodes_data)} nodes, {len(edges_data)} edges"
-            )
+            logger.info("Graph saved: %s nodes, %s edges", len(nodes_data), len(edges_data))
             return True
         except Exception as e:
             error_msg = f"Failed to save graph: {e}"
@@ -356,19 +343,12 @@ class SQLiteStorage(BaseStorage):
         """
         Async завантажує GraphDTO з SQLite.
 
-        Повертає GraphDTO.
-
-        Використовує aiosqlite для async database I/O.
-
         Args:
             context: Контекст (не використовується в SQLiteStorage, але залишений для сумісності)
-
         Returns:
             GraphDTO або None якщо не знайдено
-
         Raises:
             LoadError: Якщо не вдалося завантажити граф
-
         Example:
             >>> graph_dto = await storage.load_graph()
             >>> # Конвертація в Domain Graph (якщо потрібно)
@@ -393,7 +373,7 @@ class SQLiteStorage(BaseStorage):
 
             if AIOSQLITE_AVAILABLE:
                 conn = await self._get_async_connection()
-                cursor = await conn.cursor()
+                cursor = await conn.cursor()  # type: ignore[union-attr]
 
                 await cursor.execute("SELECT * FROM nodes")
                 rows = await cursor.fetchall()
@@ -491,9 +471,7 @@ class SQLiteStorage(BaseStorage):
                 },
             )
 
-            logger.info(
-                f"Graph loaded: {len(nodes_dtos)} nodes, {len(edges_dtos)} edges"
-            )
+            logger.info("Graph loaded: %s nodes, %s edges", len(nodes_dtos), len(edges_dtos))
             return graph_dto
         except Exception as e:
             error_msg = f"Failed to load graph: {e}"
@@ -524,7 +502,7 @@ class SQLiteStorage(BaseStorage):
         try:
             if AIOSQLITE_AVAILABLE:
                 conn = await self._get_async_connection()
-                cursor = await conn.cursor()
+                cursor = await conn.cursor()  # type: ignore[union-attr]
 
                 # Вставляємо вузли (ігноруємо дублікати)
                 for node_data in nodes:
@@ -569,7 +547,7 @@ class SQLiteStorage(BaseStorage):
                         ),
                     )
 
-                await conn.commit()
+                await conn.commit()  # type: ignore[union-attr]
             else:
                 # Fallback до sync
                 conn = self._get_connection()
@@ -618,10 +596,10 @@ class SQLiteStorage(BaseStorage):
 
                 conn.commit()
 
-            logger.debug(f"Saved partial: {len(nodes)} nodes, {len(edges)} edges")
+            logger.debug("Saved partial: %s nodes, %s edges", len(nodes), len(edges))
             return True
         except Exception as e:
-            logger.error(f"Failed to save partial graph: {e}")
+            logger.error("Failed to save partial graph: %s", e)
             return False
 
     async def clear(self) -> bool:
@@ -642,7 +620,7 @@ class SQLiteStorage(BaseStorage):
             self._init_db()
             return True
         except Exception as e:
-            logger.error(f"Error clearing storage: {e}")
+            logger.error("Error clearing storage: %s", e)
             return False
 
     async def exists(self) -> bool:
@@ -653,7 +631,7 @@ class SQLiteStorage(BaseStorage):
         try:
             if AIOSQLITE_AVAILABLE:
                 conn = await self._get_async_connection()
-                cursor = await conn.cursor()
+                cursor = await conn.cursor()  # type: ignore[union-attr]
                 await cursor.execute("SELECT COUNT(*) FROM nodes")
                 row = await cursor.fetchone()
                 count = row[0]

@@ -1,114 +1,6 @@
 """Модуль UTILS - Допоміжні утіліти для роботи з URL та HTML.
 
 Цей модуль містить статичні утіліти для:
-
-**1. URLUtils** (utils/url_utils.py)
-
-Робота з URL:
-- **normalize_url()** - Нормалізація URL
-  * Видалення query parameters
-  * Видалення fragments (#)
-  * Lowercase domain
-  * Видалення trailing slash
-
-- **make_absolute()** - Відносний → Абсолютний URL
-  * urljoin(base_url, relative_url)
-  * Обробка ../path, /path, path
-
-- **get_domain()** - Витяг домену
-  * urlparse(url).netloc
-  * Видалення www. (опціонально)
-
-- **get_path()** - Витяг шляху
-  * urlparse(url).path
-
-- **is_valid_url()** - Валідація URL
-  * Перевірка схеми (http/https)
-  * Перевірка домену
-  * Перевірка формату
-
-- **is_same_domain()** - Перевірка чи URL з того ж домену
-  * Порівняння доменів
-  * Опція ignore_www
-
-**2. HTMLUtils** (utils/html_utils.py)
-
-Робота з HTML:
-- **parse_html()** - Парсинг HTML
-  * BeautifulSoup(html, 'html.parser') або lxml
-  * Альтернатива: selectolax (швидше в 10х)
-
-- **extract_links()** - Витяг посилань
-  * soup.find_all('a', href=True)
-  * Фільтрація mailto:, tel:, javascript:
-  * Перетворення відносних в абсолютні
-
-- **extract_text()** - Витяг тексту
-  * soup.get_text()
-  * Очистка від зайвих пробілів
-  * Використання: векторизація
-
-- **extract_metadata()** - Витяг метаданих
-  * title - <title>
-  * description - <meta name="description">
-  * keywords - <meta name="keywords">
-  * h1 - <h1>
-  * og:* - Open Graph tags
-
-- **clean_html()** - Очистка HTML
-  * Видалення <script>, <style>
-  * Видалення коментарів
-
-**Приклад використання:**
-
-```python
-from graph_crawler.shared.utils import URLUtils, HTMLUtils
-
-# URL утіліти
-base_url = "https://example.com/page"
-relative = "../other"
-absolute = URLUtils.make_absolute(relative, base_url)
-print(absolute)  # "https://example.com/other"
-
-normalized = URLUtils.normalize_url("https://Example.com/Path?a=1#section")
-print(normalized)  # "https://example.com/path"
-
-domain = URLUtils.get_domain("https://www.example.com/path")
-print(domain)  # "www.example.com"
-
-if URLUtils.is_valid_url("https://example.com"):
-    print("Valid!")
-
-# HTML утіліти
-html = "<html><body><a href='/link'>Text</a></body></html>"
-soup = HTMLUtils.parse_html(html)
-
-links = HTMLUtils.extract_links(soup, base_url="https://example.com")
-print(links)  # ["https://example.com/link"]
-
-text = HTMLUtils.extract_text(soup)
-print(text)  # "Text"
-
-metadata = HTMLUtils.extract_metadata(soup)
-print(metadata)  # {'title': None, 'description': None, ...}
-```
-
-**Best Practices:**
-
-1. Всі методи - @staticmethod (не потрібен стан)
-2. Використання urllib.parse для URL
-3. BeautifulSoup або selectolax для HTML
-4. Type hints на всі методи
-5. Docstrings у Google style
-6. Обробка помилок (try/except)
-7. Логування через logging
-
-**Продуктивність:**
-
-Для високої продуктивності розгляньте:
-- selectolax замість BeautifulSoup (10x швидше)
-- lxml parser замість html.parser
-- Кешування parse результатів
 """
 
 from graph_crawler.shared.utils.bloom_filter import BloomFilter, create_bloom_filter
@@ -161,6 +53,23 @@ from graph_crawler.shared.utils.url_utils import URLUtils
 from graph_crawler.shared.utils.user_agent_rotator import (
     UserAgentRotator,
     create_rotator,
+)
+
+# Text processing utilities
+from graph_crawler.shared.utils.text_utils import (
+    STOP_WORDS,
+    extract_keywords,
+    normalize_text,
+)
+
+# URL pattern constants
+from graph_crawler.shared.utils.url_patterns import (
+    CONTENT_PAGE_PATTERNS,
+    IGNORE_PATTERNS,
+    NAVIGATION_PATTERNS,
+    is_content_url,
+    is_navigation_url,
+    should_ignore_url,
 )
 
 
@@ -271,4 +180,15 @@ __all__ = [
     "MarkdownGenerator",
     "MarkdownOptions",
     "MarkdownResult",
+    # Text Processing
+    "extract_keywords",
+    "normalize_text",
+    "STOP_WORDS",
+    # URL Patterns
+    "CONTENT_PAGE_PATTERNS",
+    "NAVIGATION_PATTERNS",
+    "IGNORE_PATTERNS",
+    "is_content_url",
+    "is_navigation_url",
+    "should_ignore_url",
 ]

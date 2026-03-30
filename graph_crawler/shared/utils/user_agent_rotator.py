@@ -37,14 +37,10 @@ class UserAgentRotator:
     """
     User-Agent Rotator використовуючи fake-useragent.
 
-    Спрощена версія. Економія ~250 рядків коду порівняно з повною версією.
-    Використовує fake-useragent API напряму для максимальної простоти.
-
     Args:
         browsers: Список браузерів для ротації (опціонально)
         rotation_strategy: Стратегія ("random", "round_robin", "weighted")
         fallback: Fallback User-Agent якщо бібліотека не працює
-
     Example:
         >>> rotator = UserAgentRotator()
         >>> ua = rotator.get_random()
@@ -78,7 +74,7 @@ class UserAgentRotator:
             self.ua = UserAgent(fallback=self.fallback)
             logger.info(" UserAgentRotator ініціалізовано")
         except Exception as e:
-            logger.warning(f" Помилка fake-useragent: {e}. Використовую fallback.")
+            logger.warning(" Помилка fake-useragent: %s. Використовую fallback.", e)
             self.ua = None
 
         # Статистика
@@ -105,7 +101,7 @@ class UserAgentRotator:
             return ua_string
 
         except Exception as e:
-            logger.warning(f" Помилка: {e}. Використовую fallback.")
+            logger.warning(" Помилка: %s. Використовую fallback.", e)
             self._update_stats(self.fallback)
             return self.fallback
 
@@ -140,7 +136,7 @@ class UserAgentRotator:
             return ua_string
 
         except Exception as e:
-            logger.warning(f" Помилка браузера {browser}: {e}")
+            logger.warning(" Помилка браузера %s: %s", browser, e)
             self._update_stats(self.fallback)
             return self.fallback
 
@@ -209,9 +205,7 @@ class UserAgentRotator:
                 "unique_user_agents": len(self.stats.unique_user_agents),
                 "last_used": self.stats.last_used,
                 "uptime_seconds": uptime,
-                "requests_per_second": (
-                    self.stats.total_requests / uptime if uptime > 0 else 0
-                ),
+                "requests_per_second": (self.stats.total_requests / uptime if uptime > 0 else 0),
             }
 
     def get_summary(self) -> str:
@@ -220,20 +214,20 @@ class UserAgentRotator:
 
         return f"""
  User-Agent Rotator Summary
-{'=' * 50}
+{"=" * 50}
 
  Statistics:
-  - Total requests: {stats['total_requests']}
-  - Unique UAs: {stats['unique_user_agents']}
-  - Rate: {stats['requests_per_second']:.2f} req/sec
-  - Uptime: {stats['uptime_seconds']:.1f}s
+  - Total requests: {stats["total_requests"]}
+  - Unique UAs: {stats["unique_user_agents"]}
+  - Rate: {stats["requests_per_second"]:.2f} req/sec
+  - Uptime: {stats["uptime_seconds"]:.1f}s
 
  Last Used:
-  {stats['last_used'][:80] if stats['last_used'] else 'None'}...
+  {stats["last_used"][:80] if stats["last_used"] else "None"}...
 
  Configuration:
   - Strategy: {self.rotation_strategy}
-  - Browsers: {', '.join(self.browsers)}
+  - Browsers: {", ".join(self.browsers)}
 """
 
     def reset_statistics(self):

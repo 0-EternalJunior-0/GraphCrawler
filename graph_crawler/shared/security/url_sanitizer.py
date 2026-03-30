@@ -7,7 +7,7 @@
 
     url = "redis://:password123@localhost:6379/0"
     safe_url = sanitize_url(url)
-    logger.info(f"Connecting to: {safe_url}")  # redis://***:***@localhost:6379/0
+    logger.info("Connecting to: %s", safe_url)  # redis://***:***@localhost:6379/0
 """
 
 import logging
@@ -20,24 +20,14 @@ def sanitize_url(url: str, mask: str = "***") -> str:
     """
     Видаляє пароль з URL для безпечного логування.
 
-    Замінює username та password на mask.
-
     Args:
         url: URL який може містити credentials
         mask: Строка для заміни credentials (default: "***")
-
     Returns:
         URL з замаскованими credentials
-
     Example:
         >>> sanitize_url("redis://:secret@host:6379/0")
         "redis://***:***@host:6379/0"
-
-        >>> sanitize_url("postgres://user:pass@host:5432/db")
-        "postgres://***:***@host:5432/db"
-
-        >>> sanitize_url("https://example.com/path")
-        "https://example.com/path"
     """
     try:
         parsed = urlparse(url)
@@ -102,13 +92,9 @@ def sanitize_connection_string(conn_str: str) -> str:
     import re
 
     # Маскуємо password=xxx
-    sanitized = re.sub(
-        r"(password\s*=\s*)([^\s]+)", r"\1***", conn_str, flags=re.IGNORECASE
-    )
+    sanitized = re.sub(r"(password\s*=\s*)([^\s]+)", r"\1***", conn_str, flags=re.IGNORECASE)
 
     # Маскуємо pwd=xxx
-    sanitized = re.sub(
-        r"(pwd\s*=\s*)([^\s]+)", r"\1***", sanitized, flags=re.IGNORECASE
-    )
+    sanitized = re.sub(r"(pwd\s*=\s*)([^\s]+)", r"\1***", sanitized, flags=re.IGNORECASE)
 
     return sanitized

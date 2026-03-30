@@ -8,7 +8,6 @@ Sync драйвери блокують виконання.
 - Використовуються legacy бібліотеки
 - CLI інструменти
 
-
 """
 
 import logging
@@ -23,6 +22,7 @@ from graph_crawler.domain.value_objects.models import FetchResponse
 from graph_crawler.infrastructure.transport.core.base_sync import BaseSyncDriver
 from graph_crawler.infrastructure.transport.core.mixins import RetryMixin
 from graph_crawler.shared.constants import (
+    DEFAULT_BROWSER_HEADERS,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_USER_AGENT,
 )
@@ -57,7 +57,12 @@ class RequestsDriver(BaseSyncDriver, RetryMixin):
 
         # Створюємо session з retry
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": self._user_agent})
+        # Базові браузерні headers для реалістичних запитів
+        session_headers = {
+            "User-Agent": self._user_agent,
+            **DEFAULT_BROWSER_HEADERS,
+        }
+        self._session.headers.update(session_headers)
 
         # Налаштовуємо retry
         retry_strategy = Retry(
@@ -70,8 +75,9 @@ class RequestsDriver(BaseSyncDriver, RetryMixin):
         self._session.mount("https://", adapter)
 
         logger.info(
-            f"RequestsDriver initialized: timeout={self._timeout}s, "
-            f"max_retries={self._max_retries}"
+            "RequestsDriver initialized: timeout=%ss, max_retries=%s",
+            self._timeout,
+            self._max_retries,
         )
 
     def _do_fetch(self, url: str) -> FetchResponse:

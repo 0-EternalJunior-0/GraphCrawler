@@ -11,9 +11,9 @@ from typing import Optional
 
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.events import EventBus
-from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.value_objects.configs import CrawlerConfig
 
 
 class CrawlerState(Enum):

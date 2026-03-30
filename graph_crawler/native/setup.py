@@ -21,10 +21,12 @@ from setuptools import Extension, setup
 
 # Try to import Cython
 try:
-    from Cython.Build import cythonize
+    from Cython.Build import cythonize  # type: ignore[import-not-found]
+
     USE_CYTHON = True
 except ImportError:
     USE_CYTHON = False
+    cythonize = None  # type: ignore[assignment]
     print("WARNING: Cython not found. Install with: pip install cython>=3.0.0")
     print("Building from pre-generated C files if available...")
 
@@ -54,29 +56,29 @@ if USE_CYTHON:
             ),
         ],
         compiler_directives={
-            'language_level': 3,
-            'boundscheck': False,
-            'wraparound': False,
-            'cdivision': True,
-        }
+            "language_level": 3,
+            "boundscheck": False,
+            "wraparound": False,
+            "cdivision": True,
+        },
     )
 else:
     # Build from pre-generated .c files (if available)
-    if os.path.exists('url_utils.c'):
+    if os.path.exists("url_utils.c"):
         extensions.append(
             Extension(
                 "graph_crawler.native._url_utils",
                 ["url_utils.c"],
             )
         )
-    if os.path.exists('html_parser.c'):
+    if os.path.exists("html_parser.c"):
         extensions.append(
             Extension(
                 "graph_crawler.native._html_parser",
                 ["html_parser.c"],
             )
         )
-    if os.path.exists('bloom_filter.c'):
+    if os.path.exists("bloom_filter.c"):
         extensions.append(
             Extension(
                 "graph_crawler.native._bloom_filter",

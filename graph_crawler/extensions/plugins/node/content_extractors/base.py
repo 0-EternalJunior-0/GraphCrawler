@@ -24,9 +24,7 @@ class ExtractedArticle(BaseModel):
         extractor_name: Назва екстрактора який використовувався
     """
 
-    model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat() if v else None}
-    )
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() if v else None})
 
     title: Optional[str] = None
     text: Optional[str] = None

@@ -1,4 +1,4 @@
-"""Protocol для сканера сторінок ."""
+"""Protocol для сканера сторінок."""
 
 from typing import List, Protocol, Tuple, runtime_checkable
 
@@ -6,7 +6,9 @@ from typing import List, Protocol, Tuple, runtime_checkable
 @runtime_checkable
 class IScanner(Protocol):
     """
-    Async-First інтерфейс для сканера сторінок. Повністю async інтерфейс для неблокуючого сканування.
+    Async-First інтерфейс для сканера сторінок.
+
+    Повністю async інтерфейс для неблокуючого сканування.
     Підтримує як одиночне, так і batch сканування.
     """
 

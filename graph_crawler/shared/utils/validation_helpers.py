@@ -12,26 +12,11 @@ def create_enum_validator(
     """
     Фабрика для створення enum валідаторів.
 
-    Використання:
-        class MyConfig(BaseModel):
-            mode: str = "sequential"
-
-            # Статичний список
-            _validate_mode = field_validator("mode")(
-                create_enum_validator("mode", ["sequential", "multiprocessing", "celery"])
-            )
-
-            # Динамічний список (з Registry)
-            _validate_mode = field_validator("mode")(
-                create_enum_validator("mode", lambda: CrawlModeRegistry.get_all_names())
-            )
-
     Args:
         field_name: Назва поля для валідації
         allowed_values: Список дозволених значень або функція яка повертає список
         case_sensitive: Чи враховувати регістр (default: True)
         normalize: Чи нормалізувати значення (наприклад, до lower case)
-
     Returns:
         Функція валідатор для використання з @field_validator
     """
@@ -68,25 +53,13 @@ def validate_enum_field(
     """
     Простий helper для валідації enum полів.
 
-    Використання:
-        @field_validator("mode")
-        @classmethod
-        def validate_mode(cls, v: str) -> str:
-            return validate_enum_field(
-                "mode",
-                v,
-                ["sequential", "multiprocessing", "celery"]
-            )
-
     Args:
         field_name: Назва поля
         value: Значення для валідації
         allowed_values: Список дозволених значень
         case_sensitive: Чи враховувати регістр
-
     Returns:
         Валідоване значення
-
     Raises:
         ValueError: Якщо значення недозволене
     """
@@ -168,14 +141,10 @@ def validate_string_length(
         raise ValueError(f"{field_name} cannot be empty")
 
     if min_length is not None and length < min_length:
-        raise ValueError(
-            f"{field_name} must be at least {min_length} characters, got {length}"
-        )
+        raise ValueError(f"{field_name} must be at least {min_length} characters, got {length}")
 
     if max_length is not None and length > max_length:
-        raise ValueError(
-            f"{field_name} must be at most {max_length} characters, got {length}"
-        )
+        raise ValueError(f"{field_name} must be at most {max_length} characters, got {length}")
 
     return value
 
@@ -213,13 +182,9 @@ def validate_url(
             )
 
     if allowed_schemes:
-        has_valid_scheme = any(
-            value.startswith(f"{scheme}://") for scheme in allowed_schemes
-        )
+        has_valid_scheme = any(value.startswith(f"{scheme}://") for scheme in allowed_schemes)
         if not has_valid_scheme:
-            raise ValueError(
-                f"{field_name} must use one of these schemes: {allowed_schemes}"
-            )
+            raise ValueError(f"{field_name} must use one of these schemes: {allowed_schemes}")
 
     return value
 
@@ -255,6 +220,4 @@ def validate_percentage(field_name: str, value: Union[int, float]) -> Union[int,
     Raises:
         ValueError: Якщо значення не в діапазоні 0-100
     """
-    return validate_positive_number(
-        field_name, value, min_value=0, max_value=100, allow_zero=True
-    )
+    return validate_positive_number(field_name, value, min_value=0, max_value=100, allow_zero=True)

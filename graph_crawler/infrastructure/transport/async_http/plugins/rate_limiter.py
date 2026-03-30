@@ -8,7 +8,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from graph_crawler.infrastructure.transport.async_http.context import AsyncHTTPContext
 from graph_crawler.infrastructure.transport.async_http.stages import AsyncHTTPStage
@@ -36,9 +36,7 @@ class AsyncRateLimiterPlugin(BaseDriverPlugin):
         ))
     """
 
-    def __init__(
-        self, config: Dict[str, Any] = None, priority: int = EventPriority.HIGH
-    ):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, priority: int = EventPriority.HIGH):
         super().__init__(config, priority)
         self._request_times: deque = deque()
         self._lock = asyncio.Lock()
@@ -77,15 +75,12 @@ class AsyncRateLimiterPlugin(BaseDriverPlugin):
                 wait_time = window_size - (now - oldest)
 
                 if wait_time > 0:
-                    logger.debug(f"Rate limit reached, waiting {wait_time:.2f}s")
+                    logger.debug("Rate limit reached, waiting %.2fs", wait_time)
                     await asyncio.sleep(wait_time)
                     now = time.time()
 
                     # Очищаємо знову після очікування
-                    while (
-                        self._request_times
-                        and (now - self._request_times[0]) > window_size
-                    ):
+                    while self._request_times and (now - self._request_times[0]) > window_size:
                         self._request_times.popleft()
 
             # Додаємо поточний запит

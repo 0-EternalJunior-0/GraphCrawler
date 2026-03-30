@@ -1,10 +1,10 @@
-"""Batch векторизатор тексту для Node плагінів.
+"""Batch text vectorizer for Node plugins.
 
-Векторизує текст після завершення краулінгу (AFTER_CRAWL).
-Обробляє всі ноди графу батчами для максимальної швидкості.
+Vectorizes text after crawl completion (AFTER_CRAWL stage).
+Processes all graph nodes in batches for maximum performance.
 
-Приклад використання:
-    >>> from graph_crawler.extensions.CustomPlugins.node.vectorization import BatchVectorizerPlugin
+Example:
+    >>> from graph_crawler.extensions.plugins.node.vectorization import BatchVectorizerPlugin
     >>>
     >>> batch = BatchVectorizerPlugin(config={
     ...     'text_content': 'text',
@@ -12,7 +12,7 @@
     ...     'batch_size': 64
     ... })
     >>>
-    >>> # Використання з GraphCrawler
+    >>> # Using with GraphCrawler
     >>> graph = package_crawler.crawl(
     ...     url="https://example.com",
     ...     node_plugins=[batch]
@@ -20,7 +20,7 @@
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Optional
 
 from graph_crawler.extensions.plugins.node.base import (
     BaseNodePlugin,
@@ -39,57 +39,9 @@ class BatchVectorizerPlugin(BaseNodePlugin):
     """
     Batch векторизатор тексту для Node.
 
-    Працює на етапі AFTER_CRAWL - після завершення всього краулінгу.
-    Обробляє всі ноди графу батчами для максимальної ефективності.
-
-    Переваги batch підходу:
-    - Значно швидше ніж real-time (до 10x при великих графах)
-    - Ефективне використання GPU (якщо доступне)
-    - Менше overhead на завантаження моделі
-
-    Параметри конфігурації:
-        enabled (bool): Чи увімкнено плагін (за замовчуванням True)
-        model_name (str): Назва моделі sentence-transformers
-            (за замовчуванням 'paraphrase-multilingual-MiniLM-L12-v2')
-        vector_size (int): Розмір вектору (за замовчуванням 512)
-        text_content (str): Ім'я поля в ноді з текстом
-             ОБОВ'ЯЗКОВИЙ параметр! Без нього плагін не працює
-        skip_nodes (Set[str]): Множина імен полів-прапорців для пропуску
-            (за замовчуванням {'not_vector'})
-        batch_size (int): Розмір батчу для обробки (за замовчуванням 64)
-        vector_key (str): Ключ для збереження вектору в user_data
-            (за замовчуванням 'vector_512_batch')
-
-    Контроль виконання:
-        Плагін пропускає ноду якщо:
-        - Будь-яке поле з skip_nodes встановлено в True
-        - Поле text_content відсутнє або порожнє
-
-    Приклад з кастомною Node:
-        >>> class MyCustomNode(Node):
-        ...     not_vector: Optional[bool] = Field(default=False)
-        ...     text: Optional[str] = Field(default=None)
-        >>>
-        >>> # Векторизація поля 'text' для всіх нод де not_vector=False
-        >>> batch = BatchVectorizerPlugin(config={
-        ...     'text_content': 'text',
-        ...     'skip_nodes': {'not_vector'},
-        ...     'batch_size': 32
-        ... })
-
-    Приклад з кастомними полями:
-        >>> # Векторизація новин
-        >>> class NewsNode(Node):
-        ...     news_text: Optional[str] = None
-        ...     skip_vectorization: Optional[bool] = False
-        >>>
-        >>> batch = BatchVectorizerPlugin(config={
-        ...     'text_content': 'news_text',
-        ...     'skip_nodes': {'skip_vectorization'}
-        ... })
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Ініціалізує BatchVectorizerPlugin.
 
@@ -102,9 +54,7 @@ class BatchVectorizerPlugin(BaseNodePlugin):
         super().__init__(config)
 
         # Параметри векторизації
-        self.model_name = self.config.get(
-            "model_name", "paraphrase-multilingual-MiniLM-L12-v2"
-        )
+        self.model_name = self.config.get("model_name", "paraphrase-multilingual-MiniLM-L12-v2")
         self.vector_size = self.config.get("vector_size", 512)
         self.batch_size = self.config.get("batch_size", 64)
 
@@ -179,19 +129,19 @@ class BatchVectorizerPlugin(BaseNodePlugin):
                 logger.error("BatchVectorizerPlugin: Cannot access graph from context")
                 return context
 
-            logger.info(f"Starting batch vectorization for {len(graph.nodes)} nodes...")
+            logger.info("Starting batch vectorization for %s nodes...", len(graph))
 
             # Збираємо ноди для векторизації
             nodes_to_vectorize = []
             texts_to_vectorize = []
-
-            for _node_id, node in graph.nodes.items():
+            # Використовуємо iter_nodes() для streaming доступу
+            for node in graph.iter_nodes():
                 self._stats["total_nodes"] += 1
 
                 # Перевіряємо чи потрібно пропустити
                 if self._should_skip_node(node):
                     self._stats["skipped_nodes"] += 1
-                    logger.debug(f"Skipping node {node.url}: skip flag is set")
+                    logger.debug("Skipping node %s: skip flag is set", node.url)
                     continue
 
                 # Отримуємо текст
@@ -221,9 +171,7 @@ class BatchVectorizerPlugin(BaseNodePlugin):
             )
 
             # Векторизація батчами
-            logger.info(
-                f"Starting batch vectorization with batch_size={self.batch_size}..."
-            )
+            logger.info("Starting batch vectorization with batch_size=%s...", self.batch_size)
             vectors = vectorize_batch(
                 texts=texts_to_vectorize,
                 model_name=self.model_name,
@@ -237,19 +185,17 @@ class BatchVectorizerPlugin(BaseNodePlugin):
                     node.user_data[self.vector_key] = vector.tolist()
                     self._stats["vectorized_nodes"] += 1
                 except Exception as e:
-                    logger.error(f"Failed to save vector for {node.url}: {e}")
+                    logger.error("Failed to save vector for %s: %s", node.url, e)
                     self._stats["failed_nodes"] += 1
 
             # Виводимо статистику
             self._log_stats()
 
         except VectorizationError as e:
-            logger.error(f"Batch vectorization error: {e}")
+            logger.error("Batch vectorization error: %s", e)
 
         except Exception as e:
-            logger.error(
-                f"Unexpected error in BatchVectorizerPlugin: {e}", exc_info=True
-            )
+            logger.error("Unexpected error in BatchVectorizerPlugin: %s", e, exc_info=True)
 
         return context
 
@@ -280,8 +226,7 @@ class BatchVectorizerPlugin(BaseNodePlugin):
             return context.metadata["graph"]
 
         logger.error(
-            "Cannot find graph in context! "
-            "Make sure AFTER_CRAWL plugin receives graph reference."
+            "Cannot find graph in context! Make sure AFTER_CRAWL plugin receives graph reference."
         )
         return None
 
@@ -338,16 +283,14 @@ class BatchVectorizerPlugin(BaseNodePlugin):
         """Виводить статистику векторизації."""
         logger.info("=" * 60)
         logger.info("Batch Vectorization Statistics:")
-        logger.info(f"  Total nodes processed: {self._stats['total_nodes']}")
-        logger.info(f"  Skipped nodes: {self._stats['skipped_nodes']}")
-        logger.info(f"  Vectorized nodes: {self._stats['vectorized_nodes']}")
-        logger.info(f"  Failed nodes: {self._stats['failed_nodes']}")
+        logger.info("  Total nodes processed: %s", self._stats['total_nodes'])
+        logger.info("  Skipped nodes: %s", self._stats['skipped_nodes'])
+        logger.info("  Vectorized nodes: %s", self._stats['vectorized_nodes'])
+        logger.info("  Failed nodes: %s", self._stats['failed_nodes'])
 
         if self._stats["total_nodes"] > 0:
-            success_rate = (
-                self._stats["vectorized_nodes"] / self._stats["total_nodes"]
-            ) * 100
-            logger.info(f"  Success rate: {success_rate:.1f}%")
+            success_rate = (self._stats["vectorized_nodes"] / self._stats["total_nodes"]) * 100
+            logger.info("  Success rate: %.1f%", success_rate)
 
         logger.info("=" * 60)
 

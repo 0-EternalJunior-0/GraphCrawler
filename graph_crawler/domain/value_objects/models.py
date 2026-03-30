@@ -13,34 +13,14 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-# ==================== CONTENT TYPE ====================
-
 
 class ContentType(str, Enum):
     """
     Тип контенту сторінки (Value Object).
 
-    Визначає що саме знаходиться за URL - HTML, JSON, зображення тощо.
-    Дозволяє фільтрувати ноди за типом контенту:
-    - "всі відскановані HTML сторінки"
-    - "всі JSON endpoints"
-    - "пусті сторінки для повторного сканування"
-
-    Визначається на основі:
-    1. Content-Type HTTP header (primary)
-    2. URL extension (fallback)
-    3. Content inspection (для edge cases)
-
     Examples:
         >>> # Фільтрація HTML сторінок
         >>> html_nodes = [n for n in graph if n.content_type == ContentType.HTML]
-
-        >>> # Пошук пустих сторінок
-        >>> empty_nodes = [n for n in graph if n.content_type == ContentType.EMPTY]
-
-        >>> # Перевірка типу
-        >>> if node.content_type in (ContentType.IMAGE, ContentType.VIDEO):
-        ...     print("Media content, skip text extraction")
     """
 
     # Невідомий тип (ще не визначено або не вдалося)
@@ -99,7 +79,10 @@ class ContentType(str, Enum):
         # Конвертуємо Cython об'єкти в string (проблема з selectolax в Python 3.14)
         # Cython об'єкти можуть не мати методів string, тому явно конвертуємо
         try:
-            content_type_str = str(content_type) if not isinstance(content_type, str) else content_type
+            if isinstance(content_type, str):
+                content_type_str = content_type
+            else:
+                content_type_str = str(content_type)
         except Exception:
             return cls.UNKNOWN
 
@@ -151,10 +134,7 @@ class ContentType(str, Enum):
             return cls.DOC
 
         # Archives
-        if any(
-            x in ct
-            for x in ["zip", "rar", "tar", "gzip", "7z", "bzip", "compressed"]
-        ):
+        if any(x in ct for x in ["zip", "rar", "tar", "gzip", "7z", "bzip", "compressed"]):
             return cls.ARCHIVE
 
         # Binary/octet-stream
@@ -292,44 +272,17 @@ class ContentType(str, Enum):
         """
         Комплексна детекція типу контенту (Domain Logic).
 
-        Алгоритм детекції (пріоритет від вищого до нижчого):
-        1. Помилка завантаження -> ERROR
-        2. HTTP error статуси (4xx, 5xx) -> ERROR
-        3. Пустий контент -> EMPTY
-        4. Content-Type HTTP header (primary)
-        5. URL extension (fallback)
-        6. Евристика по контенту (XML vs HTML, JSON)
-        7. UNKNOWN якщо не вдалося визначити
-
         Args:
             content_type_header: Значення HTTP Content-Type header
             url: URL для fallback детекції по розширенню
             content: Контент сторінки для евристичної детекції
             status_code: HTTP статус код
             has_error: Чи була помилка при завантаженні
-
         Returns:
             ContentType enum value
-
         Examples:
             >>> # Детекція з header
             >>> ContentType.detect(content_type_header="text/html; charset=utf-8")
-            <ContentType.HTML: 'html'>
-
-            >>> # Детекція з URL fallback
-            >>> ContentType.detect(url="https://api.example.com/data.json")
-            <ContentType.JSON: 'json'>
-
-            >>> # Детекція помилки
-            >>> ContentType.detect(status_code=404)
-            <ContentType.ERROR: 'error'>
-
-            >>> # Комплексна детекція
-            >>> ContentType.detect(
-            ...     content_type_header=None,
-            ...     url="https://example.com/page",
-            ...     content="<!DOCTYPE html><html>..."
-            ... )
             <ContentType.HTML: 'html'>
         """
         # 1. Помилка завантаження
@@ -375,54 +328,13 @@ class ContentType(str, Enum):
         return cls.UNKNOWN
 
 
-# ==================== EDGE CREATION STRATEGIES ====================
-
-
 class EdgeCreationStrategy(str, Enum):
     """
     Стратегії створення edges в графі.
 
-    Дозволяє контролювати які edges створюються для економії пам'яті
-    та зменшення noise в графі (популярні сторінки як header/footer).
-
-    Значення:
-        ALL: Створювати всі edges (default поведінка).
-             Кожне посилання = edge. Може бути багато edges на одну ноду.
-
-        NEW_ONLY: Edge створюється ТІЛЬКИ коли нода знайдена ВПЕРШЕ.
-             Кожна нода має рівно 1 incoming edge (від того хто знайшов першим).
-             Результат: edges == nodes (мінус root).
-             Ідеально для побудови дерева без дублікатів.
-
-        MAX_IN_DEGREE: Не створювати edge якщо target має >= N incoming edges.
-             Захист від "популярних" сторінок (header/footer посилання).
-
-        SAME_DEPTH_ONLY: Edges тільки між нодами на одному рівні глибини.
-             Горизонтальні зв'язки (siblings).
-
-        DEEPER_ONLY: Edges тільки на глибші рівні (source.depth < target.depth).
-             Без посилань назад на батьківські сторінки.
-
-        FIRST_ENCOUNTER_ONLY: Тільки перший edge на кожен URL.
-             Схоже на NEW_ONLY, але дозволяє edge якщо нода вже існує
-             але ще не має incoming edges.
-
-    Порівняння NEW_ONLY vs FIRST_ENCOUNTER_ONLY:
-        - NEW_ONLY: edge тільки якщо нода створена В ЦЕЙ МОМЕНТ
-        - FIRST_ENCOUNTER_ONLY: edge якщо нода не має жодного incoming edge
-
-        Різниця: якщо нода була створена раніше (через scheduler) але ще не
-        має edges, FIRST_ENCOUNTER_ONLY створить edge, NEW_ONLY - ні.
-
     Examples:
         >>> # Мінімальний граф (дерево): edges == nodes - 1
         >>> strategy = EdgeCreationStrategy.NEW_ONLY
-
-        >>> # Не створювати edges на популярні сторінки (header/footer)
-        >>> strategy = EdgeCreationStrategy.MAX_IN_DEGREE
-
-        >>> # Тільки вперед (не повертатись на батьківські сторінки)
-        >>> strategy = EdgeCreationStrategy.DEEPER_ONLY
     """
 
     ALL = "all"
@@ -433,46 +345,10 @@ class EdgeCreationStrategy(str, Enum):
     FIRST_ENCOUNTER_ONLY = "first_encounter_only"
 
 
-# ==================== DRIVER MODELS ====================
-
-
 class FetchResponse(BaseModel):
     """Відповідь від драйвера після завантаження сторінки.
 
     Замінює Dict[str, Any] для type safety.
-
-    Атрибути:
-        url: Оригінальний URL запиту
-        html: HTML контент (або None при помилці)
-        status_code: HTTP статус код (або None при помилці)
-        headers: HTTP заголовки
-        error: Повідомлення про помилку (або None при успіху)
-        final_url: Фінальний URL після редіректів (або None якщо редіректів не було)
-        redirect_chain: Список проміжних URL редіректів (порожній якщо редіректів не було)
-
-    Examples:
-        >>> response = FetchResponse(
-        ...     url="https://example.com",
-        ...     html="<html>...</html>",
-        ...     status_code=200,
-        ...     headers={"content-type": "text/html"},
-        ...     error=None
-        ... )
-        >>> if response.error:
-        ...     print(f"Error: {response.error}")
-        >>> else:
-        ...     print(f"Success: {response.status_code}")
-
-        >>> # Приклад з редіректом
-        >>> response = FetchResponse(
-        ...     url="https://example.com/old-page",
-        ...     html="<html>...</html>",
-        ...     status_code=200,
-        ...     final_url="https://example.com/new-page",
-        ...     redirect_chain=["https://example.com/old-page", "https://example.com/intermediate"]
-        ... )
-        >>> if response.is_redirect:
-        ...     print(f"Redirected: {response.url} -> {response.final_url}")
     """
 
     url: str
@@ -484,7 +360,7 @@ class FetchResponse(BaseModel):
     # Redirect information (заповнюється всіма драйверами)
     final_url: Optional[str] = None
     redirect_chain: list[str] = Field(default_factory=list)
-    
+
     # Partial content flag (для timeout з частковим HTML)
     is_partial: bool = False
 
@@ -525,42 +401,15 @@ class FetchResponse(BaseModel):
     model_config = ConfigDict(frozen=False)
 
 
-# ==================== FILTER MODELS ====================
-
-
 class DomainFilterConfig(BaseModel):
     """Конфігурація фільтра доменів.
 
     Замінює Dict[str, Any] для type safety.
-
-    allowed_domains підтримує спеціальні патерни:
-      * '*' або AllowedDomains.ALL - куди завгодно
-      * 'domain' - тільки основний домен
-      * 'subdomains' - тільки субдомени
-      * 'domain+subdomains' - домен + субдомени (DEFAULT)
-
-    Атрибути:
-        base_domain: Базовий домен для порівняння
-        allowed_domains: Список дозволених доменів + спеціальні патерни
-        blocked_domains: Список заблокованих доменів
-
     Examples:
         >>> # Спеціальні патерни
         >>> config = DomainFilterConfig(
         ...     base_domain="company.com",
         ...     allowed_domains=["domain+subdomains"]  # DEFAULT
-        ... )
-
-        >>> # Wildcard режим
-        >>> config = DomainFilterConfig(
-        ...     base_domain="company.com",
-        ...     allowed_domains=["*"]
-        ... )
-
-        >>> # Комбінація патернів + конкретних доменів
-        >>> config = DomainFilterConfig(
-        ...     base_domain="company.com",
-        ...     allowed_domains=["domain+subdomains", "partner.com"]
         ... )
     """
 
@@ -635,9 +484,6 @@ class PathFilterConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
 
 
-# ==================== METADATA MODELS ====================
-
-
 class PageMetadata(BaseModel):
     """Метадані сторінки.
 
@@ -662,9 +508,6 @@ class PageMetadata(BaseModel):
     canonical: Optional[str] = None
 
     model_config = ConfigDict(frozen=False)
-
-
-# ==================== GRAPH STORAGE MODELS ====================
 
 
 class GraphMetadata(BaseModel):
@@ -715,12 +558,8 @@ class GraphStats(BaseModel):
     """
 
     total_nodes: int = Field(default=0, ge=0, description="Загальна кількість вузлів")
-    scanned_nodes: int = Field(
-        default=0, ge=0, description="Кількість просканованих вузлів"
-    )
-    unscanned_nodes: int = Field(
-        default=0, ge=0, description="Кількість непросканованих вузлів"
-    )
+    scanned_nodes: int = Field(default=0, ge=0, description="Кількість просканованих вузлів")
+    unscanned_nodes: int = Field(default=0, ge=0, description="Кількість непросканованих вузлів")
     total_edges: int = Field(default=0, ge=0, description="Загальна кількість ребер")
 
     model_config = ConfigDict(frozen=False)
@@ -754,18 +593,12 @@ class GraphComparisonResult(BaseModel):
 
     # Підрахунки змін
     new_nodes_count: int = Field(..., ge=0, description="Кількість нових вузлів")
-    removed_nodes_count: int = Field(
-        ..., ge=0, description="Кількість видалених вузлів"
-    )
+    removed_nodes_count: int = Field(..., ge=0, description="Кількість видалених вузлів")
     common_nodes_count: int = Field(..., ge=0, description="Кількість спільних вузлів")
 
     # Списки вузлів (для доступу через API)
-    new_nodes: list[Any] = Field(
-        default_factory=list, description="Список нових вузлів"
-    )
-    removed_nodes: list[Any] = Field(
-        default_factory=list, description="Список видалених вузлів"
-    )
+    new_nodes: list[Any] = Field(default_factory=list, description="Список нових вузлів")
+    removed_nodes: list[Any] = Field(default_factory=list, description="Список видалених вузлів")
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,  # Для Node об'єктів
@@ -773,24 +606,9 @@ class GraphComparisonResult(BaseModel):
     )
 
 
-# ==================== URL RULE MODELS ====================
-
-
 class URLRule(BaseModel):
     r"""
     Правило для контролю URL (Smart Scheduling).
-
-    Об'єднує фільтрацію, пріоритизацію та контроль поведінки в одній моделі.
-
-    should_scan/should_follow_links мають ВИЩИЙ ПРІОРИТЕТ за allowed_domains.
-    URLRule перевіряється ПЕРШИМ у LinkProcessor (перед фільтрами).
-
-    Атрибути:
-        pattern: Regex патерн для URL (обов'язковий)
-        should_scan: Чи сканувати сторінку (перебиває фільтри!)
-        should_follow_links: Чи обробляти посилання (перебиває фільтри!)
-        priority: Пріоритет обробки 1-10 (1=низький, 10=високий, default=5)
-        create_edge: Чи створювати edge на цей URL
 
     Examples:
         >>> # Сканувати work.ua але не йти далі (перебиває фільтри)
@@ -799,15 +617,6 @@ class URLRule(BaseModel):
         ...     should_scan=True,  # Дозволити (навіть якщо заблокований фільтром)
         ...     should_follow_links=False  # Не йти далі
         ... )
-
-        >>> # Виключити /app/ (навіть якщо в allowed_domains)
-        >>> URLRule(pattern=r'/app/', should_scan=False)
-
-        >>> # Високий пріоритет для products
-        >>> URLRule(pattern=r"/products/", priority=10)
-
-        >>> # Не сканувати PDF файли
-        >>> URLRule(pattern=r".*\.pdf$", should_scan=False)
     """
 
     pattern: str = Field(..., description="Regex патерн для URL", min_length=1)
@@ -879,42 +688,276 @@ class URLRule(BaseModel):
         return f"URLRule({', '.join(parts)})"
 
 
+class RuleScope(str, Enum):
+    """
+    Область застосування правила для SmartURLRule.
+
+    Визначає, до якої частини URL застосовується патерн.
+    """
+
+    FULL_URL = "full_url"  # Весь URL (як звичайний URLRule)
+    DOMAIN = "domain"  # Тільки домен (epam.com)
+    SUBDOMAIN = "subdomain"  # Субдомен (careers.epam.com)
+    PATH = "path"  # Шлях після домену (/jobs, /careers)
+    QUERY = "query"  # Query параметри (?country=UA)
+
+
+class SmartURLRule(BaseModel):
+    r"""
+    Розумне правило для контролю URL з автоматичним парсингом компонентів.
+
+    Examples:
+        >>> # Пріоритет субдомену careers.epam.com
+        >>> SmartURLRule(
+        ...     pattern=r'careers\.epam\.com',
+        ...     scope=RuleScope.SUBDOMAIN,
+        ...     priority=7,
+        ...     should_scan=True
+        ... )
+    """
+
+    pattern: str = Field(..., description="Regex патерн або точний текст", min_length=1)
+
+    scope: RuleScope = Field(default=RuleScope.FULL_URL, description="Область застосування патерну")
+
+    is_regex: bool = Field(
+        default=True, description="True = regex патерн, False = точний текст для порівняння"
+    )
+
+    priority: int = Field(
+        default=5, ge=1, le=10, description="Пріоритет обробки (1=низький, 10=високий)"
+    )
+
+    should_scan: Optional[bool] = Field(
+        default=None, description="Чи сканувати сторінку. True/False перебиває фільтри!"
+    )
+
+    should_follow_links: Optional[bool] = Field(
+        default=None, description="Чи обробляти посилання. True/False перебиває фільтри!"
+    )
+
+    create_edge: Optional[bool] = Field(default=None, description="Чи створювати edge на цей URL")
+
+    # Кешований скомпільований regex
+    _compiled_pattern: Optional[re.Pattern] = None
+
+    model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
+
+    def _get_compiled_pattern(self) -> Optional[re.Pattern]:
+        """Повертає скомпільований regex (з кешуванням)."""
+        if not self.is_regex:
+            return None
+        if self._compiled_pattern is None:
+            try:
+                self._compiled_pattern = re.compile(self.pattern)
+            except re.error:
+                return None
+        return self._compiled_pattern
+
+    def _extract_url_part(self, url: str) -> str:
+        """
+        Витягує потрібну частину URL згідно scope.
+
+        Args:
+            url: Повний URL
+
+        Returns:
+            Частина URL для матчингу
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+
+        if self.scope == RuleScope.FULL_URL:
+            return url
+
+        elif self.scope == RuleScope.DOMAIN:
+            # Базовий домен без субдоменів (epam.com з careers.epam.com)
+            host = parsed.netloc.replace("www.", "").split(":")[0]
+            parts = host.split(".")
+            # Беремо останні 2 частини (або всі якщо менше)
+            if len(parts) >= 2:
+                return ".".join(parts[-2:])
+            return host
+
+        elif self.scope == RuleScope.SUBDOMAIN:
+            # Повний хост з субдоменами (careers.epam.com)
+            return parsed.netloc.replace("www.", "").split(":")[0]
+
+        elif self.scope == RuleScope.PATH:
+            # Шлях без query (/jobs, /careers/ua)
+            return parsed.path or "/"
+
+        elif self.scope == RuleScope.QUERY:
+            # Query string (country=UA&utm_source=google)
+            return parsed.query or ""
+
+        return url
+
+    def matches(self, url: str) -> bool:
+        """
+        Перевіряє чи URL відповідає правилу.
+
+        Args:
+            url: URL для перевірки
+
+        Returns:
+            True якщо URL матчить правило
+
+        Example:
+            >>> rule = SmartURLRule(pattern=r'^/jobs/?', scope=RuleScope.PATH)
+            >>> rule.matches('https://careers.epam.com/jobs')  # True
+            >>> rule.matches('https://jobs.epam.com/')  # False (це субдомен!)
+        """
+        url_part = self._extract_url_part(url)
+
+        if self.is_regex:
+            compiled = self._get_compiled_pattern()
+            if compiled:
+                return bool(compiled.search(url_part))
+            return False
+        else:
+            # Точний матч
+            return self.pattern in url_part
+
+    def apply_to_node(self, node: "Node") -> None:
+        """
+        Застосовує правило до ноди.
+
+        Args:
+            node: Нода для модифікації
+        """
+        if self.should_scan is not None:
+            node.should_scan = self.should_scan
+        if self.should_follow_links is not None:
+            node.can_create_edges = self.should_follow_links
+
+    def to_url_rule(self) -> "URLRule":
+        """
+        Конвертує SmartURLRule в звичайний URLRule.
+
+        Корисно для backwards compatibility з існуючим кодом.
+
+        Note: Втрачається інформація про scope - патерн застосовується до всього URL.
+
+        Returns:
+            Еквівалентний URLRule
+        """
+        return URLRule(
+            pattern=self.pattern,
+            priority=self.priority,
+            should_scan=self.should_scan,
+            should_follow_links=self.should_follow_links,
+            create_edge=self.create_edge,
+        )
+
+    def __repr__(self):
+        parts = [f"pattern={self.pattern!r}", f"scope={self.scope.value}"]
+        if not self.is_regex:
+            parts.append("is_regex=False")
+        if self.priority != 5:
+            parts.append(f"priority={self.priority}")
+        if self.should_scan is not None:
+            parts.append(f"should_scan={self.should_scan}")
+        if self.should_follow_links is not None:
+            parts.append(f"should_follow_links={self.should_follow_links}")
+        if self.create_edge is not None:
+            parts.append(f"create_edge={self.create_edge}")
+        return f"SmartURLRule({', '.join(parts)})"
+
+
+def build_smart_rules(
+    target_url: str,
+    subdomain_priority: int = 6,
+    path_patterns: Optional[list[tuple[str, int]]] = None,
+    blocked_domains: Optional[list[str]] = None,
+) -> list[SmartURLRule]:
+    """
+    Хелпер для побудови набору SmartURLRule правил.
+
+    Args:
+        target_url: Цільовий URL (напр. https://careers.epam.com/ua/jobs)
+        subdomain_priority: Пріоритет для субдомену (default=6)
+        path_patterns: Список кортежів (pattern, priority) для шляхів
+        blocked_domains: Список доменів для блокування
+    Returns:
+        Список SmartURLRule правил
+    """
+    from urllib.parse import urlparse
+
+    rules: list[SmartURLRule] = []
+    parsed = urlparse(target_url)
+    host = parsed.netloc.replace("www.", "").split(":")[0]
+    host_parts = host.split(".")
+
+    # 1. Blocked domains - найвищий пріоритет
+    if blocked_domains:
+        for domain in blocked_domains:
+            rules.append(
+                SmartURLRule(
+                    pattern=domain,
+                    scope=RuleScope.DOMAIN,
+                    is_regex=False,
+                    priority=10,
+                    should_scan=False,
+                    should_follow_links=False,
+                )
+            )
+
+    # 2. Базовий домен
+    if len(host_parts) >= 2:
+        base_domain = ".".join(host_parts[-2:])
+        rules.append(
+            SmartURLRule(
+                pattern=base_domain,
+                scope=RuleScope.DOMAIN,
+                is_regex=False,
+                priority=5,
+                should_scan=True,
+                should_follow_links=True,
+            )
+        )
+
+    # 3. Субдомен (якщо є)
+    if len(host_parts) > 2 or (len(host_parts) == 2 and host != ".".join(host_parts[-2:])):
+        rules.append(
+            SmartURLRule(
+                pattern=host,
+                scope=RuleScope.SUBDOMAIN,
+                is_regex=False,
+                priority=subdomain_priority,
+                should_scan=True,
+                should_follow_links=True,
+            )
+        )
+
+    # 4. Path patterns
+    if path_patterns:
+        for pattern, priority in path_patterns:
+            rules.append(
+                SmartURLRule(
+                    pattern=pattern,
+                    scope=RuleScope.PATH,
+                    is_regex=True,
+                    priority=priority,
+                    should_scan=True,
+                    should_follow_links=True,
+                )
+            )
+
+    # Сортуємо за пріоритетом (вищий першим)
+    rules.sort(key=lambda r: r.priority, reverse=True)
+
+    return rules
+
+
 class EdgeRule(BaseModel):
     r"""
     Правило для контролю створення edges (Iteration 4 Team 2).
 
-    Дозволяє задавати складні умови для того, які edges створювати або пропускати.
-    Перевіряється після фільтрації URL але перед створенням edge в LinkProcessor.
-
-    Атрибути:
-        source_pattern: Regex патерн для source node URL (опціонально)
-        target_pattern: Regex патерн для target node URL (опціонально)
-        max_depth_diff: Максимальна різниця в depth між source та target (опціонально)
-        action: Дія - 'create' або 'skip' (обов'язковий)
-
     Examples:
         >>> # Не створювати edges якщо різниця глибини > 2
         >>> EdgeRule(max_depth_diff=2, action='skip')
-
-        >>> # Не створювати edges з blog на products
-        >>> EdgeRule(
-        ...     source_pattern=r'.*/blog/.*',
-        ...     target_pattern=r'.*/products/.*',
-        ...     action='skip'
-        ... )
-
-        >>> # Створювати edges тільки в межах розділів
-        >>> EdgeRule(
-        ...     source_pattern=r'.*/docs/.*',
-        ...     target_pattern=r'.*/docs/.*',
-        ...     action='create'
-        ... )
-
-        >>> # Не створювати edges назад на головну сторінку
-        >>> EdgeRule(
-        ...     target_pattern=r'^https://site\.com/$',
-        ...     action='skip'
-        ... )
     """
 
     source_pattern: Optional[str] = Field(
@@ -949,6 +992,11 @@ class EdgeRule(BaseModel):
         """
         Перевіряє чи правило застосовується до даної пари URLs.
 
+        Логіка:
+        - source_pattern/target_pattern: правило застосовується якщо URL матчить патерн
+        - max_depth_diff: правило застосовується якщо різниця глибини > max_depth_diff
+          (це "violation rule" - спрацьовує коли умова порушена)
+
         Args:
             source_url: URL source node
             target_url: URL target node
@@ -958,23 +1006,26 @@ class EdgeRule(BaseModel):
         Returns:
             bool: True якщо правило застосовується, False інакше
         """
-        # Перевірка source_pattern
+        # Перевірка source_pattern (якщо вказано - URL має матчити)
         if self.source_pattern:
             if not re.match(self.source_pattern, source_url):
                 return False
 
-        # Перевірка target_pattern
+        # Перевірка target_pattern (якщо вказано - URL має матчити)
         if self.target_pattern:
             if not re.match(self.target_pattern, target_url):
                 return False
 
-        # Перевірка max_depth_diff
+        # Перевірка max_depth_diff (violation rule - спрацьовує коли перевищено)
+        # Якщо max_depth_diff=2 і action='skip', то правило має застосуватись
+        # коли depth_diff > 2, щоб edge був skipped
         if self.max_depth_diff is not None:
             depth_diff = abs(target_depth - source_depth)
-            if depth_diff > self.max_depth_diff:
+            # Правило застосовується ТІЛЬКИ якщо ліміт перевищено
+            if depth_diff <= self.max_depth_diff:
                 return False
 
-        # Всі умови пройдені
+        # Всі умови пройдені - правило застосовується
         return True
 
     def should_create_edge(
@@ -988,13 +1039,11 @@ class EdgeRule(BaseModel):
             target_url: URL target node
             source_depth: Глибина source node
             target_depth: Глибина target node
-
         Returns:
             Optional[bool]:
                 - True якщо правило каже створити edge
                 - False якщо правило каже пропустити edge
                 - None якщо правило не застосовується
-
         Example:
             >>> rule = EdgeRule(target_pattern=r'.*/login.*', action='skip')
             >>> rule.should_create_edge(
@@ -1023,8 +1072,12 @@ class EdgeRule(BaseModel):
         return f"EdgeRule({', '.join(parts)})"
 
 
-# ==================== EXPORT ====================
+# Union type для підтримки обох типів правил
+# URLRule - проста зворотня сумісність (regex по всьому URL)
+# SmartURLRule - розумні правила з scope (domain/path/query)
+from typing import Union
 
+Rule = Union[URLRule, SmartURLRule]
 __all__ = [
     "ContentType",
     "EdgeCreationStrategy",
@@ -1036,5 +1089,9 @@ __all__ = [
     "GraphStats",
     "GraphComparisonResult",
     "URLRule",
+    "SmartURLRule",
+    "RuleScope",
+    "Rule",
     "EdgeRule",
+    "build_smart_rules",
 ]

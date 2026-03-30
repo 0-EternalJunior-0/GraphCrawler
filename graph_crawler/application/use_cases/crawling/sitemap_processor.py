@@ -1,7 +1,7 @@
 """Processor для обробки sitemap даних та побудови графу."""
 
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 from urllib.parse import urljoin
 
 from graph_crawler.domain.entities.edge import Edge
@@ -72,7 +72,7 @@ class SitemapProcessor:
         )
 
         self.graph.add_node(node)
-        logger.info(f"Created robots.txt node: {url} ({len(sitemap_urls)} sitemaps)")
+        logger.info("Created robots.txt node: %s (%s sitemaps)", url, len(sitemap_urls))
 
         self.event_bus.publish(
             CrawlerEvent.create(
@@ -119,9 +119,7 @@ class SitemapProcessor:
         )
 
         self.graph.add_node(node)
-        logger.info(
-            f"Created sitemap_index node: {url} ({len(sitemap_urls)} nested sitemaps)"
-        )
+        logger.info("Created sitemap_index node: %s (%s nested sitemaps)", url, len(sitemap_urls))
 
         self.event_bus.publish(
             CrawlerEvent.create(
@@ -180,7 +178,7 @@ class SitemapProcessor:
         )
 
         self.graph.add_node(node)
-        logger.info(f"Created sitemap node: {url} ({len(url_list)} URLs)")
+        logger.info("Created sitemap node: %s (%s URLs)", url, len(url_list))
 
         self.event_bus.publish(
             CrawlerEvent.create(
@@ -230,7 +228,7 @@ class SitemapProcessor:
         urls_to_process = url_list[:max_urls] if max_urls else url_list
 
         if max_urls and len(url_list) > max_urls:
-            logger.info(f"Limiting URLs: {len(url_list)} → {max_urls}")
+            logger.info("Limiting URLs: %s → %s", len(url_list), max_urls)
 
         nodes = []
         parent_node = self.graph.get_node_by_url(parent_sitemap_url)
@@ -239,7 +237,7 @@ class SitemapProcessor:
             # Перевіряємо чи вже є такий URL у графі
             existing_node = self.graph.get_node_by_url(url)
             if existing_node:
-                logger.debug(f"URL already in graph: {url}")
+                logger.debug("URL already in graph: %s", url)
                 continue
 
             node = SitemapNode(
@@ -256,9 +254,7 @@ class SitemapProcessor:
 
             # Створюємо Edge від батьківського sitemap
             if parent_node:
-                edge = Edge(
-                    source_node_id=parent_node.node_id, target_node_id=node.node_id
-                )
+                edge = Edge(source_node_id=parent_node.node_id, target_node_id=node.node_id)
                 edge.add_metadata("edge_type", "contains")
                 self.graph.add_edge(edge)
 
@@ -270,7 +266,7 @@ class SitemapProcessor:
                 )
             )
 
-        logger.info(f"Created {len(nodes)} URL nodes from {parent_sitemap_url}")
+        logger.info("Created %s URL nodes from %s", len(nodes), parent_sitemap_url)
         return nodes
 
     def _normalize_url(self, url: str, parent_url: Optional[str] = None) -> Optional[str]:
@@ -290,7 +286,7 @@ class SitemapProcessor:
         url = url.strip()
 
         # Вже абсолютний
-        if url.startswith(('http://', 'https://')):
+        if url.startswith(("http://", "https://")):
             return url
 
         # Відносний - потрібен parent_url
@@ -314,10 +310,10 @@ class SitemapProcessor:
         Returns:
             SitemapNode з помилкою або None якщо URL невалідний
         """
-        # КРИТИЧНО: Нормалізуємо URL перед створенням Node
+        # Нормалізуємо URL перед створенням Node
         normalized_url = self._normalize_url(url, parent_url)
 
-        if not normalized_url or not normalized_url.startswith(('http://', 'https://')):
+        if not normalized_url or not normalized_url.startswith(("http://", "https://")):
             logger.warning(
                 f"Cannot create error node for invalid URL: {url} "
                 f"(normalized: {normalized_url}, parent: {parent_url})"
@@ -344,7 +340,7 @@ class SitemapProcessor:
             )
 
             self.graph.add_node(node)
-            logger.warning(f"Created error node: {normalized_url} - {error_message}")
+            logger.warning("Created error node: %s - %s", normalized_url, error_message)
 
             self.event_bus.publish(
                 CrawlerEvent.create(
@@ -357,19 +353,17 @@ class SitemapProcessor:
             if parent_url:
                 parent_node = self.graph.get_node_by_url(parent_url)
                 if parent_node:
-                    edge = Edge(
-                        source_node_id=parent_node.node_id, target_node_id=node.node_id
-                    )
+                    edge = Edge(source_node_id=parent_node.node_id, target_node_id=node.node_id)
                     edge.add_metadata("edge_type", "contains")
                     self.graph.add_edge(edge)
 
             return node
 
         except Exception as e:
-            logger.error(f"Failed to create error node for {normalized_url}: {e}")
+            logger.error("Failed to create error node for %s: %s", normalized_url, e)
             return None
 
-    def _detect_sitemap_type(self, url: str) -> str:
+    def _detect_sitemap_type(self, url: str) -> Literal["xml", "xml.gz", "text"]:
         """
         Визначає тип sitemap за URL.
 

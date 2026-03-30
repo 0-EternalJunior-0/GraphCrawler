@@ -1,23 +1,6 @@
 """Celery application для distributed crawling.
 
- DEPRECATED: Для кращої продуктивності використовуйте celery_batch.py!
-
-Цей файл обробляє 1 URL per task, що НЕ ефективно використовує
-AsyncDriver.max_concurrent (типово 24 паралельних запити).
-
-Migration:
-    # Старий worker (неефективний):
-    celery -A graph_crawler.celery_app worker --loglevel=info
-
-    # Новий worker (24x швидше):
-    celery -A graph_crawler.celery_batch worker --loglevel=info -Q graph_crawler_batch
-
-Документація: docs/deployment/BATCH_TASKS.md
-
-Архітектура (DEPRECATED):
-    - celery_app.py - визначає Celery app та таски (1 URL per task)
-    - CelerySpider - координатор, який відправляє таски
-    - Workers - виконують таски crawl_page
+DEPRECATED: Для кращої продуктивності використовуйте celery_batch.py!
 """
 
 import asyncio
@@ -25,7 +8,7 @@ import logging
 import warnings
 from typing import Any, Dict
 
-from celery import Celery
+from celery import Celery  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +78,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
     from graph_crawler.shared.utils.url_utils import URLUtils
 
     try:
-        logger.info(f"Celery task started: {url} (depth={depth})")
+        logger.info("Celery task started: %s (depth=%s)", url, depth)
 
         # Витягуємо metadata перед створенням конфігу
         plugin_paths = config_dict.pop("_plugin_paths", [])
@@ -103,8 +86,6 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         driver_config = config_dict.pop("_driver_config", None)
 
         config = CrawlerConfig(**config_dict)
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ ПЛАГІНІВ ==========
         plugins = []
         failed_plugins = []
         for plugin_path in plugin_paths:
@@ -122,19 +103,16 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
             )
 
         config.node_plugins = plugins if plugins else None
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ CUSTOM NODE CLASS ==========
         if custom_node_class_path:
             node_class = _import_class(custom_node_class_path)
             if not node_class:
                 logger.warning(
-                    f"Failed to import custom node class: {custom_node_class_path}, using default Node"
+                    f"Failed to import custom node class: {custom_node_class_path}, "
+                    "using default Node"
                 )
                 node_class = Node
         else:
             node_class = config.custom_node_class if config.custom_node_class else Node
-
-        # ========== ДЕСЕРІАЛІЗАЦІЯ ДРАЙВЕРА ==========
         if driver_config:
             driver = _create_driver_from_config(driver_config)
         else:
@@ -149,9 +127,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
                 logger.info("Using AsyncDriver (default for async GraphSpider)")
             except ImportError:
                 # Якщо AsyncDriver недоступний - використовуємо RequestsDriver
-                logger.warning(
-                    "AsyncDriver not available, falling back to RequestsDriver"
-                )
+                logger.warning("AsyncDriver not available, falling back to RequestsDriver")
                 driver_params = config.get_driver_params()
                 driver = RequestsDriver(driver_params)
 
@@ -161,19 +137,15 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         spider = GraphSpider(config, driver, storage)
 
         # Створюємо вузол
-        node = node_class(
-            url=url, depth=depth, plugin_manager=spider.node_plugin_manager
-        )
-
-        # ========== ASYNC/SYNC СКАНУВАННЯ ==========
+        node = node_class(url=url, depth=depth, plugin_manager=spider.node_plugin_manager)
         # Перевіряємо чи scan_node є async функцією
         if inspect.iscoroutinefunction(spider.scanner.scan_node):
             # Async шлях - використовуємо asyncio.run()
-            logger.debug(f"Using async scanner for {url}")
+            logger.debug("Using async scanner for %s", url)
             links = asyncio.run(spider.scanner.scan_node(node))
         else:
             # Sync шлях
-            logger.debug(f"Using sync scanner for {url}")
+            logger.debug("Using sync scanner for %s", url)
             links = spider.scanner.scan_node(node)
 
         node_data = node.model_dump()
@@ -201,7 +173,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         else:
             driver.close()
 
-        logger.info(f"Celery task completed: {url}, found {len(new_urls)} links")
+        logger.info("Celery task completed: %s, found %s links", url, len(new_urls))
 
         return {
             "node_data": node_data,
@@ -211,7 +183,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         }
 
     except Exception as e:
-        logger.error(f"Celery task failed for {url}: {e}")
+        logger.error("Celery task failed for %s: %s", url, e)
         # Retry з exponential backoff
         raise self.retry(exc=e, countdown=2**self.request.retries)
 

@@ -10,7 +10,7 @@ import time
 from typing import Any, Dict, Optional
 
 try:
-    from prometheus_client import (
+    from prometheus_client import (  # type: ignore[import-not-found]
         CONTENT_TYPE_LATEST,
         CollectorRegistry,
         Counter,
@@ -23,6 +23,21 @@ try:
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False
+    # Stubs for type checking
+    CONTENT_TYPE_LATEST = None  # type: ignore[assignment]
+    CollectorRegistry = None  # type: ignore[assignment,misc]
+    Counter = None  # type: ignore[assignment,misc]
+    Gauge = None  # type: ignore[assignment,misc]
+    Histogram = None  # type: ignore[assignment,misc]
+    Summary = None  # type: ignore[assignment,misc]
+    generate_latest = None  # type: ignore[assignment]
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prometheus_client import (
+        CollectorRegistry as _CollectorRegistry,  # type: ignore[import-not-found]
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -31,34 +46,9 @@ class PrometheusMetrics:
     """
     Prometheus metrics для GraphCrawler.
 
-    Metrics:
-    - pages_crawled_total: Counter - загальна кількість просканованих сторінок
-    - pages_crawled_per_second: Gauge - поточна швидкість краулінгу
-    - crawl_errors_total: Counter - загальна кількість помилок
-    - queue_size: Gauge - розмір черги URL
-    - active_crawls: Gauge - кількість активних краулінгів
-    - crawl_duration_seconds: Histogram - тривалість краулінгу
-    - page_fetch_duration_seconds: Histogram - час завантаження сторінки
-    - response_status_codes: Counter - HTTP status codes
-
-    Requirements:
-        pip install prometheus-client
-
-    Example:
-        >>> from graph_crawler.monitoring import PrometheusMetrics
-        >>>
-        >>> metrics = PrometheusMetrics()
-        >>> metrics.increment_pages_crawled()
-        >>> metrics.update_queue_size(150)
-        >>>
-        >>> # Expose metrics endpoint
-        >>> from fastapi import Response
-        >>> @app.get('/metrics')
-        >>> def metrics_endpoint():
-        >>>     return Response(metrics.generate(), media_type=CONTENT_TYPE_LATEST)
     """
 
-    def __init__(self, registry: Optional["CollectorRegistry"] = None):
+    def __init__(self, registry: Optional[Any] = None):
         """
         Initialize Prometheus metrics.
 
@@ -254,7 +244,7 @@ class PrometheusMetrics:
 _global_metrics: Optional[PrometheusMetrics] = None
 
 
-def setup_metrics(registry: Optional["CollectorRegistry"] = None) -> PrometheusMetrics:
+def setup_metrics(registry: Optional[Any] = None) -> PrometheusMetrics:
     """
     Setup global Prometheus metrics instance.
 

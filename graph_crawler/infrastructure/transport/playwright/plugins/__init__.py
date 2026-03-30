@@ -22,6 +22,16 @@ from graph_crawler.infrastructure.transport.playwright.plugins.captcha_solver im
 from graph_crawler.infrastructure.transport.playwright.plugins.cloudflare import (
     CloudflarePlugin,
 )
+
+# Compatibility system for plugin conflict detection
+from graph_crawler.infrastructure.transport.playwright.plugins.compatibility import (
+    RECOMMENDED_COMBINATIONS,
+    CompatibilityLevel,
+    CompatibilityReport,
+    PluginCompatibilityChecker,
+    check_plugin_compatibility,
+    get_stealth_plugins,
+)
 from graph_crawler.infrastructure.transport.playwright.plugins.enhanced_cloudflare import (
     EnhancedCloudflarePlugin,
 )
@@ -45,21 +55,11 @@ from graph_crawler.infrastructure.transport.playwright.plugins.stealth import (
 
 # Profile plugins for real user profile support
 from graph_crawler.infrastructure.transport.playwright.plugins.user_profile import (
-    UserProfilePlugin,
     ProfilePoolPlugin,
+    UserProfilePlugin,
+    create_profile_copy,
     get_default_chrome_profile_path,
     get_default_chromium_profile_path,
-    create_profile_copy,
-)
-
-# Compatibility system for plugin conflict detection
-from graph_crawler.infrastructure.transport.playwright.plugins.compatibility import (
-    PluginCompatibilityChecker,
-    CompatibilityReport,
-    CompatibilityLevel,
-    check_plugin_compatibility,
-    get_stealth_plugins,
-    RECOMMENDED_COMBINATIONS,
 )
 
 __all__ = [

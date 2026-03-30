@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Optional
 
 from graph_crawler.extensions.plugins.base import BasePlugin, PluginContext, PluginType
 from graph_crawler.extensions.plugins.engine.captcha.detector import CaptchaDetector
@@ -33,7 +33,7 @@ class CaptchaSolverPlugin(BasePlugin):
         min_score: Мінімальний score для reCAPTCHA v3 (default: 0.3)
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         self.total_solved = 0
         self.total_failed = 0
@@ -62,14 +62,14 @@ class CaptchaSolverPlugin(BasePlugin):
 
         try:
             self._solver = create_solver(service, api_key, self.config)
-            logger.info(f"CAPTCHA Solver initialized: {service}")
+            logger.info("CAPTCHA Solver initialized: %s", service)
 
             if self.config.get("check_balance", False):
                 balance = self._solver.check_balance()
                 if balance is not None:
-                    logger.info(f"CAPTCHA service balance: ${balance:.2f}")
+                    logger.info("CAPTCHA service balance: $%.2f", balance)
         except Exception as e:
-            logger.error(f"Failed to initialize CAPTCHA solver: {e}")
+            logger.error("Failed to initialize CAPTCHA solver: %s", e)
             self.enabled = False
 
     def detect_captcha(self, html: str, page_url: str) -> Optional[CaptchaInfo]:
@@ -88,7 +88,7 @@ class CaptchaSolverPlugin(BasePlugin):
             self.solve_times.append(solution.solve_time)
             if self.config.get("track_cost", True):
                 self.total_cost += solution.cost
-            logger.info(f"CAPTCHA solved: {solution}")
+            logger.info("CAPTCHA solved: %s", solution)
         else:
             self.total_failed += 1
             solution = self._try_fallback(captcha_info)
@@ -109,10 +109,10 @@ class CaptchaSolverPlugin(BasePlugin):
                 solver = create_solver(service, api_key, self.config)
                 solution = solver.solve(captcha_info)
                 if solution:
-                    logger.info(f"Fallback service {service} succeeded")
+                    logger.info("Fallback service %s succeeded", service)
                     return solution
             except Exception as e:
-                logger.warning(f"Fallback {service} failed: {e}")
+                logger.warning("Fallback %s failed: %s", service, e)
 
         return None
 
@@ -128,7 +128,7 @@ class CaptchaSolverPlugin(BasePlugin):
         captcha_info = self.detect_captcha(html, context.url)
 
         if captcha_info:
-            logger.info(f"CAPTCHA detected: {captcha_info}")
+            logger.info("CAPTCHA detected: %s", captcha_info)
             solution = self.solve_captcha(captcha_info)
 
             if solution:
@@ -146,9 +146,7 @@ class CaptchaSolverPlugin(BasePlugin):
 
     def get_stats(self) -> Dict[str, Any]:
         """Повертає статистику."""
-        avg_solve_time = (
-            sum(self.solve_times) / len(self.solve_times) if self.solve_times else 0.0
-        )
+        avg_solve_time = sum(self.solve_times) / len(self.solve_times) if self.solve_times else 0.0
         total = self.total_solved + self.total_failed
 
         return {

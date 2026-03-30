@@ -10,17 +10,15 @@ import tempfile
 # Version - єдине джерело версії
 from graph_crawler.__version__ import __version__
 
-# ==================== ЛІМІТИ СИСТЕМИ ====================
-
 MAX_PAGES_LIMIT = None
 """Ліміт сторінок для краулінгу (None = без ліміту).
 
- ВАЖЛИВО: Відсутність ліміту може призвести до:
+Відсутність ліміту може призвести до:
 - Використання великої кількості RAM
 - Довгого часу сканування
 - Перевантаження цільового сервера
 
-РЕКОМЕНДАЦІЇ:
+Рекомендації:
 - <1k сторінок: Memory storage
 - 1k-10k: JSON storage
 - 10k-100k: SQLite storage
@@ -38,9 +36,6 @@ MAX_DEPTH_DEFAULT = 3
 
 MAX_PAGES_DEFAULT = 100
 """Дефолтна кількість сторінок для сканування."""
-
-# ==================== ТАЙМАУТИ ====================
-
 DEFAULT_REQUEST_TIMEOUT = 30
 """Дефолтний таймаут для HTTP запитів (секунди)."""
 
@@ -49,9 +44,6 @@ DEFAULT_CONNECT_TIMEOUT = 10
 
 DEFAULT_READ_TIMEOUT = 30
 """Дефолтний таймаут для читання відповіді (секунди)."""
-
-# ==================== ЗАТРИМКИ ====================
-
 DEFAULT_REQUEST_DELAY = 0.005
 """Дефолтна затримка між запитами (секунди)."""
 
@@ -60,25 +52,92 @@ DEFAULT_MIN_DELAY = 0.3
 
 DEFAULT_MAX_DELAY = 1.0
 """Максимальна затримка між запитами (секунди)."""
-
-# ==================== USER AGENT ====================
+# Реалістичні User-Agents для імітації справжнього браузера
+REALISTIC_USER_AGENTS = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+)
+"""Tuple реалістичних User-Agents для рандомізації (immutable)."""
 
 USER_AGENT_TEMPLATE = "GraphCrawler/{version} (https://example.com)"
-"""Шаблон для User-Agent. {version} буде замінено на поточну версію."""
+"""Шаблон для User-Agent (для legacy сумісності). {version} буде замінено на поточну версію."""
 
-DEFAULT_USER_AGENT = USER_AGENT_TEMPLATE.format(version=__version__)
-"""Дефолтний User-Agent з поточною версією."""
+# Реалістичний Chrome User-Agent замість бот-подібного
+DEFAULT_USER_AGENT = REALISTIC_USER_AGENTS[0]
+"""Дефолтний User-Agent - реалістичний Chrome UA для обходу базових anti-bot перевірок."""
 
-# ==================== STORAGE ====================
+GRAPHCRAWLER_USER_AGENT = USER_AGENT_TEMPLATE.format(version=__version__)
+"""Ідентифікаційний User-Agent GraphCrawler (для сайтів які дозволяють боти)."""
 
-DEFAULT_STORAGE_DIR = os.path.join(tempfile.gettempdir(), "graph_crawler")
-"""Дефолтна директорія для тимчасових файлів.
+# Базові браузерні headers для реалістичних запитів
+DEFAULT_BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,uk;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
+"""Базові HTTP headers які відправляє справжній браузер."""
 
-Використовує tempfile.gettempdir() для кросплатформності:
-- Linux/Unix: /tmp/graph_crawler
-- Windows: C:\\Users\\USERNAME\\AppData\\Local\\Temp\\graph_crawler
-- macOS: /var/folders/.../T/graph_crawler
+# ============================================================================
+# ЦЕНТРАЛІЗОВАНА СТРУКТУРА ДАНИХ
+# ============================================================================
+# Всі дані кроулера зберігаються в одній директорії біля робочого файлу
+# Структура:
+#   ./crawler_data/
+#   ├── graphs/          # Збережені графи (.json)
+#   ├── db/              # SQLite бази даних (.db)
+#   ├── checkpoints/     # Checkpoint файли
+#   ├── cache/           # HTTP кеш
+#   ├── sessions/        # Сесії та cookies
+#   ├── screenshots/     # Скріншоти браузера
+#   ├── exports/         # Експортовані дані (CSV, Excel)
+#   └── logs/            # Логи краулінгу
+# ============================================================================
+
+DEFAULT_DATA_DIR = "./crawler_data"
+"""Головна директорія для ВСІХ даних кроулера.
+
+Всі підкаталоги створюються автоматично при потребі.
+Можна перевизначити через змінну середовища GRAPH_CRAWLER_DATA_DIR.
 """
+
+# Підкаталоги
+DEFAULT_GRAPHS_DIR = os.path.join(DEFAULT_DATA_DIR, "graphs")
+"""Директорія для збережених графів."""
+
+DEFAULT_DB_DIR = os.path.join(DEFAULT_DATA_DIR, "db")
+"""Директорія для SQLite баз даних."""
+
+DEFAULT_CHECKPOINTS_DIR = os.path.join(DEFAULT_DATA_DIR, "checkpoints")
+"""Директорія для checkpoint файлів."""
+
+DEFAULT_CACHE_DIR = os.path.join(DEFAULT_DATA_DIR, "cache")
+"""Директорія для HTTP кешу."""
+
+DEFAULT_SESSIONS_DIR = os.path.join(DEFAULT_DATA_DIR, "sessions")
+"""Директорія для сесій та cookies."""
+
+DEFAULT_SCREENSHOTS_DIR = os.path.join(DEFAULT_DATA_DIR, "screenshots")
+"""Директорія для скріншотів браузера."""
+
+DEFAULT_EXPORTS_DIR = os.path.join(DEFAULT_DATA_DIR, "exports")
+"""Директорія для експортованих даних."""
+
+DEFAULT_LOGS_DIR = os.path.join(DEFAULT_DATA_DIR, "logs")
+"""Директорія для логів."""
+
+# Зворотня сумісність - залишаємо старий шлях як alias
+DEFAULT_STORAGE_DIR = DEFAULT_DATA_DIR
+"""DEPRECATED: Використовуйте DEFAULT_DATA_DIR. Залишено для сумісності."""
 
 JSON_INDENT = 2
 """Відступ для JSON файлів."""
@@ -91,9 +150,6 @@ DEFAULT_JSON_THRESHOLD = 20000
 - memory_threshold - json_threshold: JSONStorage
 - > json_threshold: SQLite/PostgreSQL/MongoDB
 """
-
-# ==================== BROWSER (Playwright) ====================
-
 DEFAULT_VIEWPORT_WIDTH = 1920
 """Дефолтна ширина viewport для браузера."""
 
@@ -105,22 +161,13 @@ DEFAULT_PAGE_LOAD_TIMEOUT = 30000
 
 DEFAULT_NAVIGATION_TIMEOUT = 30000
 """Дефолтний таймаут навігації (мілісекунди)."""
-
-# ==================== RETRY ====================
-
 DEFAULT_MAX_RETRIES = 3
 """Дефолтна кількість повторних спроб при помилці."""
 
 DEFAULT_RETRY_DELAY = 1.0
 """Дефолтна затримка між повторними спробами (секунди)."""
-
-# ==================== CONCURRENCY ====================
-
 DEFAULT_MAX_CONCURRENT_REQUESTS = 200
 """Дефолтна кількість одночасних запитів (для async драйверів)."""
-
-# ==================== CONNECTION POOL (TCP Connector) ====================
-
 DEFAULT_CONNECTOR_LIMIT = 500
 """Загальний ліміт з'єднань у TCP connector."""
 
@@ -169,14 +216,8 @@ FREE_THREADING_CONNECTOR_LIMIT_PER_HOST = 100
 
 FREE_THREADING_CONCURRENT_MULTIPLIER = 3
 """Множник concurrency при free-threading mode."""
-
-# ==================== COMPRESSION ====================
-
 DEFAULT_COMPRESSION_LEVEL = 6
 """Дефолтний рівень компресії (1-9)."""
-
-# ==================== TEXT LIMITS ====================
-
 MAX_TEXT_LENGTH = 10000
 """Максимальна довжина тексту для sanitization."""
 
@@ -200,32 +241,17 @@ MAX_ROBOTS_CONTENT_LENGTH = 200
 
 MAX_HREFLANG_ENTRIES = 50
 """Максимальна кількість hreflang записів."""
-
-# ==================== GRAPH OPERATIONS ====================
-
 MAX_BFS_ITERATIONS = 100000
 """Максимальна кількість ітерацій BFS для запобігання зависання."""
-
-# ==================== CRAWLER PROGRESS ====================
-
 PROGRESS_UPDATE_INTERVAL = 20
 """Інтервал оновлення прогресу (кожні N сторінок)."""
 
 DEFAULT_BATCH_SIZE = 100
 """Дефолтний розмір batch для паралельної обробки."""
-
-# ==================== CACHE ====================
-
 DEFAULT_CACHE_TTL = 3600
 """Дефолтний TTL для кешу (секунди) - 1 година."""
-
-# ==================== EVENT BUS ====================
-
 DEFAULT_EVENT_HISTORY_SIZE = 1000
 """Дефолтний розмір історії подій в EventBus."""
-
-# ==================== URL SCHEDULING ====================
-
 DEFAULT_URL_PRIORITY = 1
 """Дефолтний пріоритет для URL (шкала 1-15).
 
@@ -239,9 +265,6 @@ PRIORITY_MIN = 1
 
 PRIORITY_MAX = 15
 """Максимальний пріоритет URL."""
-
-# ==================== SQLITE PRAGMAS ====================
-
 SQLITE_JOURNAL_MODE = "WAL"
 """Дефолтний journal mode для SQLite."""
 
@@ -250,9 +273,6 @@ SQLITE_SYNCHRONOUS = "NORMAL"
 
 SQLITE_CACHE_SIZE = -64000
 """Дефолтний cache size для SQLite (в KB, негативне значення)."""
-
-# ==================== HTTP STATUS CODES ====================
-
 HTTP_OK = 200
 """HTTP 200 OK - успішний запит."""
 
@@ -274,7 +294,11 @@ HTTP_SERVICE_UNAVAILABLE = 503
 HTTP_GATEWAY_TIMEOUT = 504
 """HTTP 504 Gateway Timeout - таймаут шлюзу."""
 
+HTTP_FORBIDDEN = 403
+"""HTTP 403 Forbidden - доступ заборонено (часто через anti-bot захист)."""
+
 HTTP_RETRYABLE_STATUS_CODES = [
+    HTTP_FORBIDDEN,
     HTTP_TOO_MANY_REQUESTS,
     HTTP_INTERNAL_SERVER_ERROR,
     HTTP_BAD_GATEWAY,
@@ -285,6 +309,9 @@ HTTP_RETRYABLE_STATUS_CODES = [
 
 Ці коди зазвичай вказують на тимчасові проблеми сервера,
 а не на помилки клієнта, тому має сенс повторити запит.
+
+Примітка: 403 Forbidden додано для обробки anti-bot захисту,
+який часто блокує занадто швидкі запити.
 """
 
 HTTP_CLIENT_ERROR_START = 400
@@ -292,9 +319,6 @@ HTTP_CLIENT_ERROR_START = 400
 
 HTTP_SERVER_ERROR_START = 500
 """Початок діапазону HTTP серверних помилок (5xx)."""
-
-# ==================== REDIS/CELERY ====================
-
 DEFAULT_REDIS_HOST = "localhost"
 """Дефолтний хост для Redis."""
 
@@ -315,9 +339,6 @@ Soft limit дає змогу задачі завершитися gracefully.
 
 DEFAULT_CELERY_RESULTS_TIMEOUT = 600
 """Дефолтний таймаут очікування результатів Celery (секунди) - 10 хвилин."""
-
-# ==================== RETRY CONFIGURATION ====================
-
 DEFAULT_RETRY_BACKOFF_FACTOR = 0.5
 """Дефолтний backoff factor для retry (exponential backoff).
 
@@ -326,38 +347,23 @@ DEFAULT_RETRY_BACKOFF_FACTOR = 0.5
 
 DEFAULT_RETRY_EXPONENTIAL_BASE = 2
 """Дефолтна база для експоненційного backoff (2^n)."""
-
-# ==================== HTTP METHODS ====================
-
 HTTP_METHODS_SAFE = ["HEAD", "GET", "OPTIONS"]
 """HTTP методи, які можна безпечно повторювати (idempotent)."""
-
-# ==================== CONNECTION POOLING ====================
-
 DEFAULT_CONNECTION_POOL_SIZE = 10
 """Дефолтний розмір connection pool для HTTP клієнта."""
 
 DEFAULT_CONNECTION_POOL_MAXSIZE = 10
 """Дефолтний максимальний розмір connection pool."""
-
-# ==================== MONGODB ====================
-
 DEFAULT_MONGODB_TIMEOUT_MS = 5000
 """Дефолтний таймаут підключення до MongoDB (мілісекунди) - 5 секунд."""
-
-# ==================== MULTIPROCESSING ====================
-
 MAX_MULTIPROCESSING_WORKERS = 32
 """Максимальна кількість воркерів для multiprocessing.
 
- ВАЖЛИВО: Більше 32 воркерів може призвести до:
+Більше 32 воркерів може призвести до:
 - Перевантаження системи
 - Зниження продуктивності через context switching
 - Проблем з лімітами операційної системи
 """
-
-# ==================== STATISTICS ====================
-
 PERCENTAGE_MULTIPLIER = 100
 """Множник для конвертації в відсотки (0.85 * 100 = 85%)."""
 
@@ -369,17 +375,11 @@ MIN_REQUESTS_FOR_STATS = 10
 
 MAX_RESPONSE_TIME_SAMPLES = 100
 """Максимальна кількість збережених зразків response time."""
-
-# ==================== DASHBOARD & MONITORING ====================
-
 MAX_DASHBOARD_HISTORY_SIZE = 1000
 """Максимальний розмір історії для dashboard."""
 
 DEFAULT_DASHBOARD_HISTORY_PREVIEW = 100
 """Кількість останніх записів історії для попереднього перегляду."""
-
-# ==================== PROXY MIDDLEWARE ====================
-
 DEFAULT_PROXY_RECHECK_INTERVAL = 300
 """Дефолтний інтервал перевірки proxy (секунди) - 5 хвилин."""
 
@@ -388,9 +388,6 @@ DEFAULT_PROXY_HEALTH_CHECK_TIMEOUT = 5
 
 DEFAULT_PROXY_HEALTH_CHECK_URL = "http://httpbin.org/ip"
 """Дефолтний URL для health check proxy."""
-
-# ==================== HASH & VALIDATION ====================
-
 SHA256_HASH_LENGTH = 64
 """Довжина SHA256 хешу в hex форматі (256 біт = 64 hex символи)."""
 
@@ -399,9 +396,6 @@ DEFAULT_HASH_ENCODING = "utf-8"
 
 SHA256_HASH_PATTERN = r"^[a-f0-9]{64}$"
 """Регулярний вираз для валідації SHA256 хешу."""
-
-# ==================== SIMHASH (Locality-Sensitive Hash) ====================
-
 SIMHASH_BITS = 64
 """Кількість бітів для SimHash (64 біти = 16 hex символів)."""
 
@@ -416,9 +410,6 @@ DEFAULT_SIMHASH_NGRAM_SIZE = 3
 
 DEFAULT_SIMHASH_HASH_FUNC = "md5"
 """Дефолтна хеш-функція для SimHash feature hashing (md5 швидший за sha256)."""
-
-# ==================== PLAYWRIGHT BROWSER ====================
-
 DEFAULT_BROWSER_TYPE = "chromium"
 """Дефолтний тип браузера для Playwright."""
 
@@ -496,11 +487,8 @@ DEFAULT_BLOCK_RESOURCES = ["image", "media", "font", "stylesheet"]
 Якщо потрібні зображення/стилі - передайте block_resources=[] в config.
 """
 
-DEFAULT_SCREENSHOT_DIRECTORY = "./screenshots"
+DEFAULT_SCREENSHOT_DIRECTORY = DEFAULT_SCREENSHOTS_DIR
 """Дефолтна директорія для збереження screenshots."""
-
-# ==================== SCROLL SETTINGS ====================
-
 DEFAULT_SCROLL_STEP = 500
 """Дефолтний крок скролу в пікселях."""
 
@@ -512,29 +500,17 @@ DEFAULT_SCROLL_TIMEOUT = 30
 
 DEFAULT_MAX_SCROLLS = 200
 """Дефолтна максимальна кількість скролів."""
-
-# ==================== HTTP RETRY ====================
-
 DEFAULT_RETRY_MAX_ATTEMPTS = 3
 """Дефолтна максимальна кількість спроб повтору запиту."""
 
 # ПРИМІТКА: DEFAULT_RETRY_DELAY вже визначено на рядку ~119
-
-# ==================== USER AGENT ====================
-
 UA_DISPLAY_LENGTH = 50
 """Довжина User-Agent для відображення в логах (символів)."""
 
 UA_TOP_COUNT = 5
 """Кількість топ User-Agent для відображення в статистиці."""
-
-# ==================== PROXY ====================
-
 DEFAULT_PROXY_HEALTH_CHECK_URL = "http://httpbin.org/ip"
 """Дефолтний URL для перевірки працездатності proxy."""
-
-# ==================== CELERY BATCH ====================
-
 DEFAULT_CELERY_BATCH_TIME_LIMIT = 1200
 """Дефолтний time limit для batch tasks (20 хвилин)."""
 
@@ -546,9 +522,6 @@ DEFAULT_CELERY_RESULT_EXPIRES = 3600
 
 DEFAULT_CELERY_WORKERS = 10
 """Дефолтна кількість Celery воркерів."""
-
-# ==================== BATCH PROCESSING ====================
-
 DEFAULT_BATCH_SAVE_THRESHOLD = 100
 """Дефолтний поріг для збереження batch в storage."""
 
@@ -560,17 +533,11 @@ DEFAULT_JOBS_MAX_PAGES = 1000
 
 DEFAULT_JOB_TIMEOUT = 3600
 """Дефолтний таймаут для job (1 година)."""
-
-# ==================== ERROR RECOVERY ====================
-
 DEFAULT_MAX_CONSECUTIVE_ERRORS = 10
 """Дефолтна максимальна кількість послідовних помилок."""
 
 DEFAULT_MAX_ERROR_HISTORY = 1000
 """Дефолтна максимальна кількість помилок в історії."""
-
-# ==================== CAPTCHA ====================
-
 DEFAULT_CAPTCHA_SOLVE_TIMEOUT = 120
 """Дефолтний таймаут розв'язання captcha (секунди)."""
 
@@ -582,25 +549,16 @@ DEFAULT_CAPTCHA_POLL_TIMEOUT = 10
 
 DEFAULT_CAPTCHA_POLL_INTERVAL = 5
 """Дефолтний інтервал polling captcha (секунди)."""
-
-# ==================== CONTENT EXTRACTION ====================
-
 MAX_ARTICLE_TEXT_LENGTH = 1000
 """Максимальна довжина тексту статті для metadata."""
 
 DEFAULT_MAX_REDIRECTS = 10
 """Дефолтна максимальна кількість редіректів."""
-
-# ==================== CONNECTION POOL ====================
-
 DEFAULT_OPTIMIZED_POOL_SIZE = 100
 """Дефолтний оптимізований розмір connection pool."""
 
 DEFAULT_POOL_CLEANUP_INTERVAL = 0.25
 """Дефолтний інтервал очищення pool (секунди)."""
-
-# ==================== API LIMITS ====================
-
 DEFAULT_API_PAGE_LIMIT = 20
 """Дефолтний ліміт пагінації в API."""
 
@@ -613,8 +571,6 @@ DEFAULT_TIMEOUT_MINUTES_LIMIT = 120
 MAX_API_WORKERS = 1000
 """Максимальна кількість воркерів через API."""
 
-
-# ==================== HELPER FUNCTIONS ====================
 
 def get_connector_settings() -> dict:
     """

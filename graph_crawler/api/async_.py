@@ -25,7 +25,7 @@ from graph_crawler.api._shared import (
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import URLRule
+from graph_crawler.domain.value_objects.models import Rule
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ async def async_crawl(
     max_depth: int = 3,
     max_pages: Optional[int] = 100,
     same_domain: bool = True,
+    allowed_domains: Optional[list[str]] = None,
     timeout: Optional[int] = None,
     request_delay: float = 0.5,
     driver: Optional[DriverType] = None,
@@ -47,69 +48,29 @@ async def async_crawl(
     plugins: Optional[list] = None,
     node_class: Optional[type[Node]] = None,
     edge_class: Optional[type[Edge]] = None,
-    url_rules: Optional[list[URLRule]] = None,
+    url_rules: Optional[list[Rule]] = None,
     on_progress: Optional[EventCallback] = None,
     on_node_scanned: Optional[EventCallback] = None,
     on_error: Optional[EventCallback] = None,
     on_completed: Optional[EventCallback] = None,
     edge_strategy: str = "all",
     follow_links: bool = True,
+    # LOW-MEMORY MODE
+    low_memory_mode: bool = False,
+    evict_threshold: int = 500,
+    eviction_storage_path: Optional[str] = None,
+    # AI Agent Integration
+    crawl_context: Optional[Any] = None,
+    control_channel: Optional[Any] = None,
 ) -> Graph:
     """
     Async краулінг веб-сайту - для максимальної продуктивності.
 
-    NEW: Підтримка seed_urls та base_graph!
-
-    Використовуй якщо:
-    - Вже працюєш з async кодом
-    - Потрібен паралельний краулінг декількох сайтів
-    - Інтегруєш з async фреймворком (FastAPI, aiohttp)
-
-    Args:
-        url: URL веб-сайту для краулінгу (якщо seed_urls не передано)
-        seed_urls: Список URL для початку краулінгу
-        base_graph: Існуючий граф для продовження
-        max_depth: Максимальна глибина обходу (default: 3)
-        max_pages: Максимальна кількість сторінок (default: 100)
-        same_domain: Сканувати тільки поточний домен (default: True)
-        timeout: Максимальний час краулінгу в секундах
-        request_delay: Затримка між запитами (default: 0.5)
-        driver: Драйвер ("http", "async", "playwright")
-        driver_config: Конфігурація драйвера
-        storage: Storage ("memory", "json", "sqlite") або інстанс
-        storage_config: Конфігурація storage
-        plugins: Список плагінів
-        node_class: Кастомний клас Node
-        edge_class: Кастомний клас Edge
-        url_rules: Правила URL
-        on_progress: Callback для прогресу
-        on_node_scanned: Callback для сканованого node
-        on_error: Callback для помилок
-        on_completed: Callback для завершення
-        edge_strategy: Стратегія створення ребер
-        follow_links: Переходити за посиланнями на сторінках (default: True).
-                     False = сканувати тільки seed URL без переходу за посиланнями
-
     Returns:
         Graph: Побудований граф веб-сайту
-
     Examples:
         >>> graph = await async_crawl("https://example.com")
         >>> print(f"Знайдено {len(graph.nodes)} сторінок")
-
-        Множинні точки входу (NEW):
-        >>> graph = await async_crawl(
-        ...     seed_urls=[
-        ...         "https://example.com/page1",
-        ...         "https://example.com/page2",
-        ...     ]
-        ... )
-
-        Паралельний краулінг:
-        >>> graphs = await asyncio.gather(
-        ...     async_crawl("https://site1.com"),
-        ...     async_crawl("https://site2.com"),
-        ... )
     """
     from graph_crawler.api._core import async_crawl_impl
 
@@ -120,6 +81,7 @@ async def async_crawl(
         max_depth=max_depth,
         max_pages=max_pages,
         same_domain=same_domain,
+        allowed_domains=allowed_domains,
         timeout=timeout,
         request_delay=request_delay,
         driver=driver,
@@ -136,6 +98,13 @@ async def async_crawl(
         on_completed=on_completed,
         edge_strategy=edge_strategy,
         follow_links=follow_links,
+        # LOW-MEMORY MODE
+        low_memory_mode=low_memory_mode,
+        evict_threshold=evict_threshold,
+        eviction_storage_path=eviction_storage_path,
+        # AI Agent Integration
+        crawl_context=crawl_context,
+        control_channel=control_channel,
     )
 
 
@@ -175,7 +144,7 @@ class AsyncCrawler(_BaseCrawler):
         max_pages: Optional[int] = None,
         same_domain: Optional[bool] = None,
         timeout: Optional[int] = None,
-        url_rules: Optional[list[URLRule]] = None,
+        url_rules: Optional[list[Rule]] = None,
         **kwargs,
     ) -> Graph:
         """
@@ -253,7 +222,7 @@ async def async_crawl_sitemap(
     driver_config: Optional[dict[str, Any]] = None,
     storage: Optional[StorageType] = None,
     storage_config: Optional[dict[str, Any]] = None,
-    url_rules: Optional[list[URLRule]] = None,
+    url_rules: Optional[list[Rule]] = None,
     max_sitemaps: Optional[int] = None,
     max_depth: Optional[int] = None,
     on_progress: Optional[EventCallback] = None,
@@ -263,38 +232,11 @@ async def async_crawl_sitemap(
     r"""
     Async краулінг sitemap структури сайту.
 
-    Парсить robots.txt → знаходить sitemap → рекурсивно обробляє всі sitemap файли.
-
-    Args:
-        url: Базовий URL сайту (https://example.com)
-        max_urls: Максимальна кількість URL для обробки (None = всі)
-        include_urls: Чи додавати кінцеві URL до графу (False = тільки структура sitemap)
-        timeout: Максимальний час краулінгу в секундах
-        driver: Драйвер ("http", "async") або інстанс
-        driver_config: Конфігурація драйвера
-        storage: Storage ("memory", "json", "sqlite") або інстанс
-        storage_config: Конфігурація storage
-        url_rules: Правила для фільтрації та пріоритизації sitemap URLs
-        max_sitemaps: Максимальна кількість sitemap файлів (None = всі)
-        max_depth: Максимальна глибина вкладеності sitemap (None = 10)
-        on_progress: Callback для прогресу
-        on_error: Callback для помилок
-        on_completed: Callback для завершення
-
     Returns:
         Graph: Граф sitemap структури
-
     Examples:
         >>> graph = await async_crawl_sitemap("https://example.com")
         >>> print(f"Знайдено {len(graph.nodes)} елементів")
-
-        З url_rules:
-        >>> from graph_crawler.domain.value_objects.models import URLRule
-        >>> rules = [
-        ...     URLRule(pattern=r'\.xml\.gz$', should_scan=False),
-        ...     URLRule(pattern=r'sitemap-news', priority=10),
-        ... ]
-        >>> graph = await async_crawl_sitemap("https://example.com", url_rules=rules)
     """
     from graph_crawler.api.sync import _crawl_sitemap_impl
 

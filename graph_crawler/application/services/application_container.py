@@ -49,12 +49,13 @@ class DriverProvider:
         from graph_crawler.application.services.driver_factory import create_driver
 
         driver_config = config or {}
-        if self._config.get():
-            cfg = self._config.get()
-            if hasattr(cfg, "driver") and cfg.driver:
+        cfg = self._config.get()
+        if cfg is not None:
+            driver_attr = getattr(cfg, "driver", None)
+            if driver_attr is not None:
                 driver_config = {
-                    "timeout": getattr(cfg.driver, "timeout", 30),
-                    "request_delay": getattr(cfg.driver, "request_delay", 0.5),
+                    "timeout": getattr(driver_attr, "timeout", 30),
+                    "request_delay": getattr(driver_attr, "request_delay", 0.5),
                 }
 
         self._driver_instance = create_driver("http", driver_config)
@@ -95,7 +96,7 @@ class StorageProvider:
 
     def json_storage(self, filepath: str = "graph.json"):
         """Створити JSON Storage."""
-        from graph_crawler.infrastructure.persistence.json.json_storage import (
+        from graph_crawler.infrastructure.persistence.json_storage import (
             JSONStorage,
         )
 
@@ -104,7 +105,7 @@ class StorageProvider:
 
     def sqlite_storage(self, db_path: str = "graph.db"):
         """Створити SQLite Storage."""
-        from graph_crawler.infrastructure.persistence.sqlite.sqlite_storage import (
+        from graph_crawler.infrastructure.persistence.sqlite_storage import (
             SQLiteStorage,
         )
 
@@ -183,28 +184,29 @@ class ApplicationContainer:
         try:
             if self._driver._driver_instance:
                 driver = self._driver._driver_instance
-                if hasattr(driver, "close"):
-                    if callable(getattr(driver, "close", None)):
-                        import inspect
+                close_method = getattr(driver, "close", None)
+                if close_method is not None and callable(close_method):
+                    import inspect
 
-                        if inspect.iscoroutinefunction(driver.close):
-                            await driver.close()
-                        else:
-                            driver.close()
+                    if inspect.iscoroutinefunction(close_method):
+                        await close_method()
+                    else:
+                        close_method()
 
             if self._storage._storage_instance:
                 storage = self._storage._storage_instance
-                if hasattr(storage, "close"):
+                close_method = getattr(storage, "close", None)
+                if close_method is not None and callable(close_method):
                     import inspect
 
-                    if inspect.iscoroutinefunction(storage.close):
-                        await storage.close()
+                    if inspect.iscoroutinefunction(close_method):
+                        await close_method()
                     else:
-                        storage.close()
+                        close_method()
 
             logger.debug("ApplicationContainer resources shutdown complete")
         except Exception as e:
-            logger.warning(f"Error during shutdown: {e}")
+            logger.warning("Error during shutdown: %s", e)
 
 
 # Експорт

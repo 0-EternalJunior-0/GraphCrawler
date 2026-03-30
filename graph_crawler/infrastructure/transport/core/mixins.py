@@ -5,7 +5,6 @@ Mixins дозволяють комбінувати функціональніс�
 - RetryMixin - автоматичні retry
 - MetricsMixin - збір метрик
 
-
 """
 
 import asyncio
@@ -139,7 +138,7 @@ class RetryMixin:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.error(f"All {max_retries + 1} attempts failed")
+                    logger.error("All %s attempts failed", max_retries + 1)
 
         raise last_error
 
@@ -169,7 +168,7 @@ class RetryMixin:
                     )
                     time.sleep(retry_delay)
                 else:
-                    logger.error(f"All {max_retries + 1} attempts failed")
+                    logger.error("All %s attempts failed", max_retries + 1)
 
         raise last_error
 
@@ -232,9 +231,7 @@ class MetricsMixin:
         if error:
             self._metrics["failed_requests"] += 1
             error_type = error.split(":")[0] if ":" in error else "Unknown"
-            self._metrics["errors"][error_type] = (
-                self._metrics["errors"].get(error_type, 0) + 1
-            )
+            self._metrics["errors"][error_type] = self._metrics["errors"].get(error_type, 0) + 1
         else:
             self._metrics["successful_requests"] += 1
 
@@ -259,9 +256,7 @@ class MetricsMixin:
         total = metrics["total_requests"]
         if total > 0:
             metrics["avg_time"] = round(metrics["total_time"] / total, 3)
-            metrics["success_rate"] = round(
-                metrics["successful_requests"] / total * 100, 1
-            )
+            metrics["success_rate"] = round(metrics["successful_requests"] / total * 100, 1)
         else:
             metrics["avg_time"] = 0.0
             metrics["success_rate"] = 0.0

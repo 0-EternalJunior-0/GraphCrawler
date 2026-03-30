@@ -1,37 +1,6 @@
 """Node Plugins - плагіни для обробки контенту веб-сторінок.
 
 Node плагіни працюють з HTML контентом після завантаження сторінки:
-- Витягування метаданих (title, description, h1)
-- Витягування посилань
-- Витягування тексту
-- Кастомна обробка контенту
-- ML-пошук потрібних сторінок (SmartPageFinderPlugin)
-
-Lifecycle Hooks (NodePluginType):
-- ON_NODE_CREATED: після створення Node
-- ON_HTML_PARSED: після парсингу HTML
-- ON_LINKS_EXTRACTED: після витягування посилань
-- ON_AFTER_SCAN: після завершення сканування
-
-Example:
-    >>> from graph_crawler.extensions.plugins.node import (
-    ...     BaseNodePlugin,
-    ...     NodePluginManager,
-    ...     NodePluginType,
-    ...     MetadataExtractorPlugin,
-    ...     LinkExtractorPlugin,
-    ...     SmartPageFinderPlugin,
-    ...     get_default_node_plugins,
-    ... )
-    >>>
-    >>> # ML пошук сторінок
-    >>> finder = SmartPageFinderPlugin(
-    ...     search_prompt="Автомобілі BMW X5 2024 року"
-    ... )
-    >>> graph = gc.crawl(url, plugins=[finder])
-    >>>
-    >>> # Знайдені сторінки
-    >>> targets = [n for n in graph if n.user_data.get('is_target_page')]
 """
 
 # Base classes
@@ -46,7 +15,7 @@ from graph_crawler.extensions.plugins.node.base import (
 from graph_crawler.extensions.plugins.node.defaults import get_default_node_plugins
 from graph_crawler.extensions.plugins.node.links import LinkExtractorPlugin
 
-# Built-in CustomPlugins
+# Built-in Plugins
 from graph_crawler.extensions.plugins.node.metadata import MetadataExtractorPlugin
 
 # ML Smart Page Finder Plugin
@@ -73,7 +42,7 @@ __all__ = [
     "NodePluginType",
     "NodePluginContext",
     "NodePluginManager",
-    # Built-in CustomPlugins
+    # Built-in Plugins
     "MetadataExtractorPlugin",
     "LinkExtractorPlugin",
     "TextExtractorPlugin",

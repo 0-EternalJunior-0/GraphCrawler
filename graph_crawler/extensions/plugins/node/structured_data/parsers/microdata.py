@@ -23,12 +23,10 @@ class MicrodataParser:
 
     def can_parse(self, source: Union[str, Any]) -> bool:
         """Перевіряє чи джерело є parser adapter."""
-        return hasattr(source, 'find_all')
+        return hasattr(source, "find_all")
 
     def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
+        self, source: Union[str, Any], options: StructuredDataOptions
     ) -> List[Dict[str, Any]]:
         """
         Парсить Microdata елементи.
@@ -40,26 +38,28 @@ class MicrodataParser:
         Returns:
             Список Microdata об'єктів
         """
-        if not hasattr(source, 'find_all'):
+        if not hasattr(source, "find_all"):
             raise ParserError(self.name, "Source must be parser adapter")
 
         results = []
 
         try:
             # Шукаємо елементи з itemscope (top-level)
-            itemscopes = source.find_all('[itemscope]:not([itemprop])')
+            itemscopes = source.find_all("[itemscope]:not([itemprop])")
 
-            for elem in itemscopes[:options.max_microdata_items]:
+            for elem in itemscopes[: options.max_microdata_items]:
                 item = self._extract_item(elem, options, depth=0)
                 if item:
                     results.append(item)
 
         except Exception as e:
-            logger.warning(f"Error parsing Microdata: {e}")
+            logger.warning("Error parsing Microdata: %s", e)
 
         return results
 
-    def _extract_item(self, elem: Any, options: StructuredDataOptions, depth: int = 0) -> Dict[str, Any]:
+    def _extract_item(
+        self, elem: Any, options: StructuredDataOptions, depth: int = 0
+    ) -> Dict[str, Any]:
         """Рекурсивно витягує item з елемента."""
         if depth > options.max_nesting_depth:
             return {}
@@ -67,24 +67,24 @@ class MicrodataParser:
         item = {}
 
         # Тип
-        itemtype = elem.get_attribute('itemtype')
+        itemtype = elem.get_attribute("itemtype")
         if itemtype:
             # Нормалізація: "https://schema.org/Product" -> "Product"
-            if options.normalize_types and '/' in itemtype:
-                item['@type'] = itemtype.split('/')[-1]
+            if options.normalize_types and "/" in itemtype:
+                item["@type"] = itemtype.split("/")[-1]
             else:
-                item['@type'] = itemtype
+                item["@type"] = itemtype
 
         # Властивості
         try:
-            props = elem.find_all('[itemprop]')
+            props = elem.find_all("[itemprop]")
             for prop_elem in props:
-                prop_name = prop_elem.get_attribute('itemprop')
+                prop_name = prop_elem.get_attribute("itemprop")
                 if not prop_name:
                     continue
 
                 # Вкладений itemscope
-                if prop_elem.get_attribute('itemscope') is not None:
+                if prop_elem.get_attribute("itemscope") is not None:
                     if options.include_nested:
                         value = self._extract_item(prop_elem, options, depth + 1)
                     else:
@@ -92,11 +92,11 @@ class MicrodataParser:
                 else:
                     # Значення: content атрибут має пріоритет
                     value = (
-                        prop_elem.get_attribute('content') or
-                        prop_elem.get_attribute('href') or
-                        prop_elem.get_attribute('src') or
-                        prop_elem.text() or
-                        ''
+                        prop_elem.get_attribute("content")
+                        or prop_elem.get_attribute("href")
+                        or prop_elem.get_attribute("src")
+                        or prop_elem.text()
+                        or ""
                     )
                     value = self._sanitize_value(str(value))
 
@@ -104,7 +104,7 @@ class MicrodataParser:
                     item[prop_name] = value
 
         except Exception as e:
-            logger.warning(f"Error extracting microdata properties: {e}")
+            logger.warning("Error extracting microdata properties: %s", e)
 
         return item
 

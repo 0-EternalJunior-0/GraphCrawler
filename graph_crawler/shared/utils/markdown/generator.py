@@ -27,41 +27,22 @@ _bs4_cache = {}
 
 def _get_bs4():
     """Thread-safe lazy import BeautifulSoup."""
-    if 'BeautifulSoup' not in _bs4_cache:
+    if "BeautifulSoup" not in _bs4_cache:
         with _bs4_lock:
-            if 'BeautifulSoup' not in _bs4_cache:
+            if "BeautifulSoup" not in _bs4_cache:
                 from bs4 import BeautifulSoup
-                _bs4_cache['BeautifulSoup'] = BeautifulSoup
-    return _bs4_cache['BeautifulSoup']
+
+                _bs4_cache["BeautifulSoup"] = BeautifulSoup
+    return _bs4_cache["BeautifulSoup"]
 
 
 class MarkdownGenerator:
     """
     Генератор Markdown з HTML.
 
-    Standalone утиліта - викликається коли потрібно, не плагін.
-    Thread-safe, можна використовувати в багатопоточному середовищі.
-
-    Підтримує:
-    1. Генерація з HTML string (основний метод)
-    2. Генерація з BaseTreeAdapter (оптимізовано - без повторного парсингу)
-
-    Приклад:
-        >>> md = MarkdownGenerator()
-        >>> result = md.generate(html_string)
-        >>> print(result.fit_markdown)
-
-        >>> # З опціями
-        >>> md = MarkdownGenerator(options=MarkdownOptions(
-        ...     include_links=False,
-        ...     remove_ads=True,
-        ... ))
-
-        >>> # Статичний метод для простих випадків
-        >>> result = MarkdownGenerator.quick_generate(html)
     """
 
-    __slots__ = ('options',)
+    __slots__ = ("options",)
 
     def __init__(self, options: Optional[MarkdownOptions] = None):
         """
@@ -103,10 +84,10 @@ class MarkdownGenerator:
             return self.generate_from_html(source)
 
         # Припускаємо що це adapter з методом parse
-        if hasattr(source, 'tree') and hasattr(source, 'find_all'):
+        if hasattr(source, "tree") and hasattr(source, "find_all"):
             return self.generate_from_adapter(source)
 
-        logger.warning(f"Unknown source type: {type(source)}")
+        logger.warning("Unknown source type: %s", type(source))
         return MarkdownResult.empty()
 
     def generate_from_html(self, html: str) -> MarkdownResult:
@@ -127,18 +108,18 @@ class MarkdownGenerator:
         BeautifulSoup = _get_bs4()
 
         try:
-            soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, "lxml")
             return self._process_soup(soup, html)
         except ImportError:
             # Fallback to html.parser якщо lxml недоступний
             try:
-                soup = BeautifulSoup(html, 'html.parser')
+                soup = BeautifulSoup(html, "html.parser")
                 return self._process_soup(soup, html)
             except (ValueError, AttributeError, TypeError) as e:
-                logger.error(f"Failed to parse HTML: {e}")
+                logger.error("Failed to parse HTML: %s", e)
                 return MarkdownResult.empty()
         except (ValueError, AttributeError, TypeError) as e:
-            logger.error(f"Error generating markdown: {e}")
+            logger.error("Error generating markdown: %s", e)
             return MarkdownResult.empty()
 
     def generate_from_adapter(self, adapter: Any) -> MarkdownResult:
@@ -155,21 +136,18 @@ class MarkdownGenerator:
         """
         try:
             tree = adapter.tree
-
-            # Перевіряємо тип дерева
-            if hasattr(tree, 'find_all'):  # BeautifulSoup
-                # Отримуємо HTML для raw_markdown
+            if hasattr(tree, "find_all"):  # BeautifulSoup
                 html_str = str(tree)
                 return self._process_soup(tree, html_str)
-            elif hasattr(tree, 'cssselect'):  # lxml
+            elif hasattr(tree, "cssselect"):  # lxml
                 return self._process_lxml(tree)
             else:
                 # Fallback: витягуємо текст через adapter
-                text = adapter.text if hasattr(adapter, 'text') else ''
+                text = adapter.text if hasattr(adapter, "text") else ""
                 return MarkdownResult(text=text, fit_markdown=text)
 
         except (ValueError, AttributeError, TypeError) as e:
-            logger.error(f"Error generating markdown from adapter: {e}")
+            logger.error("Error generating markdown from adapter: %s", e)
             return MarkdownResult.empty()
 
     def _process_soup(self, soup, original_html: str) -> MarkdownResult:
@@ -192,7 +170,7 @@ class MarkdownGenerator:
 
         # 2. Генеруємо raw_markdown з ОРИГІНАЛЬНОГО HTML (без копіювання soup)
         # Це економить пам'ять - не дублюємо soup
-        raw_soup = BeautifulSoup(original_html, 'lxml')
+        raw_soup = BeautifulSoup(original_html, "lxml")
         self._remove_scripts_only(raw_soup)  # Тільки scripts, не noise
         raw_markdown, _ = self._soup_to_markdown(raw_soup)
 
@@ -208,15 +186,14 @@ class MarkdownGenerator:
         # 6. Перевірка довжини
         is_truncated = False
         if len(text) > self.options.max_length:
-            text = text[:self.options.max_length]
+            text = text[: self.options.max_length]
             is_truncated = True
 
         # 7. Citations (якщо потрібно) - НА КОПІЇ soup
         md_citations = ""
         references = []
         if self.options.generate_citations:
-            # Створюємо копію для citations щоб не модифікувати оригінал
-            citations_soup = BeautifulSoup(original_html, 'lxml')
+            citations_soup = BeautifulSoup(original_html, "lxml")
             self._remove_noise(citations_soup)
             md_citations, references = self._generate_citations(citations_soup)
 
@@ -231,9 +208,9 @@ class MarkdownGenerator:
             description=description,
             word_count=len(text.split()),
             char_count=len(text),
-            heading_count=stats.get('headings', 0),
-            link_count=stats.get('links', 0),
-            image_count=stats.get('images', 0),
+            heading_count=stats.get("headings", 0),
+            link_count=stats.get("links", 0),
+            image_count=stats.get("images", 0),
             is_truncated=is_truncated,
         )
 
@@ -249,7 +226,8 @@ class MarkdownGenerator:
         """
         try:
             from lxml import html
-            html_str = html.tostring(tree, encoding='unicode')
+
+            html_str = html.tostring(tree, encoding="unicode")
             return self.generate_from_html(html_str)
         except ImportError:
             logger.error("lxml not available for processing")
@@ -264,7 +242,7 @@ class MarkdownGenerator:
         Args:
             soup: BeautifulSoup object
         """
-        for tag_name in ('script', 'style', 'noscript', 'template'):
+        for tag_name in ("script", "style", "noscript", "template"):
             for tag in soup.find_all(tag_name):
                 tag.decompose()
 
@@ -282,15 +260,15 @@ class MarkdownGenerator:
         tags_to_remove = set(self.options.noise_tags)
 
         if self.options.remove_nav:
-            tags_to_remove.add('nav')
+            tags_to_remove.add("nav")
         if self.options.remove_header:
-            tags_to_remove.add('header')
+            tags_to_remove.add("header")
         if self.options.remove_footer:
-            tags_to_remove.add('footer')
+            tags_to_remove.add("footer")
         if self.options.remove_aside:
-            tags_to_remove.add('aside')
+            tags_to_remove.add("aside")
         if self.options.remove_buttons:
-            tags_to_remove.add('button')
+            tags_to_remove.add("button")
 
         # Один прохід для всіх тегів
         for tag in soup.find_all(list(tags_to_remove)):
@@ -300,23 +278,21 @@ class MarkdownGenerator:
         if self.options.remove_ads:
             # Функція для перевірки класів/id
             def should_remove(tag):
-                if not hasattr(tag, 'get') or tag.get is None:
+                if not hasattr(tag, "get") or tag.get is None:
                     return False
 
                 try:
                     # Перевірка класів
-                    classes = tag.get('class', [])
+                    classes = tag.get("class", [])
                     if classes:
-                        # Перевіряємо кожен клас окремо як повне слово
                         class_set = {c.lower() for c in classes}
                         if class_set & self.options.noise_classes:
                             return True
 
                     # Перевірка ID
-                    tag_id = tag.get('id', '')
+                    tag_id = tag.get("id", "")
                     if tag_id:
                         id_lower = tag_id.lower()
-                        # Перевіряємо ID як повне слово
                         if id_lower in self.options.noise_ids:
                             return True
                 except (AttributeError, TypeError):
@@ -326,7 +302,9 @@ class MarkdownGenerator:
 
             # Знаходимо всі елементи з class або id атрибутами
             # Додаємо перевірку hasattr для безпеки
-            for tag in soup.find_all(lambda t: hasattr(t, 'get') and (t.get('class') or t.get('id'))):
+            for tag in soup.find_all(
+                lambda t: hasattr(t, "get") and (t.get("class") or t.get("id"))
+            ):
                 if should_remove(tag):
                     tag.decompose()
 
@@ -344,16 +322,16 @@ class MarkdownGenerator:
             Tuple[markdown_string, stats_dict]
         """
         md_parts = []
-        stats = {'headings': 0, 'links': 0, 'images': 0, 'code': 0, 'lists': 0}
+        stats = {"headings": 0, "links": 0, "images": 0, "code": 0, "lists": 0}
         processed_elements = set()
 
         # Обробляємо ВЕСЬ body, не тільки main/article
         # Це важливо для aside, sidebar та інших елементів поза main
-        root = soup.find('body') or soup
+        root = soup.find("body") or soup
 
         # Обробляємо елементи в порядку появи
         for element in root.descendants:
-            if not hasattr(element, 'name') or element.name is None:
+            if not hasattr(element, "name") or element.name is None:
                 continue
 
             # Пропускаємо вже оброблені елементи
@@ -364,16 +342,16 @@ class MarkdownGenerator:
             tag_name = element.name.lower()
 
             # Заголовки
-            if tag_name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+            if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
                 level = int(tag_name[1])
                 text = element.get_text(strip=True)
                 if text and len(text) >= self.options.min_heading_length:
                     md_parts.append(f"\n{'#' * level} {text}\n")
-                    stats['headings'] += 1
+                    stats["headings"] += 1
                 processed_elements.add(elem_id)
 
             # Параграфи
-            elif tag_name == 'p':
+            elif tag_name == "p":
                 text = element.get_text(strip=True)
                 if text and len(text) >= self.options.min_paragraph_length:
                     # Обробка inline коду
@@ -382,105 +360,114 @@ class MarkdownGenerator:
                 processed_elements.add(elem_id)
 
             # Код (блоки)
-            elif tag_name == 'pre' and self.options.include_code_blocks:
+            elif tag_name == "pre" and self.options.include_code_blocks:
                 code = element.get_text()
                 if code.strip():
                     # Визначаємо мову
-                    code_tag = element.find('code')
-                    lang = ''
+                    code_tag = element.find("code")
+                    lang = ""
                     if code_tag:
-                        classes = code_tag.get('class', [])
+                        classes = code_tag.get("class", [])
                         for cls in classes:
-                            if cls.startswith('language-'):
+                            if cls.startswith("language-"):
                                 lang = cls[9:]
                                 break
-                            elif cls.startswith('lang-'):
+                            elif cls.startswith("lang-"):
                                 lang = cls[5:]
                                 break
                     md_parts.append(f"\n```{lang}\n{code.strip()}\n```\n")
-                    stats['code'] += 1
+                    stats["code"] += 1
                 processed_elements.add(elem_id)
                 # Маркуємо вкладений code як оброблений
                 if code_tag:
                     processed_elements.add(id(code_tag))
 
             # Списки (ul/ol)
-            elif tag_name in ('ul', 'ol') and self.options.include_lists:
+            elif tag_name in ("ul", "ol") and self.options.include_lists:
                 list_md = self._process_list(element, tag_name)
                 if list_md:
                     md_parts.append(f"\n{list_md}\n")
-                    stats['lists'] += 1
+                    stats["lists"] += 1
                 # Маркуємо всі вкладені елементи як оброблені
                 for child in element.descendants:
-                    if hasattr(child, 'name'):
+                    if hasattr(child, "name"):
                         processed_elements.add(id(child))
                 processed_elements.add(elem_id)
 
             # Blockquote
-            elif tag_name == 'blockquote' and self.options.include_blockquotes:
+            elif tag_name == "blockquote" and self.options.include_blockquotes:
                 text = element.get_text(strip=True)
                 if text:
-                    lines = text.split('\n')
-                    quoted = '\n'.join(f"> {line}" for line in lines if line.strip())
+                    lines = text.split("\n")
+                    quoted = "\n".join(f"> {line}" for line in lines if line.strip())
                     md_parts.append(f"\n{quoted}\n")
                 processed_elements.add(elem_id)
 
             # Посилання
-            elif tag_name == 'a' and self.options.include_links:
-                href = element.get('href', '')
+            elif tag_name == "a" and self.options.include_links:
+                href = element.get("href", "")
                 if href:
-                    stats['links'] += 1
+                    stats["links"] += 1
 
             # Зображення
-            elif tag_name == 'img' and self.options.include_images:
-                src = element.get('src', '')
-                alt = element.get('alt', '')
+            elif tag_name == "img" and self.options.include_images:
+                src = element.get("src", "")
+                alt = element.get("alt", "")
                 if src:
                     md_parts.append(f"\n![{alt}]({src})\n")
-                    stats['images'] += 1
+                    stats["images"] += 1
                 processed_elements.add(elem_id)
 
             # Таблиці
-            elif tag_name == 'table' and self.options.include_tables:
+            elif tag_name == "table" and self.options.include_tables:
                 table_md = self._table_to_markdown(element)
                 if table_md:
                     md_parts.append(f"\n{table_md}\n")
                 # Маркуємо всі вкладені елементи
                 for child in element.descendants:
-                    if hasattr(child, 'name'):
+                    if hasattr(child, "name"):
                         processed_elements.add(id(child))
                 processed_elements.add(elem_id)
-            
+
             # Контейнери з текстом (div, section, aside, span)
             # Обробляємо тільки якщо містять прямий текст без вкладених блоків
-            elif tag_name in ('div', 'section', 'aside', 'span'):
-                # Перевіряємо чи є прямі текстові ноди
+            elif tag_name in ("div", "section", "aside", "span"):
                 direct_text_parts = []
                 has_block_children = False
-                
+
                 for child in element.children:
                     if child.name is None:
                         # Текстова нода (NavigableString)
                         text = str(child).strip()
                         if text:
                             direct_text_parts.append(text)
-                    elif child.name in ('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 
-                                       'ul', 'ol', 'table', 'pre', 'blockquote'):
+                    elif child.name in (
+                        "p",
+                        "h1",
+                        "h2",
+                        "h3",
+                        "h4",
+                        "h5",
+                        "h6",
+                        "ul",
+                        "ol",
+                        "table",
+                        "pre",
+                        "blockquote",
+                    ):
                         has_block_children = True
-                
-                # Якщо є прямий текст і немає блочних дітей - виводимо
                 if direct_text_parts and not has_block_children:
-                    text = ' '.join(direct_text_parts)
+                    text = " ".join(direct_text_parts)
                     if len(text) >= self.options.min_paragraph_length:
                         md_parts.append(f"\n{text}\n")
                     processed_elements.add(elem_id)
 
         # Очищуємо і об'єднуємо
-        markdown = '\n'.join(md_parts)
+        markdown = "\n".join(md_parts)
 
         # Нормалізуємо пробіли
         if self.options.normalize_whitespace:
-            markdown = re.sub(r'\n{3,}', '\n\n', markdown)
+            markdown = re.sub(r"\n{3,}", "\n\n", markdown)
             markdown = markdown.strip()
 
         return markdown, stats
@@ -497,15 +484,15 @@ class MarkdownGenerator:
         """
         result = []
         for child in element.children:
-            if hasattr(child, 'name'):
-                if child.name == 'code':
+            if hasattr(child, "name"):
+                if child.name == "code":
                     result.append(f"`{child.get_text()}`")
-                elif child.name in ('strong', 'b'):
+                elif child.name in ("strong", "b"):
                     result.append(f"**{child.get_text()}**")
-                elif child.name in ('em', 'i'):
+                elif child.name in ("em", "i"):
                     result.append(f"*{child.get_text()}*")
-                elif child.name == 'a' and self.options.include_links:
-                    href = child.get('href', '')
+                elif child.name == "a" and self.options.include_links:
+                    href = child.get("href", "")
                     text = child.get_text(strip=True)
                     if href and text:
                         result.append(f"[{text}]({href})")
@@ -517,7 +504,7 @@ class MarkdownGenerator:
                 # Текстова нода
                 result.append(str(child))
 
-        return ''.join(result).strip()
+        return "".join(result).strip()
 
     def _process_list(self, element, list_type: str, indent: int = 0) -> str:
         """
@@ -534,31 +521,30 @@ class MarkdownGenerator:
         lines = []
         indent_str = "  " * indent
 
-        items = element.find_all('li', recursive=False)
+        items = element.find_all("li", recursive=False)
         for i, li in enumerate(items):
-            # Отримуємо текст тільки прямих текстових нод
-            direct_text = ''
+            direct_text = ""
             for child in li.children:
-                if not hasattr(child, 'name'):
+                if not hasattr(child, "name"):
                     direct_text += str(child)
-                elif child.name not in ('ul', 'ol'):
+                elif child.name not in ("ul", "ol"):
                     direct_text += child.get_text()
 
-            direct_text = ' '.join(direct_text.split()).strip()
+            direct_text = " ".join(direct_text.split()).strip()
 
             if direct_text:
-                if list_type == 'ol':
-                    lines.append(f"{indent_str}{i+1}. {direct_text}")
+                if list_type == "ol":
+                    lines.append(f"{indent_str}{i + 1}. {direct_text}")
                 else:
                     lines.append(f"{indent_str}- {direct_text}")
 
             # Обробляємо вкладені списки
-            for nested in li.find_all(['ul', 'ol'], recursive=False):
+            for nested in li.find_all(["ul", "ol"], recursive=False):
                 nested_md = self._process_list(nested, nested.name, indent + 1)
                 if nested_md:
                     lines.append(nested_md)
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     def _table_to_markdown(self, table) -> str:
         """
@@ -574,46 +560,44 @@ class MarkdownGenerator:
         header_found = False
 
         # Спочатку шукаємо header в thead
-        thead = table.find('thead')
+        thead = table.find("thead")
         if thead:
-            header_row = thead.find('tr')
+            header_row = thead.find("tr")
             if header_row:
-                cells = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+                cells = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])]
                 if cells:
-                    rows.append('| ' + ' | '.join(cells) + ' |')
-                    rows.append('| ' + ' | '.join(['---'] * len(cells)) + ' |')
+                    rows.append("| " + " | ".join(cells) + " |")
+                    rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
                     header_found = True
 
         # Body
-        tbody = table.find('tbody') or table
-        all_trs = tbody.find_all('tr')
+        tbody = table.find("tbody") or table
+        all_trs = tbody.find_all("tr")
 
         for _idx, tr in enumerate(all_trs):
             # Пропускаємо header rows з thead
-            if tr.parent and tr.parent.name == 'thead':
+            if tr.parent and tr.parent.name == "thead":
                 continue
 
-            cells = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+            cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
             if not cells:
                 continue
-
-            # Якщо немає header і це перший row
             if not header_found and not rows:
-                # Перевіряємо чи це header row (th елементи)
-                if tr.find('th'):
-                    rows.append('| ' + ' | '.join(cells) + ' |')
-                    rows.append('| ' + ' | '.join(['---'] * len(cells)) + ' |')
+                if tr.find("th"):
+                    rows.append("| " + " | ".join(cells) + " |")
+                    rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
                     header_found = True
                 else:
-                    # Створюємо generic header
-                    rows.append('| ' + ' | '.join([f'Col {i+1}' for i in range(len(cells))]) + ' |')
-                    rows.append('| ' + ' | '.join(['---'] * len(cells)) + ' |')
-                    rows.append('| ' + ' | '.join(cells) + ' |')
+                    rows.append(
+                        "| " + " | ".join([f"Col {i + 1}" for i in range(len(cells))]) + " |"
+                    )
+                    rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                    rows.append("| " + " | ".join(cells) + " |")
                     header_found = True
             else:
-                rows.append('| ' + ' | '.join(cells) + ' |')
+                rows.append("| " + " | ".join(cells) + " |")
 
-        return '\n'.join(rows)
+        return "\n".join(rows)
 
     def _extract_text(self, soup) -> str:
         """
@@ -633,26 +617,26 @@ class MarkdownGenerator:
 
     def _extract_title(self, soup) -> str:
         """Витягує title."""
-        title_tag = soup.find('title')
-        return title_tag.get_text(strip=True) if title_tag else ''
+        title_tag = soup.find("title")
+        return title_tag.get_text(strip=True) if title_tag else ""
 
     def _extract_h1(self, soup) -> str:
         """Витягує перший H1."""
-        h1_tag = soup.find('h1')
-        return h1_tag.get_text(strip=True) if h1_tag else ''
+        h1_tag = soup.find("h1")
+        return h1_tag.get_text(strip=True) if h1_tag else ""
 
     def _extract_description(self, soup) -> str:
         """Витягує meta description."""
-        meta = soup.find('meta', attrs={'name': 'description'})
+        meta = soup.find("meta", attrs={"name": "description"})
         if meta:
-            return meta.get('content', '')
+            return meta.get("content", "")
 
         # Fallback: og:description
-        og_meta = soup.find('meta', attrs={'property': 'og:description'})
+        og_meta = soup.find("meta", attrs={"property": "og:description"})
         if og_meta:
-            return og_meta.get('content', '')
+            return og_meta.get("content", "")
 
-        return ''
+        return ""
 
     def _generate_citations(self, soup) -> Tuple[str, List[Dict[str, str]]]:
         """
@@ -670,16 +654,18 @@ class MarkdownGenerator:
         ref_counter = 1
 
         # Знаходимо всі посилання
-        for a in soup.find_all('a', href=True):
-            href = a.get('href', '')
+        for a in soup.find_all("a", href=True):
+            href = a.get("href", "")
             text = a.get_text(strip=True)
 
-            if href and text and not href.startswith('#'):
-                references.append({
-                    'id': ref_counter,
-                    'text': text,
-                    'url': href,
-                })
+            if href and text and not href.startswith("#"):
+                references.append(
+                    {
+                        "id": ref_counter,
+                        "text": text,
+                        "url": href,
+                    }
+                )
                 # Замінюємо посилання на citation
                 a.replace_with(f"{text} [{ref_counter}]")
                 ref_counter += 1

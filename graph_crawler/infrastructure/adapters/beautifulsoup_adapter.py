@@ -32,27 +32,11 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
     """
     BeautifulSoup адаптер (дефолтний).
 
-    Переваги:
-    - Найпростіший API
-    - Добре обробляє зламаний HTML
-    - Багато документації
-
-    Недоліки:
-    - Повільніший за lxml
-    - Більше споживання пам'яті
-
-    Використання:
-        >>> adapter = BeautifulSoupAdapter()
-        >>> adapter.parse('<html><title>Test</title></html>')
-        >>> elem = adapter.find('title')
-        >>> elem.text()
-        'Test'
-
     Args:
         parser_backend: 'html.parser' (дефолт), 'lxml', або 'html5lib'
     """
 
-    def __init__(self, parser_backend: str = None):
+    def __init__(self, parser_backend: Optional[str] = None):
         """
         Ініціалізує BeautifulSoup адаптер.
 
@@ -68,7 +52,7 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
         self._tree = None
 
         if parser_backend is None:
-            logger.debug(f"Auto-selected parser backend: {self.parser_backend}")
+            logger.debug("Auto-selected parser backend: %s", self.parser_backend)
 
     @property
     def name(self) -> str:
@@ -84,22 +68,23 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
     def text(self) -> str:
         """
         Повертає весь текст з документа БЕЗ script/style/noscript.
-        
+
         ВАЖЛИВО: Видаляємо script, style, noscript, svg перед витяганням тексту,
         інакше CSS/JS код потрапляє в text_content і псує SimHash.
-        
+
         """
         if not self._tree:
             return ""
-        
+
         # Клонуємо дерево щоб не модифікувати оригінал
         import copy
+
         tree_copy = copy.copy(self._tree)
-        
+
         # Видаляємо теги що містять код/стилі, а не контент
-        for tag in tree_copy.find_all(['script', 'style', 'noscript', 'svg', 'head']):
+        for tag in tree_copy.find_all(["script", "style", "noscript", "svg", "head"]):
             tag.decompose()
-        
+
         return tree_copy.get_text(separator=" ", strip=True)
 
     def parse(self, html: str) -> BeautifulSoup:
@@ -138,11 +123,11 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
 
         # OPTIMIZATION: Для простих селекторів "a[href]", "img[src]"
         # використовуємо швидший find_all замість select()
-        if '[' in selector and ']' in selector and ' ' not in selector:
+        if "[" in selector and "]" in selector and " " not in selector:
             # Parse simple selector like "a[href]"
-            bracket_idx = selector.index('[')
+            bracket_idx = selector.index("[")
             tag = selector[:bracket_idx]
-            attr = selector[bracket_idx+1:-1]  # Remove [ and ]
+            attr = selector[bracket_idx + 1 : -1]  # Remove [ and ]
 
             # find_all з attrs в 2-3x швидше за select()
             elements = self._tree.find_all(tag, attrs={attr: True})
@@ -165,9 +150,7 @@ class BeautifulSoupAdapter(BaseTreeAdapter):
             Цей метод повертає порожній список.
             Використовуйте lxml або Scrapy для XPath.
         """
-        logger.warning(
-            "BeautifulSoup does not support XPath. Use lxml or Scrapy adapter."
-        )
+        logger.warning("BeautifulSoup does not support XPath. Use lxml or Scrapy adapter.")
         return []
 
     # Protected методи для TreeElement

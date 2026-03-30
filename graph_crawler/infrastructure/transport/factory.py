@@ -6,7 +6,6 @@
 - Автоматичний вибір оптимального драйвера
 - Конфігурація через dict або dataclass
 
-
 """
 
 import logging
@@ -30,6 +29,9 @@ class DriverType(str, Enum):
     # Sync драйвери (для legacy)
     REQUESTS = "requests"  # Sync HTTP через requests
     SYNC = "sync"  # Alias для REQUESTS
+
+    # CloudScraper для обходу Cloudflare
+    CLOUDSCRAPER = "cloudscraper"  # Sync cloudscraper для обходу захистів
 
     # Auto-select
     AUTO = "auto"  # Автоматичний вибір
@@ -74,6 +76,10 @@ class DriverFactory:
             "graph_crawler.drivers.sync.requests_driver",
             "RequestsDriver",
         ),
+        DriverType.CLOUDSCRAPER: (
+            "graph_crawler.infrastructure.transport.sync.cloudscraper_driver",
+            "CloudscraperDriver",
+        ),
     }
 
     @classmethod
@@ -113,7 +119,7 @@ class DriverFactory:
         # AUTO: вибираємо оптимальний
         if driver_type == DriverType.AUTO:
             driver_type = cls._auto_select(config)
-            logger.info(f"Auto-selected driver: {driver_type.value}")
+            logger.info("Auto-selected driver: %s", driver_type.value)
 
         # Отримуємо module та class
         if driver_type not in cls._registry:
@@ -160,9 +166,7 @@ class DriverFactory:
         return DriverType.AIOHTTP
 
     @classmethod
-    def register(
-        cls, driver_type: DriverType, module_path: str, class_name: str
-    ) -> None:
+    def register(cls, driver_type: DriverType, module_path: str, class_name: str) -> None:
         """
         Реєструє новий тип драйвера.
 
@@ -175,9 +179,7 @@ class DriverFactory:
             ... )
         """
         cls._registry[driver_type] = (module_path, class_name)
-        logger.info(
-            f"Registered driver: {driver_type.value} -> {module_path}.{class_name}"
-        )
+        logger.info("Registered driver: %s -> %s.%s", driver_type.value, module_path, class_name)
 
     @classmethod
     def available_drivers(cls) -> List[str]:

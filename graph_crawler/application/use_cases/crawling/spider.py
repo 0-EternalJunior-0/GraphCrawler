@@ -14,7 +14,7 @@ Features:
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from graph_crawler.application.dto import GraphDTO, GraphSummaryDTO
 from graph_crawler.application.dto.mappers import GraphMapper
@@ -42,34 +42,35 @@ from graph_crawler.application.use_cases.crawling.scheduler import CrawlSchedule
 from graph_crawler.application.use_cases.crawling.spider_lifecycle import (
     SpiderLifecycleManager,
 )
+
+# Phase 1: AI Agent Integration
+from graph_crawler.domain.context.crawl_context import CrawlContext
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
 from graph_crawler.domain.events import CrawlerEvent, EventBus, EventType
+
+# Phase 2: AI Agent Integration
+from graph_crawler.domain.interfaces.control_channel import (
+    AsyncQueueControlChannel,
+    CrawlCommand,
+    IControlChannel,
+)
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.stop_condition import IStopCondition
+from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
 from graph_crawler.domain.value_objects.models import (
     DomainFilterConfig,
     PathFilterConfig,
 )
-from graph_crawler.domain.interfaces.storage import IStorage
-from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
 
+
 class GraphSpider(BaseSpider):
     """
     GraphSpider з Clean Architecture - всі операції через DTO.
-
-    Архітектурні принципи:
-    1. Domain entities (Graph, Node, Edge) - ТІЛЬКИ внутрішня реалізація (приватні поля)
-    2. Публічний API - ТІЛЬКИ через DTO (GraphDTO, NodeDTO, EdgeDTO)
-    3. Конвертація Domain ↔ DTO - через Mappers
-    4. Dependency Injection - всі компоненти через конструктор
-
-    Responsibilities:
-    1. Ініціалізація компонентів через DI
-    2. Координація краулінгу (делегування до CrawlCoordinator)
-    3. Повернення результату як GraphDTO
 
     Example:
         >>> async with GraphSpider(config, driver, storage) as spider:
@@ -81,68 +82,75 @@ class GraphSpider(BaseSpider):
     """
 
     def __init__(
-            self,
-            config: CrawlerConfig,
-            driver: IDriver,
-            storage: IStorage,
-            event_bus: Optional[EventBus] = None,
-            graph: Optional[Graph] = None,
-            scheduler: Optional[CrawlScheduler] = None,
-            domain_filter: Optional[DomainFilter] = None,
-            path_filter: Optional[PathFilter] = None,
-            scanner: Optional[NodeScanner] = None,
-            processor: Optional[LinkProcessor] = None,
-            plugin_manager=None,
-            checkpoint_manager: Optional[CheckpointManager] = None,
+        self,
+        config: CrawlerConfig,
+        driver: IDriver,
+        storage: IStorage,
+        event_bus: Optional[EventBus] = None,
+        graph: Optional[Graph] = None,
+        scheduler: Optional[CrawlScheduler] = None,
+        domain_filter: Optional[DomainFilter] = None,
+        path_filter: Optional[PathFilter] = None,
+        scanner: Optional[NodeScanner] = None,
+        processor: Optional[LinkProcessor] = None,
+        plugin_manager=None,
+        checkpoint_manager: Optional[CheckpointManager] = None,
+        # Phase 1: AI Agent Integration
+        crawl_context: Optional[CrawlContext] = None,
+        stop_conditions: Optional[List[IStopCondition]] = None,
+        # Phase 2: AI Agent Integration
+        control_channel: Optional[IControlChannel] = None,
     ):
         """
         Ініціалізує GraphSpider з усіма компонентами через DI.
 
-        Args:
-            config: Конфігурація краулінгу
-            driver: Driver для HTTP запитів
-            storage: Storage для збереження результатів
-            event_bus: EventBus для публікації подій (опціонально)
-            graph: Domain Graph (внутрішнє використання, опціонально)
-            scheduler: CrawlScheduler (опціонально)
-            domain_filter: Фільтр доменів (опціонально)
-            path_filter: Фільтр шляхів (опціонально)
-            scanner: NodeScanner (опціонально)
-            processor: LinkProcessor (опціонально)
-            plugin_manager: Plugin manager для нод (опціонально)
-            checkpoint_manager: Checkpoint manager (опціонально)
-
-        Note:
-            Domain Graph використовується ТІЛЬКИ внутрішньо для краулінгу.
-            Публічний API повертає GraphDTO через метод crawl().
         """
         super().__init__(config, driver, storage, event_bus)
+
+        # Phase 1: AI Agent Integration - CrawlContext та StopConditions
+        self._crawl_context = crawl_context or CrawlContext()
+        self._stop_conditions = stop_conditions or []
+
+        # Phase 2: AI Agent Integration - Control Channel
+        self._control_channel = control_channel or AsyncQueueControlChannel()
 
         # DI: Graph (ПРИВАТНЕ поле - внутрішнє використання)
         # Domain entity НЕ виходить за межі Spider
         if graph is not None:
             self._graph = graph
         else:
-            low_memory_mode = getattr(config, 'low_memory_mode', False)
+            low_memory_mode = getattr(config, "low_memory_mode", False)
             eviction_storage = None
-            
+
             if low_memory_mode:
-                # Create eviction storage from path (Clean Architecture: DI)
-                storage_path = getattr(config, 'eviction_storage_path', None)
+                storage_path = getattr(config, "eviction_storage_path", None)
                 if storage_path:
-                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import (
+                        SQLiteEvictionStorage,
+                    )
+
                     eviction_storage = SQLiteEvictionStorage(storage_path)
                 else:
                     import tempfile
-                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
-                    temp_path = tempfile.mkdtemp(prefix='graph_eviction_')
+
+                    from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import (
+                        SQLiteEvictionStorage,
+                    )
+
+                    temp_path = tempfile.mkdtemp(prefix="graph_eviction_")
                     eviction_storage = SQLiteEvictionStorage(temp_path)
-            
+
             self._graph = Graph(
                 low_memory_mode=low_memory_mode,
-                evict_threshold=getattr(config, 'evict_threshold', 500),
-                evict_batch_size=getattr(config, 'evict_batch_size', 100),
+                evict_threshold=getattr(config, "evict_threshold", 500),
+                evict_batch_size=getattr(config, "evict_batch_size", 100),
                 eviction_storage=eviction_storage,
+                # URL Deduplication налаштування
+                url_deduplication_enabled=getattr(config, "url_deduplication_enabled", True),
+                normalize_protocol=getattr(config, "normalize_protocol", True),
+                normalize_www=getattr(config, "normalize_www", True),
+                normalize_trailing_slash=getattr(config, "normalize_trailing_slash", True),
+                normalize_query_params=getattr(config, "normalize_query_params", False),
             )
 
         # DI: Scheduler
@@ -156,10 +164,10 @@ class GraphSpider(BaseSpider):
         if domain_filter is None:
             # Використовуємо get_root_domain() для коректної роботи з субдоменами
             # www.ciklum.com -> ciklum.com, тоді jobs.ciklum.com буде субдоменом
-            base_domain = URLUtils.get_root_domain(self.config.url)
+            base_domain = URLUtils.get_root_domain(self.config.url) or ""
             domain_config = DomainFilterConfig(
                 base_domain=base_domain,
-                allowed_domains=self.config.allowed_domains,
+                allowed_domains=self.config.allowed_domains or [],
                 blocked_domains=[],
             )
             self.domain_filter = DomainFilter(domain_config, self.event_bus)
@@ -208,9 +216,7 @@ class GraphSpider(BaseSpider):
         self._scheduler.set_plugin_manager(self.node_plugin_manager)
 
         # DI: Scanner
-        self.scanner = (
-            scanner if scanner is not None else NodeScanner(driver=self.driver)
-        )
+        self.scanner = scanner if scanner is not None else NodeScanner(driver=self.driver)
 
         # DI: Processor
         if processor is None:
@@ -272,7 +278,7 @@ class GraphSpider(BaseSpider):
             scheduler=self._scheduler,
             event_bus=self.event_bus,
         )
-        
+
         self._scheduler.set_graph(self._graph)
 
         # Coordinator з підтримкою timeout
@@ -290,49 +296,29 @@ class GraphSpider(BaseSpider):
         )
 
     async def crawl(
-            self,
-            base_graph_dto: Optional[GraphDTO] = None,
-            seed_urls: Optional[list[str]] = None,
-            timeout: Optional[int] = None,
+        self,
+        base_graph_dto: Optional[GraphDTO] = None,
+        seed_urls: Optional[list[str]] = None,
+        timeout: Optional[int] = None,
     ) -> GraphDTO:
         """
         Async запускає процес краулінгу через DTO (Clean Architecture).
-
-        Внутрішній процес:
-        1. Конвертація GraphDTO → Domain Graph (якщо передано base_graph_dto)
-        2. Створення seed nodes з seed_urls (якщо передано)
-        3. Виконання краулінгу з Domain entities (внутрішня логіка)
-        4. Конвертація Domain Graph → GraphDTO (повернення результату)
 
         Args:
             base_graph_dto: Базовий GraphDTO для incremental краулінгу (опціонально)
             seed_urls: Список URL для початку краулінгу (NEW, опціонально)
             timeout: Максимальний час краулінгу в секундах (опціонально)
-
         Returns:
             GraphDTO з результатами краулінгу
-
         Raises:
             Exception: При помилках краулінгу
-
         Examples:
             >>> # Incremental crawl з базовим графом
             >>> async with GraphSpider(config, driver, storage) as spider:
             ...     base_dto = await storage.load_graph()
             ...     result_dto = await spider.crawl(base_graph_dto=base_dto)
             ...     print(f"Crawled {result_dto.stats.total_nodes} pages")
-
-            >>> # Множинні точки входу (NEW)
-            >>> async with GraphSpider(config, driver, storage) as spider:
-            ...     result_dto = await spider.crawl(
-            ...         seed_urls=[
-            ...             "https://example.com/page1",
-            ...             "https://example.com/page2",
-            ...             "https://example.com/page3",
-            ...         ]
-            ...     )
         """
-        # Встановлюємо стан RUNNING
         self._state = CrawlerState.RUNNING
 
         # Конвертуємо GraphDTO → Domain Graph якщо передано (для incremental crawl)
@@ -341,12 +327,10 @@ class GraphSpider(BaseSpider):
             logger.debug("Converting base GraphDTO to Domain Graph for incremental crawl")
             # Використовуємо context з plugin_manager для правильного відновлення залежностей
             context = {
-                'plugin_manager': self.node_plugin_manager,
-                'tree_parser': None,  # Tree parser буде доданий під час сканування
+                "plugin_manager": self.node_plugin_manager,
+                "tree_parser": None,  # Tree parser буде доданий під час сканування
             }
             base_graph = GraphMapper.to_domain(base_graph_dto, context=context)
-
-        # Ініціалізуємо компоненти з timeout
         self._init_components(base_graph, timeout=timeout)
 
         self.event_bus.publish(
@@ -360,43 +344,39 @@ class GraphSpider(BaseSpider):
             )
         )
 
-        logger.info(f"Starting async crawl: {self.config.url}")
-        logger.info(
-            f"Config: max_depth={self.config.max_depth}, "
-            f"max_pages={self.config.max_pages}"
-        )
+        logger.info("Starting async crawl: %s", self.config.url)
+        logger.info("Config: max_depth=%s, max_pages=%s", self.config.max_depth, self.config.max_pages)
 
         try:
             # ДЕЛЕГУВАННЯ: Lifecycle Manager виконує BEFORE_CRAWL hooks
-            self._lifecycle_manager.execute_before_crawl()
-
-            # Створюємо початкові вузли (Domain entities - внутрішнє використання)
+            if self._lifecycle_manager is not None:
+                self._lifecycle_manager.execute_before_crawl()
             node_class = self.config.custom_node_class or Node
 
             # РЕЖИМ 1: Продовження сканування існуючого графа (base_graph)
             # Додаємо непросканованй вузли з base_graph в чергу
             if base_graph is not None:
-                logger.info(f"Continuing crawl from base_graph with {len(base_graph.nodes)} nodes")
-                # Копіюємо всі вузли з base_graph в поточний граф
-                for node in base_graph.nodes.values():
+                logger.info("Continuing crawl from base_graph with %s nodes", len(base_graph.nodes))
+                # Копіюємо всі вузли з base_graph в поточний граф (streaming через iter_nodes)
+                unscanned_count = 0
+                for node in base_graph.iter_nodes():
                     self._graph.add_node(node)
                     # Додаємо в чергу тільки непросканованй вузли
                     if not node.scanned and node.should_scan:
                         self._scheduler.add_node(node)
+                        unscanned_count += 1
                     else:
                         # Просканованй вузли додаємо в seen_urls
                         self._scheduler.seen_urls.add(node.url)
 
-                # Копіюємо edges
-                for edge in base_graph.edges:
+                # Копіюємо edges (streaming через iter_edges)
+                for edge in base_graph.iter_edges():
                     self._graph.add_edge(edge)
-
-                unscanned_count = sum(1 for n in base_graph.nodes.values() if not n.scanned)
-                logger.info(f"Added {unscanned_count} unscanned nodes to queue from base_graph")
+                logger.info("Added %s unscanned nodes to queue from base_graph", unscanned_count)
 
             # РЕЖИМ 2: Seed URLs - створюємо нові ноди
             elif seed_urls:
-                logger.info(f"Creating {len(seed_urls)} seed nodes from seed_urls")
+                logger.info("Creating %s seed nodes from seed_urls", len(seed_urls))
                 for seed_url in seed_urls:
                     seed_node = node_class(
                         url=seed_url, depth=0, plugin_manager=self.node_plugin_manager
@@ -414,6 +394,8 @@ class GraphSpider(BaseSpider):
 
             # ASYNC ДЕЛЕГУВАННЯ: Coordinator координує весь процес краулінгу
             # Повертає Domain Graph (внутрішня логіка)
+            if self._coordinator is None:
+                raise RuntimeError("Coordinator not initialized")
             result_graph = await self._coordinator.coordinate(spider=self)
 
             # ✅ КОНВЕРТАЦІЯ: Domain Graph → GraphDTO для повернення
@@ -429,7 +411,7 @@ class GraphSpider(BaseSpider):
 
         except Exception as e:
             self._state = CrawlerState.ERROR
-            logger.error(f"Crawl error: {e}", exc_info=True)
+            logger.error("Crawl error: %s", e, exc_info=True)
 
             self.event_bus.publish(
                 CrawlerEvent.create(
@@ -441,13 +423,14 @@ class GraphSpider(BaseSpider):
 
         finally:
             # ДЕЛЕГУВАННЯ: Lifecycle Manager виконує AFTER_CRAWL hooks
-            pages_crawled = self._progress_tracker.get_pages_crawled()
-            self._lifecycle_manager.execute_after_crawl(pages_crawled)
+            if self._progress_tracker is not None:
+                pages_crawled = self._progress_tracker.get_pages_crawled()
+                if self._lifecycle_manager is not None:
+                    self._lifecycle_manager.execute_after_crawl(pages_crawled)
 
-            # ДЕЛЕГУВАННЯ: Progress Tracker публікує завершення
-            self._progress_tracker.publish_crawl_completed()
-
-            # Встановлюємо стан IDLE (якщо не ERROR/STOPPED)
+                # ДЕЛЕГУВАННЯ: Progress Tracker публікує завершення
+                edges_count = len(self._graph.edges) if self._graph else 0
+                self._progress_tracker.publish_crawl_completed(edges_count=edges_count)
             if self._state not in [CrawlerState.ERROR, CrawlerState.STOPPED]:
                 self._state = CrawlerState.IDLE
 
@@ -478,13 +461,10 @@ class GraphSpider(BaseSpider):
             >>> print(f"Total nodes: {summary.total_nodes}")
             >>> print(f"Completed: {summary.crawl_completed}")
         """
-        # Отримуємо статистику з Domain Graph
         domain_stats = self._graph.get_stats()
 
         # Визначаємо чи краулінг завершено
         crawl_completed = self._state == CrawlerState.IDLE
-
-        # Створюємо GraphSummaryDTO
         return GraphSummaryDTO(
             total_nodes=domain_stats.get("total_nodes", 0),
             total_edges=domain_stats.get("total_edges", 0),
@@ -492,9 +472,7 @@ class GraphSpider(BaseSpider):
             crawl_completed=crawl_completed,
         )
 
-    async def restore_from_checkpoint(
-            self, checkpoint_path: Optional[str] = None
-    ) -> bool:
+    async def restore_from_checkpoint(self, checkpoint_path: Optional[str] = None) -> bool:
         """
         Async відновлює стан краулінгу з checkpoint.
 
@@ -517,20 +495,19 @@ class GraphSpider(BaseSpider):
             return False
 
         try:
+            checkpoint_data: Optional[Dict[str, Any]] = None
             if checkpoint_path:
-                checkpoint_data = self.checkpoint_manager.load_checkpoint(
-                    checkpoint_path
-                )
+                checkpoint_data = await self.checkpoint_manager.load_checkpoint(checkpoint_path)
             else:
-                checkpoint_data = self.checkpoint_manager.load_latest_checkpoint()
+                checkpoint_data = await self.checkpoint_manager.load_latest_checkpoint()
 
             if not checkpoint_data:
                 logger.warning("No checkpoint found to restore")
                 return False
 
             # Відновлюємо Domain entities з checkpoint
-            restored_graph, queue_urls, seen_urls = (
-                self.checkpoint_manager.restore_from_checkpoint(checkpoint_data)
+            restored_graph, queue_urls, seen_urls = self.checkpoint_manager.restore_from_checkpoint(
+                checkpoint_data
             )
 
             # Оновлюємо внутрішній стан (Domain entities)
@@ -554,7 +531,7 @@ class GraphSpider(BaseSpider):
             return True
 
         except Exception as e:
-            logger.error(f"Failed to restore from checkpoint: {e}", exc_info=True)
+            logger.error("Failed to restore from checkpoint: %s", e, exc_info=True)
             return False
 
     # Публічні властивості для сумісності з внутрішніми компонентами
@@ -621,6 +598,121 @@ class GraphSpider(BaseSpider):
             CrawlCoordinator або None
         """
         return self._coordinator
+
+    # Phase 1: AI Agent Integration
+
+    @property
+    def crawl_context(self) -> CrawlContext:
+        """
+        Доступ до глобального CrawlContext.
+
+        Returns:
+            CrawlContext
+        """
+        return self._crawl_context
+
+    @property
+    def stop_conditions(self) -> List[IStopCondition]:
+        """
+        Доступ до списку умов зупинки.
+
+        Returns:
+            List[IStopCondition]
+        """
+        return self._stop_conditions
+
+    def add_stop_condition(self, condition: IStopCondition) -> None:
+        """
+        Додати умову зупинки.
+
+        Args:
+            condition: Умова зупинки
+        """
+        self._stop_conditions.append(condition)
+
+    def check_stop_conditions(self) -> Optional[str]:
+        """
+        Перевірити всі умови зупинки.
+
+        Returns:
+            Причина зупинки або None
+        """
+        for condition in self._stop_conditions:
+            if condition.should_stop(self._crawl_context):
+                return condition.get_reason()
+        return None
+
+    # Phase 2: Control Channel
+
+    @property
+    def control_channel(self) -> IControlChannel:
+        """
+        Доступ до каналу керування.
+
+        Returns:
+            IControlChannel
+        """
+        return self._control_channel
+
+    def process_control_messages(self) -> Optional[str]:
+        """
+        Обробити всі команди з control channel.
+
+        Phase 2: AI Agent Integration
+
+        Returns:
+            Причина зупинки якщо отримано команду STOP, інакше None
+        """
+        while self._control_channel.has_pending():
+            msg = self._control_channel.receive()
+            if msg is None:
+                break
+
+            logger.debug("Processing control message: %s from %s", msg.command.value, msg.sender)
+
+            if msg.command == CrawlCommand.STOP:
+                reason = msg.data.get("reason", "Stop requested via control channel")
+                logger.info("Stop command received: %s", reason)
+                return reason
+
+            elif msg.command == CrawlCommand.PAUSE:
+                self._state = CrawlerState.PAUSED
+                logger.info("Pause command received")
+
+            elif msg.command == CrawlCommand.RESUME:
+                if self._state == CrawlerState.PAUSED:
+                    self._state = CrawlerState.RUNNING
+                    logger.info("Resume command received")
+
+            elif msg.command == CrawlCommand.REPRIORITIZE:
+                url = msg.data.get("url")
+                priority = msg.data.get("priority")
+                if url and priority is not None:
+                    self._scheduler.reprioritize_url(url, priority)
+                    logger.debug("Reprioritized %s to %s", url, priority)
+
+            elif msg.command == CrawlCommand.FORCE_VISIT:
+                url = msg.data.get("url")
+                if url:
+                    # Додаємо URL в чергу з високим пріоритетом
+                    node_class = self.config.custom_node_class or Node
+                    node = node_class(url=url, depth=0, plugin_manager=self.node_plugin_manager)
+                    self._graph.add_node(node)
+                    self._scheduler.add_node(node, priority=100)
+                    logger.debug("Force visit scheduled: %s", url)
+
+        return None
+
+    async def check_control_channel(self) -> Optional[str]:
+        """
+        Async перевірка control channel з обробкою команд.
+
+        Phase 2: AI Agent Integration
+
+        Returns:
+            Причина зупинки якщо отримано команду STOP
+        """
+        return self.process_control_messages()
 
     # Lifecycle Methods
 

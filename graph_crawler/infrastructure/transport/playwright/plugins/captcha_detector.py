@@ -20,24 +20,6 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
     """
     Плагін для автоматичного виявлення CAPTCHA.
 
-    Підтримує:
-    - reCAPTCHA v2
-    - reCAPTCHA v3
-    - hCaptcha
-    - FunCaptcha
-    - GeeTest
-
-    Публікує подію 'captcha_detected' з даними:
-    - captcha_type: тип CAPTCHA
-    - site_key: site key (якщо є)
-    - page_url: URL сторінки
-
-    Конфігурація:
-        enabled: Чи вмікнено детекцію (default: True)
-
-    Приклад:
-        detector = CaptchaDetectorPlugin()
-        solver = CaptchaSolverPlugin()  # Підписується на captcha_detected
     """
 
     @property
@@ -48,9 +30,7 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
         # Детектимо CAPTCHA коли контент готовий
         return [BrowserStage.CONTENT_READY]
 
-    async def _detect_recaptcha_v2(
-        self, ctx: BrowserContext
-    ) -> Optional[Dict[str, Any]]:
+    async def _detect_recaptcha_v2(self, ctx: BrowserContext) -> Optional[Dict[str, Any]]:
         """Детекція reCAPTCHA v2."""
         try:
             # Шукаємо g-recaptcha елемент
@@ -61,20 +41,18 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
                 site_key = await element.get_attribute("data-sitekey")
 
                 if site_key:
-                    logger.info(f"Detected reCAPTCHA v2 (site_key: {site_key[:20]}...)")
+                    logger.info("Detected reCAPTCHA v2 (site_key: %s...)", site_key)
                     return {
                         "captcha_type": "recaptcha_v2",
                         "site_key": site_key,
                         "page_url": ctx.url,
                     }
         except Exception as e:
-            logger.debug(f"Error detecting reCAPTCHA v2: {e}")
+            logger.debug("Error detecting reCAPTCHA v2: %s", e)
 
         return None
 
-    async def _detect_recaptcha_v3(
-        self, ctx: BrowserContext
-    ) -> Optional[Dict[str, Any]]:
+    async def _detect_recaptcha_v3(self, ctx: BrowserContext) -> Optional[Dict[str, Any]]:
         """Детекція reCAPTCHA v3."""
         try:
             html = await ctx.page.content()
@@ -84,7 +62,7 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
 
             if match:
                 site_key = match.group(1)
-                logger.info(f"Detected reCAPTCHA v3 (site_key: {site_key[:20]}...)")
+                logger.info("Detected reCAPTCHA v3 (site_key: %s...)", site_key)
 
                 # Пробуємо знайти action
                 action_match = re.search(r'action:\s*[\'"]([^\'"]+)', html)
@@ -97,16 +75,14 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
                     "page_url": ctx.url,
                 }
         except Exception as e:
-            logger.debug(f"Error detecting reCAPTCHA v3: {e}")
+            logger.debug("Error detecting reCAPTCHA v3: %s", e)
 
         return None
 
     async def _detect_hcaptcha(self, ctx: BrowserContext) -> Optional[Dict[str, Any]]:
         """Детекція hCaptcha."""
         try:
-            element = await ctx.page.query_selector(
-                ".h-captcha, [data-hcaptcha-site-key]"
-            )
+            element = await ctx.page.query_selector(".h-captcha, [data-hcaptcha-site-key]")
 
             if element:
                 # Отримуємо site key
@@ -115,14 +91,14 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
                 ) or await element.get_attribute("data-hcaptcha-site-key")
 
                 if site_key:
-                    logger.info(f"Detected hCaptcha (site_key: {site_key[:20]}...)")
+                    logger.info("Detected hCaptcha (site_key: %s...)", site_key)
                     return {
                         "captcha_type": "hcaptcha",
                         "site_key": site_key,
                         "page_url": ctx.url,
                     }
         except Exception as e:
-            logger.debug(f"Error detecting hCaptcha: {e}")
+            logger.debug("Error detecting hCaptcha: %s", e)
 
         return None
 
@@ -132,20 +108,18 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
             html = await ctx.page.content()
 
             if "funcaptcha" in html.lower() or "arkoselabs" in html.lower():
-                match = re.search(
-                    r'data-public-key=[\'"]([^\'"]+)', html, re.IGNORECASE
-                )
+                match = re.search(r'data-public-key=[\'"]([^\'"]+)', html, re.IGNORECASE)
 
                 if match:
                     public_key = match.group(1)
-                    logger.info(f"Detected FunCaptcha (key: {public_key[:20]}...)")
+                    logger.info("Detected FunCaptcha (key: %s...)", public_key)
                     return {
                         "captcha_type": "funcaptcha",
                         "site_key": public_key,
                         "page_url": ctx.url,
                     }
         except Exception as e:
-            logger.debug(f"Error detecting FunCaptcha: {e}")
+            logger.debug("Error detecting FunCaptcha: %s", e)
 
         return None
 
@@ -158,7 +132,7 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
                 logger.info("Detected GeeTest CAPTCHA")
                 return {"captcha_type": "geetest", "page_url": ctx.url}
         except Exception as e:
-            logger.debug(f"Error detecting GeeTest: {e}")
+            logger.debug("Error detecting GeeTest: %s", e)
 
         return None
 
@@ -190,9 +164,7 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
 
                 if result:
                     # Публікуємо подію 'captcha_detected' для інших плагінів
-                    logger.warning(
-                        f"CAPTCHA detected on {ctx.url}: {result['captcha_type']}"
-                    )
+                    logger.warning("CAPTCHA detected on %s: %s", ctx.url, result['captcha_type'])
                     ctx.emit("captcha_detected", **result)
 
                     # Зберігаємо в контексті
@@ -202,7 +174,7 @@ class CaptchaDetectorPlugin(BaseDriverPlugin):
                     break
 
         except Exception as e:
-            logger.error(f"Error in CAPTCHA detection: {e}")
+            logger.error("Error in CAPTCHA detection: %s", e)
             ctx.errors.append(e)
 
         return ctx

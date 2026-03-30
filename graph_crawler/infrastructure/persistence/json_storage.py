@@ -1,8 +1,4 @@
-"""Збереження графу у JSON файлах .
-
-Використовує aiofiles для неблокуючого файлового I/O.
-При відсутності aiofiles використовує asyncio executor для неблокуючих операцій.
-"""
+"""Збереження графу у JSON файлах (до 10k нод)."""
 
 import asyncio
 import json
@@ -28,34 +24,15 @@ import time
 # Thread pool для неблокуючих file I/O операцій (fallback)
 _file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="json_storage_")
 
-from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
+from graph_crawler.shared.dto import GraphDTO
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
 
 
 class JSONStorage(BaseStorage):
-    """
-    Async збереження графу у JSON файлах через DTO .
-
-    Використовує GraphDTO для ізоляції Domain Layer.
-
-    Використовується для сайтів до 10k сторінок (~100MB).
-    Зберігає граф у JSON файл для простого доступу. Використовує aiofiles для неблокуючого file I/O.
-
-    Приклад:
-        >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>>
-        >>> # Серіалізація Domain → DTO → JSON
-        >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> await storage.save_graph(graph_dto)
-        >>>
-        >>> # Десеріалізація JSON → DTO → Domain
-        >>> graph_dto = await storage.load_graph()
-        >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-    """
+    """Async збереження графу у JSON файлах через DTO (до 10k нод)."""
 
     def __init__(self, storage_dir: str, event_bus: Optional["EventBus"] = None):
         """
@@ -73,25 +50,18 @@ class JSONStorage(BaseStorage):
         if not AIOFILES_AVAILABLE:
             logger.warning("aiofiles not installed, falling back to sync I/O")
 
-        logger.info(f"JSONStorage initialized at: {self.storage_dir}")
+        logger.info("JSONStorage initialized at: %s", self.storage_dir)
 
     async def save_graph(self, graph_dto: GraphDTO) -> bool:
         """
         Async зберігає весь граф у JSON через DTO .
 
-        Приймає GraphDTO.
-
-        Використовує aiofiles для неблокуючого запису.
-
         Args:
             graph_dto: GraphDTO для збереження
-
         Returns:
             True якщо успішно
-
         Raises:
             SaveError: Якщо не вдалося зберегти граф
-
         Example:
             >>> from graph_crawler.application.dto.mappers import GraphMapper
             >>> graph_dto = GraphMapper.to_dto(graph)
@@ -123,8 +93,7 @@ class JSONStorage(BaseStorage):
                 # Використовуємо executor для неблокуючого запису
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
-                    _file_executor,
-                    partial(self._sync_write_file, self.graph_file, json_content)
+                    _file_executor, partial(self._sync_write_file, self.graph_file, json_content)
                 )
 
             duration = time.time() - start_time
@@ -140,9 +109,7 @@ class JSONStorage(BaseStorage):
                 },
             )
 
-            logger.info(
-                f"Graph saved: {len(data['nodes'])} nodes, {len(data['edges'])} edges"
-            )
+            logger.info("Graph saved: %s nodes, %s edges", len(data['nodes']), len(data['edges']))
             return True
 
         except (IOError, OSError) as e:
@@ -178,19 +145,12 @@ class JSONStorage(BaseStorage):
         """
         Async завантажує граф з JSON через DTO .
 
-        Повертає GraphDTO.
-
-        Використовує aiofiles для неблокуючого читання.
-
         Args:
             context: Контекст (не використовується в JSONStorage, але залишений для сумісності)
-
         Returns:
             GraphDTO або None якщо не знайдено
-
         Raises:
             LoadError: Якщо не вдалося завантажити граф
-
         Example:
             >>> graph_dto = await storage.load_graph()
             >>> # Конвертація в Domain Graph (якщо потрібно)
@@ -220,8 +180,7 @@ class JSONStorage(BaseStorage):
                 # Використовуємо executor для неблокуючого читання
                 loop = asyncio.get_event_loop()
                 data = await loop.run_in_executor(
-                    _file_executor,
-                    partial(self._sync_read_json_file, self.graph_file)
+                    _file_executor, partial(self._sync_read_json_file, self.graph_file)
                 )
 
             # Десеріалізуємо GraphDTO через Pydantic model_validate()
@@ -240,9 +199,7 @@ class JSONStorage(BaseStorage):
                 },
             )
 
-            logger.info(
-                f"Graph loaded: {len(graph_dto.nodes)} nodes, {len(graph_dto.edges)} edges"
-            )
+            logger.info("Graph loaded: %s nodes, %s edges", len(graph_dto.nodes), len(graph_dto.edges))
             return graph_dto
 
         except (IOError, OSError) as e:
@@ -306,17 +263,14 @@ class JSONStorage(BaseStorage):
             # Завантажуємо існуючий граф або створюємо новий
             if await self.exists():
                 if AIOFILES_AVAILABLE:
-                    async with aiofiles.open(
-                        self.graph_file, "r", encoding="utf-8"
-                    ) as f:
+                    async with aiofiles.open(self.graph_file, "r", encoding="utf-8") as f:
                         content = await f.read()
                     data = json.loads(content)
                 else:
                     # Використовуємо executor для неблокуючого читання
                     loop = asyncio.get_event_loop()
                     data = await loop.run_in_executor(
-                        _file_executor,
-                        partial(self._sync_read_json_file, self.graph_file)
+                        _file_executor, partial(self._sync_read_json_file, self.graph_file)
                     )
             else:
                 data = {"nodes": [], "edges": []}
@@ -334,8 +288,7 @@ class JSONStorage(BaseStorage):
                 # Використовуємо executor для неблокуючого запису
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
-                    _file_executor,
-                    partial(self._sync_write_file, self.graph_file, json_content)
+                    _file_executor, partial(self._sync_write_file, self.graph_file, json_content)
                 )
 
             return True
@@ -355,7 +308,7 @@ class JSONStorage(BaseStorage):
                 logger.info("Storage cleared")
             return True
         except Exception as e:
-            logger.error(f"Error clearing storage: {e}")
+            logger.error("Error clearing storage: %s", e)
             return False
 
     async def exists(self) -> bool:

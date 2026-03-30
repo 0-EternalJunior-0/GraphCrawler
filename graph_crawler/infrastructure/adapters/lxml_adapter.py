@@ -1,6 +1,4 @@
-"""lxml.html реалізація TreeAdapter.
-для кращої ізоляції між шарами.
-"""
+"""lxml.html реалізація TreeAdapter."""
 
 import logging
 from typing import Any, List, Optional
@@ -13,28 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class LxmlAdapter(BaseTreeAdapter):
-    """
-    lxml.html адаптер (швидкий).
-
-    Переваги:
-    - В 5-10 разів швидший за BeautifulSoup
-    - Менше споживання пам'яті
-    - Підтримка XPath
-
-    Недоліки:
-    - Гірше обробляє зламаний HTML
-
-    Рекомендації:
-    - Використовуйте для великих обсягів (1000-20000 сторінок)
-    - Коли швидкість критична
-
-    Використання:
-        >>> adapter = LxmlAdapter()
-        >>> adapter.parse('<html><title>Test</title></html>')
-        >>> elem = adapter.find('title')
-        >>> elem.text()
-        'Test'
-    """
+    """lxml.html адаптер (швидкий, підтримує XPath)."""
 
     def __init__(self):
         """Ініціалізує lxml адаптер."""
@@ -54,23 +31,25 @@ class LxmlAdapter(BaseTreeAdapter):
     def text(self) -> str:
         """
         Повертає весь текст з документа БЕЗ script/style/noscript.
-        
+
         ВАЖЛИВО: Видаляємо script, style, noscript, svg перед витяганням тексту,
         інакше CSS/JS код потрапляє в text_content і псує SimHash.
         """
         if self._tree is None:
             return ""
-        
+
         # Клонуємо дерево щоб не модифікувати оригінал
         import copy
+
         tree_copy = copy.deepcopy(self._tree)
-        
+
         # Видаляємо теги що містять код/стилі, а не контент
         from lxml import etree
-        for tag in ['script', 'style', 'noscript', 'svg', 'head']:
+
+        for tag in ["script", "style", "noscript", "svg", "head"]:
             for element in tree_copy.iter(tag):
                 element.getparent().remove(element)
-        
+
         return tree_copy.text_content().strip()
 
     def parse(self, html: str) -> lxml_html.HtmlElement:
@@ -86,7 +65,7 @@ class LxmlAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.cssselect(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return None
 
         if not elements:
@@ -102,7 +81,7 @@ class LxmlAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.cssselect(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return []
 
         return [TreeElement.from_adapter(elem, self) for elem in elements]
@@ -123,7 +102,7 @@ class LxmlAdapter(BaseTreeAdapter):
         try:
             elements = self._tree.xpath(query)
         except Exception as e:
-            logger.error(f"XPath query error: {e}")
+            logger.error("XPath query error: %s", e)
             return []
 
         # XPath може повертати не тільки елементи, але й текст/атрибути
@@ -158,7 +137,7 @@ class LxmlAdapter(BaseTreeAdapter):
         try:
             children = element.cssselect(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return None
 
         if not children:
@@ -174,7 +153,7 @@ class LxmlAdapter(BaseTreeAdapter):
         try:
             children = element.cssselect(selector)
         except Exception as e:
-            logger.error(f"CSS selector error: {e}")
+            logger.error("CSS selector error: %s", e)
             return []
 
         return [TreeElement.from_adapter(child, self) for child in children]

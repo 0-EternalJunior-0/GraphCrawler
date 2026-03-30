@@ -2,14 +2,17 @@
 - Переписано на motor для async операцій
 - Всі методи тепер async
 - Використовує AsyncIOMotorClient замість MongoClient
+
+Note: nodes_collection та edges_collection можуть бути None до виклику init().
+      Методи повинні викликатись тільки після init().
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.infrastructure.persistence.base import BaseStorage
 from graph_crawler.shared.constants import DEFAULT_MONGODB_TIMEOUT_MS
+from graph_crawler.shared.dto import EdgeDTO, GraphDTO, GraphStatsDTO, NodeDTO
 from graph_crawler.shared.exceptions import LoadError, SaveError
 
 logger = logging.getLogger(__name__)
@@ -19,35 +22,6 @@ class MongoDBStorage(BaseStorage):
     """
     Async збереження GraphDTO у MongoDB.
 
-    Використовує GraphDTO для ізоляції Domain Layer.
-
-    Використовується для великих графів (>20k сторінок).
-    Використовує motor для async операцій.
-
-    Приклад конфігурації:
-        config = {
-            'connection_string': 'mongodb://localhost:27017/',
-            'database': 'graph_crawler',
-            'nodes_collection': 'nodes',
-            'edges_collection': 'edges'
-        }
-
-    Приклад використання:
-        >>> from graph_crawler.application.dto.mappers import GraphMapper
-        >>>
-        >>> storage = MongoDBStorage(config)
-        >>> await storage.init()  # Async ініціалізація
-        >>>
-        >>> # Серіалізація Domain → DTO → MongoDB
-        >>> graph_dto = GraphMapper.to_dto(graph)
-        >>> await storage.save_graph(graph_dto)
-        >>>
-        >>> # Десеріалізація MongoDB → DTO → Domain
-        >>> graph_dto = await storage.load_graph()
-        >>> context = {'plugin_manager': pm, 'tree_parser': parser}
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-        >>>
-        >>> await storage.close()
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -64,8 +38,8 @@ class MongoDBStorage(BaseStorage):
         self.config = config
         self.client = None
         self.db = None
-        self.nodes_collection = None
-        self.edges_collection = None
+        self.nodes_collection: Any = None  # AsyncIOMotorCollection after init()
+        self.edges_collection: Any = None  # AsyncIOMotorCollection after init()
         self._initialized = False
 
         try:
@@ -74,14 +48,10 @@ class MongoDBStorage(BaseStorage):
             self._motor_available = True
         except ImportError:
             logger.error("Motor not installed. Install it: pip install motor")
-            raise ImportError(
-                "MongoDB async storage requires motor. Install it: pip install motor"
-            )
+            raise ImportError("MongoDB async storage requires motor. Install it: pip install motor")
 
         # Зберігаємо параметри для async init
-        self.connection_string = config.get(
-            "connection_string", "mongodb://localhost:27017/"
-        )
+        self.connection_string = config.get("connection_string", "mongodb://localhost:27017/")
         self.database_name = config.get("database", "graph_crawler")
         self.nodes_collection_name = config.get("nodes_collection", "nodes")
         self.edges_collection_name = config.get("edges_collection", "edges")
@@ -106,9 +76,9 @@ class MongoDBStorage(BaseStorage):
             )
             # Тестуємо підключення
             await self.client.admin.command("ping")
-            logger.info(f"Connected to MongoDB (async): {self.connection_string}")
+            logger.info("Connected to MongoDB (async): %s", self.connection_string)
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
+            logger.error("Failed to connect to MongoDB: %s", e)
             raise ConnectionError(f"Cannot connect to MongoDB: {e}") from e
 
         # Отримуємо посилання на БД та колекції
@@ -125,18 +95,18 @@ class MongoDBStorage(BaseStorage):
         """Async створює індекси для оптимізації запитів."""
         try:
             # Індекс для node_id (primary key)
-            await self.nodes_collection.create_index("node_id", unique=True)
+            await self.nodes_collection.create_index("node_id", unique=True)  # type: ignore[union-attr]
             # Індекс для URL (часті пошуки)
-            await self.nodes_collection.create_index("url")
+            await self.nodes_collection.create_index("url")  # type: ignore[union-attr]
 
             # Індекси для ребер
-            await self.edges_collection.create_index("edge_id", unique=True)
-            await self.edges_collection.create_index("source_node_id")
-            await self.edges_collection.create_index("target_node_id")
+            await self.edges_collection.create_index("edge_id", unique=True)  # type: ignore[union-attr]
+            await self.edges_collection.create_index("source_node_id")  # type: ignore[union-attr]
+            await self.edges_collection.create_index("target_node_id")  # type: ignore[union-attr]
 
             logger.debug("MongoDB indexes created (async)")
         except Exception as e:
-            logger.warning(f"Failed to create indexes: {e}")
+            logger.warning("Failed to create indexes: %s", e)
 
     async def save_graph(self, graph_dto: GraphDTO) -> bool:
         """
@@ -181,7 +151,7 @@ class MongoDBStorage(BaseStorage):
                     nodes_operations.append(operation)
 
                 if nodes_operations:
-                    await self.nodes_collection.bulk_write(
+                    await self.nodes_collection.bulk_write(  # type: ignore[union-attr]
                         nodes_operations, ordered=False
                     )
 
@@ -202,7 +172,7 @@ class MongoDBStorage(BaseStorage):
                     edges_operations.append(operation)
 
                 if edges_operations:
-                    await self.edges_collection.bulk_write(
+                    await self.edges_collection.bulk_write(  # type: ignore[union-attr]
                         edges_operations, ordered=False
                     )
 
@@ -220,17 +190,12 @@ class MongoDBStorage(BaseStorage):
         """
         Async завантажує GraphDTO з MongoDB.
 
-        Повертає GraphDTO.
-
         Args:
             context: Контекст (не використовується в MongoDBStorage, але залишений для сумісності)
-
         Returns:
             GraphDTO або None якщо не знайдено
-
         Raises:
             LoadError: Якщо не вдалося завантажити граф
-
         Example:
             >>> graph_dto = await storage.load_graph()
             >>> # Конвертація в Domain Graph (якщо потрібно)
@@ -245,7 +210,7 @@ class MongoDBStorage(BaseStorage):
             nodes_dtos = []
             edges_dtos = []
 
-            async for node_doc in self.nodes_collection.find({}):
+            async for node_doc in self.nodes_collection.find({}):  # type: ignore[union-attr]
                 if "_id" in node_doc:
                     del node_doc["_id"]
 
@@ -253,7 +218,7 @@ class MongoDBStorage(BaseStorage):
                 node_dto = NodeDTO.model_validate(node_doc)
                 nodes_dtos.append(node_dto)
 
-            async for edge_doc in self.edges_collection.find({}):
+            async for edge_doc in self.edges_collection.find({}):  # type: ignore[union-attr]
                 if "_id" in edge_doc:
                     del edge_doc["_id"]
 
@@ -318,7 +283,7 @@ class MongoDBStorage(BaseStorage):
                     operations.append(operation)
 
                 if operations:
-                    await self.nodes_collection.bulk_write(operations, ordered=False)
+                    await self.nodes_collection.bulk_write(operations, ordered=False)  # type: ignore[union-attr]
 
             # Зберігаємо ребра
             if edges:
@@ -332,12 +297,12 @@ class MongoDBStorage(BaseStorage):
                     operations.append(operation)
 
                 if operations:
-                    await self.edges_collection.bulk_write(operations, ordered=False)
+                    await self.edges_collection.bulk_write(operations, ordered=False)  # type: ignore[union-attr]
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save partial graph to MongoDB: {e}")
+            logger.error("Failed to save partial graph to MongoDB: %s", e)
             return False
 
     async def clear(self) -> bool:
@@ -351,12 +316,12 @@ class MongoDBStorage(BaseStorage):
             await self.init()
 
         try:
-            await self.nodes_collection.delete_many({})
-            await self.edges_collection.delete_many({})
+            await self.nodes_collection.delete_many({})  # type: ignore[union-attr]
+            await self.edges_collection.delete_many({})  # type: ignore[union-attr]
             logger.info("MongoDB storage cleared (async)")
             return True
         except Exception as e:
-            logger.error(f"Failed to clear MongoDB storage: {e}")
+            logger.error("Failed to clear MongoDB storage: %s", e)
             return False
 
     async def exists(self) -> bool:
@@ -370,10 +335,10 @@ class MongoDBStorage(BaseStorage):
             await self.init()
 
         try:
-            count = await self.nodes_collection.count_documents({}, limit=1)
+            count = await self.nodes_collection.count_documents({}, limit=1)  # type: ignore[union-attr]
             return count > 0
         except Exception as e:
-            logger.error(f"Failed to check MongoDB storage: {e}")
+            logger.error("Failed to check MongoDB storage: %s", e)
             return False
 
     async def close(self) -> None:

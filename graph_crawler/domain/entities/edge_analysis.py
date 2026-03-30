@@ -32,7 +32,8 @@ class EdgeAnalysis:
     @staticmethod
     def get_popular_nodes(graph, top_n: int = 10, by: str = "in_degree") -> List:
         """
-        Повертає топ N найпопулярніших nodes. Оптимізовано - heapq.nlargest() O(n log k) замість sort() O(n log n)
+        Повертає топ N найпопулярніших nodes.
+        Оптимізовано - heapq.nlargest() O(n log k) замість sort() O(n log n)
 
         Args:
             graph: Граф для аналізу
@@ -52,7 +53,7 @@ class EdgeAnalysis:
         """
         import heapq
 
-        if len(graph.nodes) == 0:
+        if not graph.nodes:
             logger.warning("Graph is empty, no popular nodes")
             return []
 
@@ -70,15 +71,13 @@ class EdgeAnalysis:
 
         get_degree = degree_funcs[by]
 
-        # Швидше для top_n << len(nodes)
-        node_degrees = (
-            (get_degree(node.node_id), node) for node in graph.nodes.values()
-        )
+        # Швидше для top_n << len(nodes) (streaming через iter_nodes)
+        node_degrees = ((get_degree(node.node_id), node) for node in graph.iter_nodes())
         popular_nodes = [
             node for _, node in heapq.nlargest(top_n, node_degrees, key=lambda x: x[0])
         ]
 
-        logger.info(f"Found top {len(popular_nodes)} popular nodes by {by}")
+        logger.info("Found top %s popular nodes by %s", len(popular_nodes), by)
         return popular_nodes
 
     @staticmethod
@@ -86,25 +85,18 @@ class EdgeAnalysis:
         """
         Повертає детальну статистику edges по типах.
 
-        Аналізує metadata кожного edge та рахує статистику:
-        - Загальна кількість edges
-        - Edges по типах (internal, external, same_depth, deeper, back, тощо)
-        - Середня різниця глибини
-        - Edges з anchor text / без anchor text
-        - Edges на scanned / unscanned nodes
-
         Args:
             graph: Граф для аналізу
-
         Returns:
             Словник зі статистикою
-
         Example:
             >>> stats = EdgeAnalysis.get_edge_statistics(graph)
             >>> print(f"Internal links: {stats['by_type']['internal']}")
             >>> print(f"Average depth diff: {stats['avg_depth_diff']}")
         """
-        if len(graph.edges) == 0:
+        # Використовуємо len(list(iter_edges())) для streaming-сумісності
+        edges_list = list(graph.iter_edges())
+        if not edges_list:
             logger.warning("Graph has no edges")
             return {
                 "total_edges": 0,
@@ -124,7 +116,8 @@ class EdgeAnalysis:
         to_scanned = 0
         to_unscanned = 0
 
-        for edge in graph.edges:
+        # Використовуємо iter_edges() для streaming доступу
+        for edge in graph.iter_edges():
             # Рахуємо типи (edge може мати список типів)
             link_types = edge.get_meta_value("link_type", [])
             if isinstance(link_types, list):
@@ -158,7 +151,7 @@ class EdgeAnalysis:
         avg_depth_diff = sum(depth_diffs) / len(depth_diffs) if depth_diffs else 0.0
 
         stats = {
-            "total_edges": len(graph.edges),
+            "total_edges": len(edges_list),
             "by_type": dict(type_counts),
             "avg_depth_diff": round(avg_depth_diff, 2),
             "with_anchor_text": with_anchor,
@@ -167,9 +160,7 @@ class EdgeAnalysis:
             "to_unscanned": to_unscanned,
         }
 
-        logger.info(
-            f"Edge statistics: {stats['total_edges']} edges, {len(type_counts)} types"
-        )
+        logger.info("Edge statistics: %s edges, %s types", stats['total_edges'], len(type_counts))
         return stats
 
     @staticmethod
@@ -192,18 +183,30 @@ class EdgeAnalysis:
             >>> for cycle in cycles:
             >>>     print(f"Cycle: {' -> '.join(cycle)}")
         """
-        if len(graph.nodes) == 0 or len(graph.edges) == 0:
+        # Перевіряємо через len() property (делегує до backend)
+        if not graph.nodes:
             logger.info("Graph is empty or has no edges, no cycles")
             return []
 
+        # Перевіряємо edges через iter_edges
+        edges_exist = False
+        for _ in graph.iter_edges():
+            edges_exist = True
+            break
+        if not edges_exist:
+            logger.info("Graph has no edges, no cycles")
+            return []
+
         # Побудова adjacency list
+        # Використовуємо iter_edges() для streaming доступу
         adj_list = defaultdict(list)
-        for edge in graph.edges:
+        for edge in graph.iter_edges():
             adj_list[edge.source_node_id].append(edge.target_node_id)
 
         # Стани вузлів: white (не відвіданий), gray (в процесі), black (завершений)
         WHITE, GRAY, BLACK = 0, 1, 2
-        color = dict.fromkeys(graph.nodes.keys(), WHITE)
+        # Використовуємо iter_nodes() для streaming доступу до node_id
+        color = {node.node_id: WHITE for node in graph.iter_nodes()}
 
         cycles = []
         parent = {}
@@ -231,28 +234,23 @@ class EdgeAnalysis:
                     cycle = path[cycle_start_idx:] + [neighbor]
                     cycles.append(cycle)
 
-                    logger.debug(
-                        f" Cycle found: {' -> '.join([nid[:8] for nid in cycle])}"
-                    )
+                    logger.debug("Cycle found: %s", ' -> '.join(str(nid) for nid in cycle))
 
             color[node_id] = BLACK
 
         # Запускаємо DFS з кожного непройденого вузла
-        for node_id in graph.nodes.keys():
+        # Ітеруємо по ключах color замість graph.nodes.keys()
+        for node_id in color:
             if color[node_id] == WHITE:
                 dfs(node_id, [])
 
-        logger.info(f"Found {len(cycles)} cycles in graph")
+        logger.info("Found %s cycles in graph", len(cycles))
         return cycles
 
     @staticmethod
-    def get_edges_by_type(
-        graph, link_types: List[str], match_mode: str = "any"
-    ) -> List:
+    def get_edges_by_type(graph, link_types: List[str], match_mode: str = "any") -> List:
         """
         Фільтрує edges по типу посилання.
-
-        Підтримує різні режими фільтрації для комбінацій типів.
 
         Args:
             graph: Граф для фільтрації
@@ -262,10 +260,8 @@ class EdgeAnalysis:
                 - 'any' (default) - edge має хоча б один з типів (OR)
                 - 'all' - edge має всі типи (AND)
                 - 'exact' - edge має точно ці типи і більше нічого
-
         Returns:
             Список Edge об'єктів що відповідають критеріям
-
         Example:
             >>> # Всі internal та deeper edges (OR)
             >>> edges = EdgeAnalysis.get_edges_by_type(
@@ -279,11 +275,12 @@ class EdgeAnalysis:
         """
         if not link_types:
             logger.warning("No link types provided, returning all edges")
-            return list(graph.edges)
+            return list(graph.iter_edges())
 
         filtered_edges = []
 
-        for edge in graph.edges:
+        # Використовуємо iter_edges() для streaming доступу
+        for edge in graph.iter_edges():
             edge_types = edge.get_meta_value("link_type", [])
 
             # Конвертуємо в set для зручності
@@ -310,11 +307,12 @@ class EdgeAnalysis:
                 if edge_types_set == link_types_set:
                     filtered_edges.append(edge)
             else:
-                raise ValueError(
-                    f"Invalid match_mode: {match_mode}. Use 'any', 'all', or 'exact'"
-                )
+                raise ValueError(f"Invalid match_mode: {match_mode}. Use 'any', 'all', or 'exact'")
 
+        # Підраховуємо загальну кількість edges через iter
+        total_edges = sum(1 for _ in graph.iter_edges())
         logger.info(
-            f"Filtered {len(filtered_edges)}/{len(graph.edges)} edges by types {link_types} ({match_mode})"
+            f"Filtered {len(filtered_edges)}/{total_edges} edges "
+            f"by types {link_types} ({match_mode})"
         )
         return filtered_edges

@@ -20,19 +20,6 @@ class StructuredDataPlugin(BaseNodePlugin):
     """
     Плагін для витягування мікророзмітки (Structured Data).
 
-    Архітектурні принципи:
-    - Консистентний з MetadataExtractorPlugin, LinkExtractorPlugin
-    - Використовує context.user_data (не metadata!)
-    - Graceful degradation при помилках
-    - Підтримує конфігурацію через options
-
-    Підтримувані формати:
-    - JSON-LD (schema.org) — найвищий пріоритет
-    - Open Graph (og:*)
-    - Twitter Cards (twitter:*)
-    - Microdata (itemscope/itemprop)
-    - RDFa (опціонально)
-
     Example:
         >>> # Базове використання
         >>> graph = crawl("https://example.com", plugins=[StructuredDataPlugin()])
@@ -48,7 +35,7 @@ class StructuredDataPlugin(BaseNodePlugin):
     def __init__(
         self,
         options: Optional[StructuredDataOptions] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
     ):
         """
         Ініціалізує плагін.
@@ -106,23 +93,20 @@ class StructuredDataPlugin(BaseNodePlugin):
 
         # Early exit якщо немає HTML
         if not context.html and not context.parser:
-            logger.debug(f"No HTML/parser for {context.url}, skipping structured data")
-            context.user_data['structured_data'] = StructuredDataResult.empty()
+            logger.debug("No HTML/parser for %s, skipping structured data", context.url)
+            context.user_data["structured_data"] = StructuredDataResult.empty()
             return context
 
         start_time = time.perf_counter()
 
         try:
-            result = self._extractor.extract(
-                html=context.html,
-                parser=context.parser
-            )
+            result = self._extractor.extract(html=context.html, parser=context.parser)
 
             # Записуємо час парсингу
             result.parse_time_ms = (time.perf_counter() - start_time) * 1000
 
             # Зберігаємо в user_data (НЕ в metadata!)
-            context.user_data['structured_data'] = result
+            context.user_data["structured_data"] = result
 
             if result.has_data:
                 logger.debug(
@@ -134,13 +118,10 @@ class StructuredDataPlugin(BaseNodePlugin):
                 )
 
         except Exception as e:
-            logger.error(
-                f"Error extracting structured data from {context.url}: {e}",
-                exc_info=True
-            )
+            logger.error("Error extracting structured data from %s: %s", context.url, e, exc_info=True)
 
             if self.options.fail_silently:
-                context.user_data['structured_data'] = StructuredDataResult.with_error(str(e))
+                context.user_data["structured_data"] = StructuredDataResult.with_error(str(e))
             else:
                 raise
 

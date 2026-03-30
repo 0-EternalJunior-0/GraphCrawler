@@ -27,7 +27,9 @@ class MemoryQueueStorage:
         logger.info("MemoryQueueStorage initialized")
 
     async def push_urls(
-        self, scan_id: str, urls: List[Tuple[str, int, int]]  # (url, depth, priority)
+        self,
+        scan_id: str,
+        urls: List[Tuple[str, int, int]],  # (url, depth, priority)
     ) -> int:
         """Додає URLs до черги."""
         added = 0
@@ -51,7 +53,7 @@ class MemoryQueueStorage:
         # Sort by priority desc
         queue.sort(key=lambda x: x["priority"], reverse=True)
 
-        logger.debug(f"Added {added} URLs to queue {scan_id}")
+        logger.debug("Added %s URLs to queue %s", added, scan_id)
         return added
 
     async def pop_urls(
@@ -79,9 +81,7 @@ class MemoryQueueStorage:
             if item["url"] in url_set:
                 item["status"] = "done"
 
-    async def mark_failed(
-        self, scan_id: str, urls: List[str], error: Optional[str] = None
-    ) -> None:
+    async def mark_failed(self, scan_id: str, urls: List[str], error: Optional[str] = None) -> None:
         """Позначає URLs як failed."""
         url_set = set(urls)
         for item in self._queues[scan_id]:

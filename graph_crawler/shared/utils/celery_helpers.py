@@ -44,12 +44,10 @@ def import_plugin(import_path: str) -> Optional[Any]:
         )
         return None
     except AttributeError as e:
-        logger.error(
-            f" Клас плагіна не знайдено в модулі: {import_path}\n" f"Помилка: {e}"
-        )
+        logger.error(" Клас плагіна не знайдено в модулі: %s\nПомилка: %s", import_path, e)
         return None
     except Exception as e:
-        logger.error(f" Не вдалося імпортувати плагін {import_path}: {e}")
+        logger.error(" Не вдалося імпортувати плагін %s: %s", import_path, e)
         return None
 
 
@@ -75,7 +73,7 @@ def import_class(import_path: str) -> Optional[type]:
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
     except Exception as e:
-        logger.error(f"Failed to import class {import_path}: {e}")
+        logger.error("Failed to import class %s: %s", import_path, e)
         return None
 
 
@@ -83,17 +81,13 @@ def create_driver_from_config(driver_config: dict) -> Any:
     """
     Створює драйвер з конфігурації.
 
-    Підтримує як вбудовані драйвери так і кастомні.
-
     Args:
         driver_config: Dict з:
             - driver_class: Import path драйвера
             - config: Конфігурація драйвера
             - CustomPlugins: Список плагінів драйвера (опціонально)
-
     Returns:
         Інстанс драйвера
-
     Example:
         config = {
             "driver_class": "graph_crawler.drivers.async_http.driver.AsyncDriver",
@@ -114,7 +108,7 @@ def create_driver_from_config(driver_config: dict) -> Any:
         module = importlib.import_module(module_path)
         driver_class = getattr(module, class_name)
     except Exception as e:
-        logger.error(f"Failed to import driver {driver_class_path}: {e}")
+        logger.error("Failed to import driver %s: %s", driver_class_path, e)
         # Fallback на AsyncDriver або RequestsDriver
         return _get_fallback_driver()
 
@@ -132,7 +126,7 @@ def create_driver_from_config(driver_config: dict) -> Any:
         else:
             return driver_class(config=config)
     except Exception as e:
-        logger.error(f"Failed to create driver: {e}")
+        logger.error("Failed to create driver: %s", e)
         return _get_fallback_driver()
 
 
@@ -148,22 +142,24 @@ def _get_fallback_driver() -> Any:
     try:
         from graph_crawler.application.services.driver_factory import DriverFactory
         from graph_crawler.domain.value_objects.configs import CrawlerConfig
-        
+
         # Створюємо мінімальний конфіг для fallback драйвера
         config = CrawlerConfig(url="https://localhost")
         logger.info("Fallback to DriverFactory.create()")
         return DriverFactory.create(config)
     except Exception as e:
-        logger.error(f"Failed to create fallback driver via Factory: {e}")
+        logger.error("Failed to create fallback driver via Factory: %s", e)
         # Останній fallback - lazy import конкретного драйвера
         try:
             from graph_crawler.infrastructure.transport.async_http.driver import AsyncDriver
+
             logger.info("Last fallback to AsyncDriver")
             return AsyncDriver({})
         except ImportError:
             from graph_crawler.infrastructure.transport.sync.requests_driver import (
                 RequestsDriver,
             )
+
             logger.info("Last fallback to RequestsDriver")
             return RequestsDriver({})
 

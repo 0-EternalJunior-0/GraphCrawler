@@ -17,27 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class PhoneExtractorPlugin(BaseNodePlugin):
-    """Витягує телефонні номери з HTML.
+    """Extract phone numbers from HTML with support for various formats.
 
-    Підтримувані формати:
-    - UA: +380XXXXXXXXX, 380XXXXXXXXX, 0XXXXXXXXX, (0XX) XXX-XX-XX
-    - RU: +7XXXXXXXXXX, 7XXXXXXXXXX
-    - US: +1XXXXXXXXXX, (XXX) XXX-XXXX
-    - International: +XXXXXXXXXXXX
-    - tel: links
-
-    Attributes:
-        PHONE_PATTERNS: Список regex patterns для різних форматів
-
-    Usage:
-        plugin = PhoneExtractorPlugin()
-        context = plugin.execute(context)
-        phones = context.user_data['phones']
+    Supported formats: Ukraine (+380), Russia (+7), US (+1), International.
 
     Example:
-        >>> from graph_crawler.extensions.CustomPlugins.node.extractors import PhoneExtractorPlugin
+        >>> from graph_crawler.extensions.plugins.node.extractors import PhoneExtractorPlugin
         >>> plugin = PhoneExtractorPlugin()
-        >>> # context містить HTML з телефонами
         >>> context = plugin.execute(context)
         >>> print(context.user_data['phones'])
         ['+380501234567', '+380441234567']
@@ -103,13 +89,13 @@ class PhoneExtractorPlugin(BaseNodePlugin):
                         if normalized and self._is_valid_phone(normalized):
                             phones.add(normalized)
             except Exception as e:
-                logger.debug(f"Error parsing tel: links: {e}")
+                logger.debug("Error parsing tel: links: %s", e)
 
         context.user_data["phones"] = sorted(phones)
         context.user_data["phone_count"] = len(phones)
 
         if phones:
-            logger.debug(f"Extracted {len(phones)} phones from {context.url}")
+            logger.debug("Extracted %s phones from %s", len(phones), context.url)
 
         return context
 

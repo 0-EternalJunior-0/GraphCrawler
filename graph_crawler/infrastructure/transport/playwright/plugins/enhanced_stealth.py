@@ -61,7 +61,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
         # Встановлюємо реалістичний User-Agent
         realistic_ua = self._get_realistic_user_agent()
         ctx.data["override_user_agent"] = realistic_ua
-        logger.debug(f"Setting realistic User-Agent: {realistic_ua[:50]}...")
+        logger.debug("Setting realistic User-Agent: %s...", realistic_ua)
         return ctx
 
     def _get_realistic_viewport(self) -> Dict[str, int]:
@@ -80,6 +80,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
         """Повертає реалістичний User-Agent."""
         try:
             from fake_useragent import UserAgent
+
             ua = UserAgent()
             return ua.chrome
         except Exception:
@@ -98,74 +99,11 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
 
         stealth_level = self.config.get("stealth_level", "maximum")
 
-        # CRITICAL: Webdriver hiding - must run before page load
+        # Webdriver hiding - must run before page load
         # This script runs in the page context before any other script
         scripts.append("""
             // === WEBDRIVER EVASION (HIGHEST PRIORITY) ===
             // Must delete before any detection script runs
-
-            // Method 1: Delete property completely
-            delete Object.getPrototypeOf(navigator).webdriver;
-
-            // Method 2: Redefine with getter returning undefined
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined,
-                configurable: true,
-                enumerable: false
-            });
-
-            // Method 3: Override prototype
-            const originalProto = Object.getPrototypeOf(navigator);
-            Object.defineProperty(originalProto, 'webdriver', {
-                get: () => undefined,
-                configurable: true,
-                enumerable: false
-            });
-
-            // Remove Chromium automation markers
-            const automationIndicators = [
-                'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-                'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
-                'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
-                '__webdriver_script_fn',
-                '__driver_evaluate',
-                '__webdriver_evaluate',
-                '__selenium_evaluate',
-                '__fxdriver_evaluate',
-                '__driver_unwrapped',
-                '__webdriver_unwrapped',
-                '__selenium_unwrapped',
-                '__fxdriver_unwrapped',
-                '_Selenium_IDE_Recorder',
-                '_selenium',
-                'calledSelenium',
-                '$cdc_asdjflasutopfhvcZLmcfl_',
-                '$chrome_asyncScriptInfo',
-                '__$webdriverAsyncExecutor',
-                'webdriver',
-                '__webdriver_script_function',
-                '__webdriver_script_func',
-                '__webdriver_script_fn',
-                'domAutomation',
-                'domAutomationController'
-            ];
-
-            for (const prop of automationIndicators) {
-                try {
-                    if (prop in window) {
-                        delete window[prop];
-                    }
-                } catch(e) {}
-            }
-
-            // Override navigator.permissions.query for 'notifications'
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = async function(parameters) {
-                if (parameters.name === 'notifications') {
-                    return { state: Notification.permission };
-                }
-                return originalQuery.call(this, parameters);
-            };
         """)
 
         if stealth_level in ["standard", "maximum"]:
@@ -173,76 +111,12 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             scripts.append("""
                 // Chrome runtime mock
                 window.chrome = {
-                    runtime: {
-                        connect: function() {},
-                        sendMessage: function() {},
-                        onMessage: {
-                            addListener: function() {},
-                            removeListener: function() {}
-                        }
-                    },
-                    loadTimes: function() {
-                        return {
-                            commitLoadTime: Date.now() / 1000 - Math.random() * 5,
-                            connectionInfo: "h2",
-                            finishDocumentLoadTime: Date.now() / 1000 - Math.random() * 2,
-                            finishLoadTime: Date.now() / 1000 - Math.random(),
-                            firstPaintAfterLoadTime: 0,
-                            firstPaintTime: Date.now() / 1000 - Math.random() * 3,
-                            navigationType: "Other",
-                            npnNegotiatedProtocol: "h2",
-                            requestTime: Date.now() / 1000 - Math.random() * 10,
-                            startLoadTime: Date.now() / 1000 - Math.random() * 8,
-                            wasAlternateProtocolAvailable: false,
-                            wasFetchedViaSpdy: true,
-                            wasNpnNegotiated: true
-                        };
-                    },
-                    csi: function() {
-                        return {
-                            onloadT: Date.now(),
-                            pageT: Math.random() * 10000,
-                            startE: Date.now() - Math.random() * 10000,
-                            tran: 15
-                        };
-                    }
-                };
             """)
 
             # Plugins mock
             scripts.append("""
                 // Plugins array mock
                 Object.defineProperty(navigator, 'plugins', {
-                    get: () => {
-                        const plugins = [
-                            {
-                                0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format"},
-                                description: "Portable Document Format",
-                                filename: "internal-pdf-viewer",
-                                length: 1,
-                                name: "Chrome PDF Plugin",
-                                namedItem: function(name) { return this[0]; },
-                                item: function(index) { return this[index]; }
-                            },
-                            {
-                                0: {type: "application/pdf", suffixes: "pdf", description: ""},
-                                description: "",
-                                filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
-                                length: 1,
-                                name: "Chrome PDF Viewer",
-                                namedItem: function(name) { return this[0]; },
-                                item: function(index) { return this[index]; }
-                            }
-                        ];
-                        plugins.namedItem = function(name) {
-                            return plugins.find(p => p.name === name);
-                        };
-                        plugins.item = function(index) { return plugins[index]; };
-                        plugins.refresh = function() {};
-                        return plugins;
-                    },
-                    configurable: true
-                });
             """)
 
             # Languages
@@ -375,22 +249,24 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
         try:
             # 1. Застосовуємо playwright-stealth
             try:
-                from playwright_stealth import Stealth
+                from playwright_stealth import Stealth  # type: ignore[import-not-found]
+
                 stealth = Stealth()
                 await stealth.apply_stealth_async(ctx.context)
-                logger.info("✅ playwright-stealth applied to context")
+                logger.info("[STEALTH] playwright-stealth applied to context")
             except ImportError:
                 logger.warning("playwright-stealth not installed, using fallback")
             except AttributeError:
                 # Старий API
                 try:
-                    from playwright_stealth import stealth_async
+                    from playwright_stealth import stealth_async  # type: ignore[import-not-found]
+
                     await stealth_async(ctx.context)
-                    logger.info("✅ playwright-stealth (legacy) applied to context")
+                    logger.info("[STEALTH] playwright-stealth (legacy) applied to context")
                 except Exception as e:
-                    logger.warning(f"playwright-stealth legacy error: {e}")
+                    logger.warning("playwright-stealth legacy error: %s", e)
             except Exception as e:
-                logger.warning(f"playwright-stealth error: {e}, using fallback")
+                logger.warning("playwright-stealth error: %s, using fallback", e)
 
             # 2. Додаємо власні stealth скрипти
             scripts = self._get_stealth_scripts()
@@ -405,7 +281,9 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
                 headers = route.request.headers.copy()
 
                 # Замінюємо Sec-Ch-Ua заголовки
-                headers["sec-ch-ua"] = f'"Google Chrome";v="{chrome_version}", "Chromium";v="{chrome_version}", "Not?A_Brand";v="99"'
+                headers["sec-ch-ua"] = (
+                    f'"Google Chrome";v="{chrome_version}", "Chromium";v="{chrome_version}", "Not?A_Brand";v="99"'
+                )
                 headers["sec-ch-ua-mobile"] = "?0"
                 headers["sec-ch-ua-platform"] = '"Windows"'
 
@@ -415,15 +293,15 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             logger.debug("Request interception enabled for header modification")
 
             logger.info(
-                f"✅ Injected {len(scripts)} enhanced stealth scripts "
-                f"(level: {self.config.get('stealth_level', 'maximum')})"
+                "[STEALTH] Injected %s enhanced stealth scripts (level: %s)",
+                len(scripts), self.config.get('stealth_level', 'maximum')
             )
 
             ctx.data["enhanced_stealth_enabled"] = True
             ctx.data["stealth_level"] = self.config.get("stealth_level", "maximum")
 
         except Exception as e:
-            logger.error(f"Error in enhanced stealth setup: {e}")
+            logger.error("Error in enhanced stealth setup: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -443,7 +321,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             logger.debug("Human behavior hooks installed")
 
         except Exception as e:
-            logger.debug(f"Human behavior setup skipped: {e}")
+            logger.debug("Human behavior setup skipped: %s", e)
 
         return ctx
 
@@ -461,7 +339,7 @@ class EnhancedStealthPlugin(BaseDriverPlugin):
             await asyncio.sleep(delay)
 
         except Exception as e:
-            logger.debug(f"Navigation delay skipped: {e}")
+            logger.debug("Navigation delay skipped: %s", e)
 
         return ctx
 

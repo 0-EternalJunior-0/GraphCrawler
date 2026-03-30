@@ -23,13 +23,9 @@ class OpenGraphParser:
 
     def can_parse(self, source: Union[str, Any]) -> bool:
         """Перевіряє чи джерело є parser adapter."""
-        return hasattr(source, 'find_all')
+        return hasattr(source, "find_all")
 
-    def parse(
-        self,
-        source: Union[str, Any],
-        options: StructuredDataOptions
-    ) -> Dict[str, str]:
+    def parse(self, source: Union[str, Any], options: StructuredDataOptions) -> Dict[str, str]:
         """
         Парсить Open Graph теги.
 
@@ -40,7 +36,7 @@ class OpenGraphParser:
         Returns:
             Dict з OG властивостями (без "og:" префіксу)
         """
-        if not hasattr(source, 'find_all'):
+        if not hasattr(source, "find_all"):
             raise ParserError(self.name, "Source must be parser adapter")
 
         result = {}
@@ -48,16 +44,16 @@ class OpenGraphParser:
         try:
             # Шукаємо всі meta теги з property="og:*"
             for elem in source.find_all('meta[property^="og:"]'):
-                prop = elem.get_attribute('property')
-                content = elem.get_attribute('content')
+                prop = elem.get_attribute("property")
+                content = elem.get_attribute("content")
 
                 if prop and content:
                     # Видаляємо "og:" префікс
-                    key = prop.replace('og:', '')
+                    key = prop.replace("og:", "")
                     result[key] = self._sanitize_value(content)
 
         except Exception as e:
-            logger.warning(f"Error parsing Open Graph: {e}")
+            logger.warning("Error parsing Open Graph: %s", e)
 
         return result
 

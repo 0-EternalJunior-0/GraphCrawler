@@ -3,6 +3,8 @@
 import logging
 import time
 
+from typing import Optional
+
 from graph_crawler.extensions.middleware.base import (
     BaseMiddleware,
     MiddlewareContext,
@@ -29,7 +31,7 @@ class LoggingMiddleware(BaseMiddleware):
         log_timing: Логувати час виконання (default: True)
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self.start_times = {}  # URL -> час початку
 
@@ -61,7 +63,7 @@ class LoggingMiddleware(BaseMiddleware):
             self.start_times[url] = time.time()
 
         # Логуємо запит
-        logger.info(f"→ Fetching: {url}")
+        logger.info("→ Fetching: %s", url)
 
         return context
 
@@ -91,12 +93,14 @@ class LoggingMiddleware(BaseMiddleware):
 
         # Логуємо результат
         if error:
-            logger.error(f"← Error: {url} - {error}")
+            logger.error("← Error: %s - %s", url, error)
         elif status_code:
             timing_str = f" ({elapsed:.2f}s)" if elapsed else ""
-            if status_code >= HTTP_CLIENT_ERROR_START:
-                logger.warning(f"← Response: {url} - {status_code}{timing_str}")
+            if status_code == 403:
+                logger.warning("← HTTP 403 FORBIDDEN: %s%s - можливо anti-bot захист", url, timing_str)
+            elif status_code >= HTTP_CLIENT_ERROR_START:
+                logger.warning("← Response: %s - %s%s", url, status_code, timing_str)
             else:
-                logger.info(f"← Response: {url} - {status_code}{timing_str}")
+                logger.info("← Response: %s - %s%s", url, status_code, timing_str)
 
         return response

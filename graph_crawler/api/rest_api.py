@@ -26,18 +26,14 @@ class CrawlRequest(BaseModel):
 
     url: str = Field(..., description="Start URL для краулінгу")
     max_depth: int = Field(3, ge=1, le=10, description="Максимальна глибина краулінгу")
-    max_pages: int = Field(
-        100, ge=1, le=100000, description="Максимальна кількість сторінок"
-    )
+    max_pages: int = Field(100, ge=1, le=100000, description="Максимальна кількість сторінок")
     allowed_domains: list[str] = Field(
         default=["domain+subdomains"],
         description="Дозволені домени: '*', 'domain', 'subdomains', 'domain+subdomains'",
     )
     follow_robots_txt: bool = Field(True, description="Дотримуватись robots.txt")
     enable_rate_limiting: bool = Field(True, description="Увімкнути rate limiting")
-    rate_limit_rps: float = Field(
-        2.0, ge=0.1, le=100.0, description="Запитів на секунду"
-    )
+    rate_limit_rps: float = Field(2.0, ge=0.1, le=100.0, description="Запитів на секунду")
     enable_proxy: bool = Field(False, description="Використовувати proxy rotation")
     enable_captcha_solver: bool = Field(False, description="Увімкнути CAPTCHA solving")
 
@@ -109,7 +105,7 @@ async def start_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
     _crawler_state["crawl_id"] = crawl_id
     _crawler_state["config"] = request.dict()
 
-    logger.info(f"Starting crawl {crawl_id} for URL: {request.url}")
+    logger.info("Starting crawl %s for URL: %s", crawl_id, request.url)
 
     # Запустити краулінг у background (в production використовувати Celery)
     background_tasks.add_task(_run_crawl_background, crawl_id, request)
@@ -154,7 +150,7 @@ async def pause_crawl(crawl_id: str):
     crawler = _crawler_state.get("crawler_instance")
     if crawler and crawler.pause():
         _crawler_state["status"] = "paused"
-        logger.info(f"Crawl {crawl_id} paused successfully")
+        logger.info("Crawl %s paused successfully", crawl_id)
 
         return {
             "crawl_id": crawl_id,
@@ -193,7 +189,7 @@ async def resume_crawl(crawl_id: str):
     crawler = _crawler_state.get("crawler_instance")
     if crawler and crawler.resume():
         _crawler_state["status"] = "running"
-        logger.info(f"Crawl {crawl_id} resumed successfully")
+        logger.info("Crawl %s resumed successfully", crawl_id)
 
         return {
             "crawl_id": crawl_id,
@@ -229,7 +225,7 @@ async def stop_crawl(crawl_id: str):
     if crawler:
         crawler.stop()
         _crawler_state["status"] = "stopped"
-        logger.info(f"Crawl {crawl_id} stopped successfully")
+        logger.info("Crawl %s stopped successfully", crawl_id)
 
         return {
             "crawl_id": crawl_id,
@@ -240,7 +236,7 @@ async def stop_crawl(crawl_id: str):
     else:
         # Навіть якщо немає package_crawler instance, змінюємо стан
         _crawler_state["status"] = "stopped"
-        logger.warning(f"Crawl {crawl_id} stopped (no active package_crawler)")
+        logger.warning("Crawl %s stopped (no active package_crawler)", crawl_id)
 
         return {
             "crawl_id": crawl_id,
@@ -284,36 +280,15 @@ async def get_crawl_status(crawl_id: str):
 
 
 @router.get("/crawl/list")
-async def list_crawls(
-    limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0)
-):
+async def list_crawls(limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0)):
     """
     Список всіх краулінгів (history).
 
     Args:
         limit: Кількість записів
         offset: Offset для pagination
-
     Returns:
         List краулінгів
-
-    Note:
-        В production використовувати database для зберігання історії
-
-    Architecture Decision:
-        Поточна реалізація використовує in-memory storage (_crawler_state) для історії.
-        Це свідоме архітектурне рішення для MVP/прототипу, оскільки:
-        - Простота реалізації та підтримки
-        - Достатньо для single-instance deployment
-        - Не потребує налаштування додаткової інфраструктури
-
-        Міграція на database storage (SQLite/PostgreSQL) буде необхідна коли:
-        - Потрібна persistent історія між перезапусками
-        - Multi-instance deployment (horizontal scaling)
-        - Складні запити до історії (фільтрація, сортування, aggregation)
-
-        Estimated effort для міграції: 8-12 годин
-        Priority: LOW
     """
     return {
         "total": 1 if _crawler_state["crawl_id"] else 0,
@@ -345,17 +320,14 @@ async def _run_crawl_background(crawl_id: str, config: CrawlRequest):
         В production використовувати Celery для distributed tasks
     """
     try:
-        logger.info(f"Background crawl {crawl_id} started with URL: {config.url}")
+        logger.info("Background crawl %s started with URL: %s", crawl_id, config.url)
 
-        from graph_crawler.api.simple import async_crawl
-
+        from graph_crawler.api import async_crawl
         from graph_crawler.api.dashboard import monitor
 
         monitor.update_stats("crawl_started", {"crawl_id": crawl_id})
 
-        request_delay = (
-            1.0 / config.rate_limit_rps if config.enable_rate_limiting else 0.5
-        )
+        request_delay = 1.0 / config.rate_limit_rps if config.enable_rate_limiting else 0.5
 
         graph = await async_crawl(
             url=config.url,
@@ -370,11 +342,11 @@ async def _run_crawl_background(crawl_id: str, config: CrawlRequest):
 
         # Статистика
         stats = graph.get_stats()
-        logger.info(f"Crawl {crawl_id} finished: {stats}")
+        logger.info("Crawl %s finished: %s", crawl_id, stats)
         monitor.update_stats("crawl_finished", {"crawl_id": crawl_id, "stats": stats})
 
     except Exception as e:
-        logger.error(f"Error in background crawl {crawl_id}: {e}", exc_info=True)
+        logger.error("Error in background crawl %s: %s", crawl_id, e, exc_info=True)
         _crawler_state["status"] = "error"
 
         from graph_crawler.api.dashboard import monitor

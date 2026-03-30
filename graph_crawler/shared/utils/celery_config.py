@@ -170,11 +170,8 @@ def get_celery_batch_config() -> dict:
 # Health Checks
 
 
-def check_broker_connection(
-    broker_url: Optional[str] = None, timeout: int = 5
-) -> Tuple[bool, str]:
+def check_broker_connection(broker_url: Optional[str] = None, timeout: int = 5) -> Tuple[bool, str]:
     """Перевірити підключення до Redis broker.
-
 
     Args:
         broker_url: URL Redis (якщо None - використовує get_broker_url())
@@ -192,11 +189,9 @@ def check_broker_connection(
         broker_url = get_broker_url()
 
     try:
-        import redis
+        import redis  # type: ignore[import-not-found]
 
-        r = redis.from_url(
-            broker_url, socket_timeout=timeout, socket_connect_timeout=timeout
-        )
+        r = redis.from_url(broker_url, socket_timeout=timeout, socket_connect_timeout=timeout)
         r.ping()
         return True, f"Connected to Redis: {_mask_password(broker_url)}"
     except ImportError:
@@ -270,27 +265,15 @@ def validate_distributed_setup(
 ) -> Tuple[bool, List[str]]:
     """Повна валідація для distributed crawling.
 
-
     Перевіряє:
-    1. Підключення до Redis broker
-    2. Наявність активних воркерів (опціонально)
-
     Args:
         celery_app: Celery app для перевірки воркерів (якщо None - пропускає)
         check_workers: Чи перевіряти воркерів
         broker_url: URL Redis (якщо None - автоматично)
-
     Returns:
         Tuple[bool, List[str]]: (all_ok, list_of_errors)
-
     Example:
         from graph_crawler.infrastructure.messaging.celery_batch import celery_batch
-
-        ok, errors = validate_distributed_setup(celery_app=celery_batch)
-        if not ok:
-            for err in errors:
-                print(f" {err}")
-            raise RuntimeError("Setup validation failed")
     """
     errors = []
 
@@ -299,7 +282,7 @@ def validate_distributed_setup(
     if not redis_ok:
         errors.append(f"Redis broker: {redis_msg}")
     else:
-        logger.info(f" {redis_msg}")
+        logger.info(" %s", redis_msg)
 
     # 2. Перевірка воркерів
     if check_workers and celery_app is not None:
@@ -311,7 +294,7 @@ def validate_distributed_setup(
                 f"Start workers with: celery -A graph_crawler.celery_batch worker -Q graph_crawler_batch"
             )
         else:
-            logger.info(f" {workers_msg}")
+            logger.info(" %s", workers_msg)
 
     all_ok = len(errors) == 0
     return all_ok, errors

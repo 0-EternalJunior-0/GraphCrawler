@@ -97,42 +97,6 @@ class CaptchaBypassManager:
     """
     Менеджер для обходу CAPTCHA з різними стратегіями.
 
-    Основні можливості:
-    - Cookie persistence (зберігання cookies в файл)
-    - Session reuse (переіспользування робочих сесій)
-    - Delay strategy (очікування з exponential backoff)
-    - Alternative endpoints (пошук API без CAPTCHA)
-    - Rotating strategies (автоматична ротація стратегій)
-
-    Приклад використання:
-        ```python
-        from graph_crawler.shared.utils import CaptchaBypassManager, BypassStrategy
-
-        # Ініціалізація
-        bypass_manager = CaptchaBypassManager(
-            cookie_storage_path="./cookies",
-            max_retry_attempts=3,
-            default_delay=5.0
-        )
-
-        # Спроба обійти CAPTCHA
-        url = "https://example.com/page"
-        result = bypass_manager.try_bypass(
-            url=url,
-            strategy=BypassStrategy.COOKIE_PERSISTENCE
-        )
-
-        if result.result == BypassResult.SUCCESS:
-            print("CAPTCHA обійдена!")
-        else:
-            print(" Потрібен CAPTCHA solver")
-
-        # Ротація стратегій (автоматичний вибір)
-        result = bypass_manager.try_all_strategies(url)
-
-        # Статистика
-        print(bypass_manager.get_summary())
-        ```
     """
 
     def __init__(
@@ -196,7 +160,7 @@ class CaptchaBypassManager:
         from urllib.parse import urlparse
 
         domain = urlparse(url).netloc
-        return hashlib.md5(domain.encode()).hexdigest()
+        return hashlib.md5(domain.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def _get_cookie_file_path(self, url: str) -> Path:
         """Отримати шлях до файлу з cookies для домену."""
@@ -220,9 +184,9 @@ class CaptchaBypassManager:
         try:
             with open(cookie_file, "w", encoding="utf-8") as f:
                 json.dump(cookies, f, ensure_ascii=False, indent=2)
-            logger.info(f" Cookies збережено: {cookie_file}")
+            logger.info(" Cookies збережено: %s", cookie_file)
         except Exception as e:
-            logger.error(f" Помилка збереження cookies: {e}")
+            logger.error(" Помилка збереження cookies: %s", e)
 
     def load_cookies(self, url: str) -> Optional[Dict[str, str]]:
         """
@@ -236,16 +200,16 @@ class CaptchaBypassManager:
         """
         cookie_file = self._get_cookie_file_path(url)
         if not cookie_file.exists():
-            logger.debug(f" Cookies не знайдено: {cookie_file}")
+            logger.debug(" Cookies не знайдено: %s", cookie_file)
             return None
 
         try:
             with open(cookie_file, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
-            logger.info(f" Cookies завантажено: {cookie_file} ({len(cookies)} items)")
+            logger.info(" Cookies завантажено: %s (%s items)", cookie_file, len(cookies))
             return cookies
         except Exception as e:
-            logger.error(f" Помилка завантаження cookies: {e}")
+            logger.error(" Помилка завантаження cookies: %s", e)
             return None
 
     def save_session(self, url: str, session_info: SessionInfo) -> None:
@@ -260,9 +224,9 @@ class CaptchaBypassManager:
         try:
             with open(session_file, "w", encoding="utf-8") as f:
                 json.dump(session_info.to_dict(), f, ensure_ascii=False, indent=2)
-            logger.info(f" Session збережено: {session_file}")
+            logger.info(" Session збережено: %s", session_file)
         except Exception as e:
-            logger.error(f" Помилка збереження session: {e}")
+            logger.error(" Помилка збереження session: %s", e)
 
     def load_session(self, url: str) -> Optional[SessionInfo]:
         """
@@ -276,7 +240,7 @@ class CaptchaBypassManager:
         """
         session_file = self._get_session_file_path(url)
         if not session_file.exists():
-            logger.debug(f" Session не знайдено: {session_file}")
+            logger.debug(" Session не знайдено: %s", session_file)
             return None
 
         try:
@@ -286,7 +250,7 @@ class CaptchaBypassManager:
 
             # Перевірка чи не прострочена сесія
             if session_info.is_expired(self.session_max_age_hours):
-                logger.warning(f"⏰ Session прострочена: {session_file}")
+                logger.warning(" Session прострочена: %s", session_file)
                 session_file.unlink()  # Видалити прострочену сесію
                 return None
 
@@ -295,7 +259,7 @@ class CaptchaBypassManager:
             )
             return session_info
         except Exception as e:
-            logger.error(f" Помилка завантаження session: {e}")
+            logger.error(" Помилка завантаження session: %s", e)
             return None
 
     def try_cookie_persistence(self, url: str, **request_kwargs) -> BypassAttempt:
@@ -309,7 +273,7 @@ class CaptchaBypassManager:
         Returns:
             BypassAttempt з результатом
         """
-        logger.info(f" Спроба обходу через Cookie Persistence: {url}")
+        logger.info(" Спроба обходу через Cookie Persistence: %s", url)
 
         # Завантажити збережені cookies
         cookies = self.load_cookies(url)
@@ -330,7 +294,7 @@ class CaptchaBypassManager:
             has_captcha = self._detect_captcha_in_response(response)
 
             if not has_captcha and response.status_code == 200:
-                logger.info(f"Cookie Persistence успішно: {url}")
+                logger.info("Cookie Persistence успішно: %s", url)
                 return BypassAttempt(
                     strategy=BypassStrategy.COOKIE_PERSISTENCE,
                     result=BypassResult.SUCCESS,
@@ -348,7 +312,7 @@ class CaptchaBypassManager:
                 )
 
         except Exception as e:
-            logger.error(f" Помилка Cookie Persistence: {e}")
+            logger.error(" Помилка Cookie Persistence: %s", e)
             return BypassAttempt(
                 strategy=BypassStrategy.COOKIE_PERSISTENCE,
                 result=BypassResult.FAILED,
@@ -366,7 +330,7 @@ class CaptchaBypassManager:
         Returns:
             BypassAttempt з результатом
         """
-        logger.info(f" Спроба обходу через Session Reuse: {url}")
+        logger.info(" Спроба обходу через Session Reuse: %s", url)
 
         # Завантажити збережену сесію
         session_info = self.load_session(url)
@@ -393,7 +357,7 @@ class CaptchaBypassManager:
             has_captcha = self._detect_captcha_in_response(response)
 
             if not has_captcha and response.status_code == 200:
-                logger.info(f"Session Reuse успішно: {url}")
+                logger.info("Session Reuse успішно: %s", url)
                 # Оновити статистику сесії
                 session_info.last_used = datetime.now()
                 session_info.success_count += 1
@@ -419,16 +383,14 @@ class CaptchaBypassManager:
                 )
 
         except Exception as e:
-            logger.error(f" Помилка Session Reuse: {e}")
+            logger.error(" Помилка Session Reuse: %s", e)
             return BypassAttempt(
                 strategy=BypassStrategy.SESSION_REUSE,
                 result=BypassResult.FAILED,
                 error_message=str(e),
             )
 
-    def try_delay_strategy(
-        self, url: str, retry_count: int = 0, **request_kwargs
-    ) -> BypassAttempt:
+    def try_delay_strategy(self, url: str, retry_count: int = 0, **request_kwargs) -> BypassAttempt:
         """
         Спроба обходу через очікування (delay with exponential backoff).
 
@@ -446,9 +408,7 @@ class CaptchaBypassManager:
             BypassAttempt з результатом
         """
         # Розрахувати затримку (exponential backoff)
-        delay = min(
-            self.default_delay * (self.delay_multiplier**retry_count), self.max_delay
-        )
+        delay = min(self.default_delay * (self.delay_multiplier**retry_count), self.max_delay)
         delay = max(delay, self.min_delay)
 
         logger.info(
@@ -467,7 +427,7 @@ class CaptchaBypassManager:
             has_captcha = self._detect_captcha_in_response(response)
 
             if not has_captcha and response.status_code == 200:
-                logger.info(f"Delay Strategy успішно після {delay:.1f}s очікування")
+                logger.info("Delay Strategy успішно після %.1fs очікування", delay)
                 return BypassAttempt(
                     strategy=BypassStrategy.DELAY_STRATEGY,
                     result=BypassResult.SUCCESS,
@@ -476,9 +436,7 @@ class CaptchaBypassManager:
                     metadata={"delay_seconds": delay, "retry_count": retry_count},
                 )
             else:
-                logger.warning(
-                    f" CAPTCHA все ще присутня після {delay:.1f}s очікування"
-                )
+                logger.warning(" CAPTCHA все ще присутня після %.1fs очікування", delay)
 
                 # Перевірити чи потрібна повторна спроба
                 if retry_count < self.max_retry_attempts - 1:
@@ -499,7 +457,7 @@ class CaptchaBypassManager:
                     )
 
         except Exception as e:
-            logger.error(f" Помилка Delay Strategy: {e}")
+            logger.error(" Помилка Delay Strategy: %s", e)
             return BypassAttempt(
                 strategy=BypassStrategy.DELAY_STRATEGY,
                 result=BypassResult.FAILED,
@@ -525,9 +483,7 @@ class CaptchaBypassManager:
             BypassAttempt з результатом
         """
         # Розрахувати затримку (exponential backoff)
-        delay = min(
-            self.default_delay * (self.delay_multiplier**retry_count), self.max_delay
-        )
+        delay = min(self.default_delay * (self.delay_multiplier**retry_count), self.max_delay)
         delay = max(delay, self.min_delay)
 
         logger.info(
@@ -549,7 +505,7 @@ class CaptchaBypassManager:
                     has_captcha = self._detect_captcha_in_text(response_text)
 
                     if not has_captcha and response.status == 200:
-                        logger.info(f"Delay Strategy успішно після {delay:.1f}s очікування")
+                        logger.info("Delay Strategy успішно після %.1fs очікування", delay)
                         return BypassAttempt(
                             strategy=BypassStrategy.DELAY_STRATEGY,
                             result=BypassResult.SUCCESS,
@@ -558,9 +514,7 @@ class CaptchaBypassManager:
                             metadata={"delay_seconds": delay, "retry_count": retry_count},
                         )
                     else:
-                        logger.warning(
-                            f" CAPTCHA все ще присутня після {delay:.1f}s очікування"
-                        )
+                        logger.warning(" CAPTCHA все ще присутня після %.1fs очікування", delay)
 
                         # Перевірити чи потрібна повторна спроба
                         if retry_count < self.max_retry_attempts - 1:
@@ -581,7 +535,7 @@ class CaptchaBypassManager:
                             )
 
         except Exception as e:
-            logger.error(f" Помилка Async Delay Strategy: {e}")
+            logger.error(" Помилка Async Delay Strategy: %s", e)
             return BypassAttempt(
                 strategy=BypassStrategy.DELAY_STRATEGY,
                 result=BypassResult.FAILED,
@@ -593,8 +547,13 @@ class CaptchaBypassManager:
         """Простий детектор CAPTCHA в тексті."""
         content_lower = content.lower()
         captcha_keywords = [
-            "captcha", "recaptcha", "hcaptcha", "g-recaptcha",
-            "h-captcha", "cf-captcha", "challenge-form",
+            "captcha",
+            "recaptcha",
+            "hcaptcha",
+            "g-recaptcha",
+            "h-captcha",
+            "cf-captcha",
+            "challenge-form",
         ]
         return any(keyword in content_lower for keyword in captcha_keywords)
 
@@ -614,9 +573,7 @@ class CaptchaBypassManager:
         Returns:
             BypassAttempt з результатом
         """
-        logger.info(f" Спроба обходу через Alternative Endpoints: {url}")
-
-        # Якщо не надано альтернативи, спробуємо згенерувати
+        logger.info(" Спроба обходу через Alternative Endpoints: %s", url)
         if not alternative_urls:
             alternative_urls = self._generate_alternative_urls(url)
 
@@ -629,7 +586,7 @@ class CaptchaBypassManager:
 
         # Спроба кожного альтернативного URL
         for alt_url in alternative_urls:
-            logger.info(f" Спроба альтернативного endpoint: {alt_url}")
+            logger.info(" Спроба альтернативного endpoint: %s", alt_url)
             start_time = time.time()
 
             try:
@@ -639,7 +596,7 @@ class CaptchaBypassManager:
                 has_captcha = self._detect_captcha_in_response(response)
 
                 if not has_captcha and response.status_code == 200:
-                    logger.info(f"Alternative Endpoint успішно: {alt_url}")
+                    logger.info("Alternative Endpoint успішно: %s", alt_url)
                     return BypassAttempt(
                         strategy=BypassStrategy.ALTERNATIVE_ENDPOINTS,
                         result=BypassResult.SUCCESS,
@@ -652,7 +609,7 @@ class CaptchaBypassManager:
                     )
 
             except Exception as e:
-                logger.debug(f" Альтернативний endpoint не спрацював: {alt_url} - {e}")
+                logger.debug(" Альтернативний endpoint не спрацював: %s - %s", alt_url, e)
                 continue
 
         logger.warning(" Жоден альтернативний endpoint не спрацював")
@@ -691,7 +648,7 @@ class CaptchaBypassManager:
         elif strategy == BypassStrategy.ALTERNATIVE_ENDPOINTS:
             attempt = self.try_alternative_endpoints(url, **request_kwargs)
         else:
-            logger.error(f" Невідома стратегія: {strategy}")
+            logger.error(" Невідома стратегія: %s", strategy)
             attempt = BypassAttempt(
                 strategy=strategy,
                 result=BypassResult.FAILED,
@@ -720,7 +677,7 @@ class CaptchaBypassManager:
         Returns:
             BypassAttempt з результатом першої успішної стратегії або останньої невдалої
         """
-        logger.info(f" Спроба всіх стратегій обходу для: {url}")
+        logger.info(" Спроба всіх стратегій обходу для: %s", url)
 
         strategies = strategies or self.strategy_order
         last_attempt = None
@@ -728,29 +685,19 @@ class CaptchaBypassManager:
         for strategy in strategies:
             attempt = self.try_bypass(url, strategy=strategy, **request_kwargs)
             last_attempt = attempt
-
-            # Якщо успішно - повертаємо результат
             if attempt.result == BypassResult.SUCCESS:
-                logger.info(f"Успішний bypass через {strategy}")
+                logger.info("Успішний bypass через %s", strategy)
                 return attempt
-
-            # Якщо потрібна повторна спроба (Delay Strategy)
             if attempt.result == BypassResult.RETRY_NEEDED:
                 for retry in range(1, self.max_retry_attempts):
-                    attempt = self.try_delay_strategy(
-                        url, retry_count=retry, **request_kwargs
-                    )
+                    attempt = self.try_delay_strategy(url, retry_count=retry, **request_kwargs)
                     last_attempt = attempt
                     self.attempts.append(attempt)
 
                     if attempt.result == BypassResult.SUCCESS:
-                        logger.info(
-                            f"Успішний bypass через Delay Strategy після {retry + 1} спроб"
-                        )
+                        logger.info("Успішний bypass через Delay Strategy після %s спроб", retry + 1)
                         return attempt
-
-        # Якщо жодна стратегія не спрацювала
-        logger.warning(f" Всі стратегії обходу не спрацювали для {url}")
+        logger.warning(" Всі стратегії обходу не спрацювали для %s", url)
 
         # Fallback на CAPTCHA solver якщо є
         if self.captcha_solver_fallback:
@@ -759,13 +706,11 @@ class CaptchaBypassManager:
                 solver_result = self.captcha_solver_fallback(url, **request_kwargs)
                 return BypassAttempt(
                     strategy=BypassStrategy.ROTATING,
-                    result=(
-                        BypassResult.SUCCESS if solver_result else BypassResult.FAILED
-                    ),
+                    result=(BypassResult.SUCCESS if solver_result else BypassResult.FAILED),
                     metadata={"used_solver": True, "solver_result": solver_result},
                 )
             except Exception as e:
-                logger.error(f" CAPTCHA solver fallback помилка: {e}")
+                logger.error(" CAPTCHA solver fallback помилка: %s", e)
 
         return last_attempt or BypassAttempt(
             strategy=BypassStrategy.ROTATING,
@@ -800,17 +745,14 @@ class CaptchaBypassManager:
 
         for keyword in captcha_keywords:
             if keyword in content:
-                logger.debug(f" CAPTCHA виявлено: keyword='{keyword}'")
+                logger.debug(" CAPTCHA виявлено: keyword='%s'", keyword)
                 return True
 
         # Перевірка специфічних status codes
         if response.status_code in [403, 429, 503]:
-            logger.debug(f" CAPTCHA можлива: status_code={response.status_code}")
+            logger.debug(" CAPTCHA можлива: status_code=%s", response.status_code)
             # Додаткова перевірка в тексті
-            if any(
-                kw in content
-                for kw in ["blocked", "access denied", "too many requests"]
-            ):
+            if any(kw in content for kw in ["blocked", "access denied", "too many requests"]):
                 return True
 
         return False
@@ -846,12 +788,10 @@ class CaptchaBypassManager:
         for version in ["v1", "v2", "v3"]:
             if f"/{version}/" not in parsed.path:
                 new_path = f"/{version}" + parsed.path
-                alt_url = urlunparse(
-                    (parsed.scheme, parsed.netloc, new_path, "", "", "")
-                )
+                alt_url = urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", ""))
                 alternatives.append(alt_url)
 
-        logger.debug(f" Згенеровано {len(alternatives)} альтернативних URLs")
+        logger.debug(" Згенеровано %s альтернативних URLs", len(alternatives))
         return alternatives
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -871,9 +811,7 @@ class CaptchaBypassManager:
             }
 
         total = len(self.attempts)
-        success_count = sum(
-            1 for a in self.attempts if a.result == BypassResult.SUCCESS
-        )
+        success_count = sum(1 for a in self.attempts if a.result == BypassResult.SUCCESS)
         failed_count = sum(1 for a in self.attempts if a.result == BypassResult.FAILED)
 
         # Статистика по стратегіях
@@ -949,22 +887,11 @@ def create_captcha_bypass_manager(
         session_storage_path: Шлях до папки для sessions
         max_retry_attempts: Максимальна кількість спроб
         captcha_solver_fallback: Функція для CAPTCHA solver
-
     Returns:
         Налаштований CaptchaBypassManager
-
     Example:
         ```python
         from graph_crawler.shared.utils import create_captcha_bypass_manager
-
-        bypass_manager = create_captcha_bypass_manager(
-            cookie_storage_path="./cookies",
-            max_retry_attempts=5
-        )
-
-        result = bypass_manager.try_all_strategies("https://example.com")
-        print(result.result)
-        ```
     """
     return CaptchaBypassManager(
         cookie_storage_path=cookie_storage_path,

@@ -14,50 +14,6 @@ class SitemapNode(Node):
     """
     Спеціалізований Node для представлення елементів sitemap структури.
 
-    Розширює базовий Node додатковими полями специфічними для sitemap:
-    - Тип вузла (robots.txt, sitemap index, sitemap, URL)
-    - Тип файлу (xml, xml.gz, text)
-    - Інформація про батьківський sitemap
-    - Кількість URL у sitemap
-    - Повідомлення про помилки
-
-    Приклад використання:
-        >>> # Robots.txt node
-        >>> robots = SitemapNode(
-        ...     url="https://example.com/robots.txt",
-        ...     node_type="robots_txt"
-        ... )
-        >>>
-        >>> # Sitemap index node
-        >>> sitemap_index = SitemapNode(
-        ...     url="https://example.com/sitemap.xml",
-        ...     node_type="sitemap_index",
-        ...     urls_count=6,
-        ...     parent_sitemap="https://example.com/robots.txt"
-        ... )
-        >>>
-        >>> # Regular sitemap node
-        >>> sitemap = SitemapNode(
-        ...     url="https://example.com/sitemap-posts.xml",
-        ...     node_type="sitemap",
-        ...     sitemap_type="xml",
-        ...     urls_count=150,
-        ...     parent_sitemap="https://example.com/sitemap.xml"
-        ... )
-        >>>
-        >>> # URL node
-        >>> url_node = SitemapNode(
-        ...     url="https://example.com/post/123",
-        ...     node_type="url",
-        ...     parent_sitemap="https://example.com/sitemap-posts.xml"
-        ... )
-        >>>
-        >>> # Error node (404 sitemap)
-        >>> error_sitemap = SitemapNode(
-        ...     url="https://example.com/missing.xml",
-        ...     node_type="sitemap",
-        ...     error_message="404 Not Found"
-        ... )
     """
 
     # Тип вузла в sitemap ієрархії

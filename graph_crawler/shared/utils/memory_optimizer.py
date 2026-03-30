@@ -108,9 +108,9 @@ class MemoryProfiler:
             logger.warning("  No snapshot available")
             return
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f" TOP {limit} MEMORY ALLOCATIONS")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         top_stats = snapshot.statistics("lineno")
 
@@ -137,9 +137,9 @@ class MemoryProfiler:
             logger.warning("  Need 2 snapshots to compare")
             return
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f" MEMORY DIFF (TOP {limit} CHANGES)")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         top_stats = snapshot2.compare_to(snapshot1, "lineno")
 
@@ -149,9 +149,7 @@ class MemoryProfiler:
 
             sign = "+" if stat.size_diff > 0 else ""
             print(f"{index:2d}. {stat.traceback.format()[0]}")
-            print(
-                f"    Size diff: {sign}{size_diff_mb:.2f} MB ({sign}{stat.size_diff:,} bytes)"
-            )
+            print(f"    Size diff: {sign}{size_diff_mb:.2f} MB ({sign}{stat.size_diff:,} bytes)")
             print(f"    Count diff: {sign}{count_diff:,} allocations")
             print()
 
@@ -233,7 +231,7 @@ class MemoryMonitor:
         )
 
         self.checkpoints[name] = stats
-        logger.info(f" Checkpoint '{name}': {stats}")
+        logger.info(" Checkpoint '%s': %s", name, stats)
         return stats
 
     def print_report(self) -> None:
@@ -242,22 +240,20 @@ class MemoryMonitor:
             print("  No checkpoints recorded")
             return
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(" MEMORY MONITORING REPORT")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
         print(f"Baseline Memory: {self.baseline_mb:.2f} MB\n")
 
-        print(
-            f"{'Checkpoint':<30} {'Current (MB)':<15} {'Peak (MB)':<15} {'Used (MB)':<15}"
-        )
-        print(f"{'-'*30} {'-'*15} {'-'*15} {'-'*15}")
+        print(f"{'Checkpoint':<30} {'Current (MB)':<15} {'Peak (MB)':<15} {'Used (MB)':<15}")
+        print(f"{'-' * 30} {'-' * 15} {'-' * 15} {'-' * 15}")
 
         for name, stats in self.checkpoints.items():
             print(
                 f"{name:<30} {stats.current_mb:<15.2f} {stats.peak_mb:<15.2f} {stats.used_mb:<15.2f}"
             )
 
-        print(f"\n{'='*80}\n")
+        print(f"\n{'=' * 80}\n")
 
     def stop(self) -> None:
         """Зупиняє моніторинг."""
@@ -363,11 +359,11 @@ def optimize_graph_memory(graph: Any) -> None:
 
     # 1. Garbage collection
     collected = gc.collect()
-    logger.info(f"   Collected {collected} garbage objects")
+    logger.info("   Collected %s garbage objects", collected)
 
-    # 2. Очистка порожніх metadata
+    # 2. Очистка порожніх metadata (streaming через iter_nodes)
     cleaned_count = 0
-    for node in graph.nodes.values():
+    for node in graph.iter_nodes():
         # Видаляємо порожні dict
         if hasattr(node, "metadata"):
             empty_keys = [k for k, v in node.metadata.items() if not v]
@@ -381,7 +377,7 @@ def optimize_graph_memory(graph: Any) -> None:
                 del node.user_data[key]
                 cleaned_count += 1
 
-    logger.info(f"   Cleaned {cleaned_count} empty metadata fields")
+    logger.info("   Cleaned %s empty metadata fields", cleaned_count)
 
     # 3. Видаляємо дублікати edges
     if hasattr(graph, "_edges") and hasattr(graph, "_edge_index"):
@@ -397,7 +393,7 @@ def optimize_graph_memory(graph: Any) -> None:
         duplicates = len(graph._edges) - len(unique_edges)
         if duplicates > 0:
             graph._edges = unique_edges
-            logger.info(f"   Removed {duplicates} duplicate edges")
+            logger.info("   Removed %s duplicate edges", duplicates)
 
     logger.info("Graph memory optimization complete")
 
@@ -423,9 +419,7 @@ def memory_efficient_node_iterator(nodes_dict: Dict) -> Iterator:
         yield node
 
 
-def estimate_graph_memory(
-    num_nodes: int, num_edges: int, avg_metadata_size: int = 500
-) -> float:
+def estimate_graph_memory(num_nodes: int, num_edges: int, avg_metadata_size: int = 500) -> float:
     """
     Оцінює використання пам'яті для графу.
 
@@ -447,9 +441,7 @@ def estimate_graph_memory(
     # Overhead для dict/list storage
     storage_overhead = 1.2  # 20% overhead
 
-    total_bytes = (
-        num_nodes * node_size + num_edges * edge_base_size
-    ) * storage_overhead
+    total_bytes = (num_nodes * node_size + num_edges * edge_base_size) * storage_overhead
     total_mb = total_bytes / (1024 * 1024)
 
     return total_mb
@@ -511,8 +503,6 @@ class MemoryEfficientNodeCache:
     def __len__(self) -> int:
         return len(self._cache)
 
-
-# ============ Експорт ============
 
 __all__ = [
     "MemoryProfiler",

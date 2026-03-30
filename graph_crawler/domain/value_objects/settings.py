@@ -1,23 +1,6 @@
 """
 Конфігурація краулера (аналог Scrapy settings.py).
 
-Підтримує:
-- Завантаження з .env файлу
-- Завантаження з YAML/JSON файлу
-- Передача через код
-- Environment variables з префіксом GC_
-
-Приклад використання:
-    >>> from graph_crawler import CrawlerSettings
-    >>>
-    >>> # З файлу
-    >>> settings = CrawlerSettings.from_file("settings.yaml")
-    >>>
-    >>> # З env змінних (GC_MAX_DEPTH=5)
-    >>> settings = CrawlerSettings()
-    >>>
-    >>> # Програмно
-    >>> settings = CrawlerSettings(max_depth=5, driver="playwright")
 """
 
 from __future__ import annotations
@@ -39,12 +22,13 @@ class DriverSettings(BaseModel):
 
     # Playwright specific
     headless: bool = Field(default=True, description="Запускати браузер без GUI")
-    browser_type: str = Field(default="chromium", description="Тип браузера: chromium, firefox, webkit")
+    browser_type: str = Field(
+        default="chromium", description="Тип браузера: chromium, firefox, webkit"
+    )
     viewport_width: int = Field(default=1920, description="Ширина viewport")
     viewport_height: int = Field(default=1080, description="Висота viewport")
     block_resources: List[str] = Field(
-        default_factory=lambda: ["image", "media", "font"],
-        description="Ресурси для блокування"
+        default_factory=lambda: ["image", "media", "font"], description="Ресурси для блокування"
     )
 
     # Timeouts
@@ -55,7 +39,9 @@ class DriverSettings(BaseModel):
 class StorageSettings(BaseModel):
     """Налаштування storage."""
 
-    type: str = Field(default="memory", description="Тип: memory, json, sqlite, postgresql, mongodb")
+    type: str = Field(
+        default="memory", description="Тип: memory, json, sqlite, postgresql, mongodb"
+    )
     path: Optional[str] = Field(default=None, description="Шлях для файлового storage")
 
     # Database specific
@@ -73,8 +59,7 @@ class RetrySettings(BaseModel):
     retry_delay: float = Field(default=1.0, ge=0, description="Затримка між спробами (сек)")
     backoff_factor: float = Field(default=2.0, description="Множник для exponential backoff")
     retry_on_status: List[int] = Field(
-        default_factory=lambda: [429, 500, 502, 503, 504],
-        description="HTTP статуси для retry"
+        default_factory=lambda: [429, 500, 502, 503, 504], description="HTTP статуси для retry"
     )
 
 
@@ -91,32 +76,6 @@ class CrawlerSettings(BaseSettings):
     """
     Головний клас конфігурації краулера.
 
-    Аналог settings.py в Scrapy, але з типізацією та валідацією.
-
-    Пріоритет завантаження:
-    1. Явно передані параметри
-    2. Environment variables (GC_*)
-    3. .env файл
-    4. Значення за замовчуванням
-
-    Приклади:
-        >>> # Базове використання
-        >>> settings = CrawlerSettings()
-
-        >>> # З параметрами
-        >>> settings = CrawlerSettings(
-        ...     max_depth=5,
-        ...     max_pages=1000,
-        ...     driver=DriverSettings(type="playwright"),
-        ... )
-
-        >>> # З файлу
-        >>> settings = CrawlerSettings.from_file("my_settings.yaml")
-
-        >>> # Env змінні
-        >>> # export GC_MAX_DEPTH=10
-        >>> # export GC_DRIVER__TYPE=playwright
-        >>> settings = CrawlerSettings()
     """
 
     model_config = SettingsConfigDict(
@@ -125,73 +84,51 @@ class CrawlerSettings(BaseSettings):
         env_nested_delimiter="__",
         extra="ignore",
     )
-
-    # ==================== BASIC ====================
-
     project_name: str = Field(default="my_crawler", description="Назва проекту")
     max_depth: int = Field(default=3, ge=1, le=100, description="Максимальна глибина сканування")
-    max_pages: Optional[int] = Field(default=100, ge=1, description="Максимум сторінок (None = без ліміту)")
+    max_pages: Optional[int] = Field(
+        default=100, ge=1, description="Максимум сторінок (None = без ліміту)"
+    )
     request_delay: float = Field(default=0.5, ge=0, description="Затримка між запитами (сек)")
     timeout: Optional[int] = Field(default=300, ge=1, description="Загальний таймаут (сек)")
-
-    # ==================== DOMAIN CONTROL ====================
-
     same_domain: bool = Field(default=True, description="Сканувати тільки поточний домен")
     follow_links: bool = Field(default=True, description="Переходити за посиланнями")
     allowed_domains: List[str] = Field(default_factory=list, description="Дозволені домени")
     blocked_domains: List[str] = Field(default_factory=list, description="Заблоковані домени")
     blocked_paths: List[str] = Field(
         default_factory=lambda: ["/admin", "/login", "/logout", "/wp-admin"],
-        description="Заблоковані шляхи (regex)"
+        description="Заблоковані шляхи (regex)",
     )
-
-    # ==================== COMPONENTS ====================
-
-    driver: DriverSettings = Field(default_factory=DriverSettings, description="Налаштування драйвера")
-    storage: StorageSettings = Field(default_factory=StorageSettings, description="Налаштування storage")
+    driver: DriverSettings = Field(
+        default_factory=DriverSettings, description="Налаштування драйвера"
+    )
+    storage: StorageSettings = Field(
+        default_factory=StorageSettings, description="Налаштування storage"
+    )
     retry: RetrySettings = Field(default_factory=RetrySettings, description="Налаштування retry")
-    concurrency: ConcurrencySettings = Field(default_factory=ConcurrencySettings, description="Налаштування паралелізму")
-
-    # ==================== FEATURES ====================
-
+    concurrency: ConcurrencySettings = Field(
+        default_factory=ConcurrencySettings, description="Налаштування паралелізму"
+    )
     respect_robots_txt: bool = Field(default=True, description="Дотримуватись robots.txt")
     extract_metadata: bool = Field(default=True, description="Витягувати метадані (title, h1, etc)")
     calculate_content_hash: bool = Field(default=True, description="Обчислювати hash контенту")
-
-    # ==================== EDGE STRATEGY ====================
-
     edge_strategy: str = Field(
         default="all",
-        description="Стратегія створення edges: all, new_only, max_in_degree, deeper_only"
+        description="Стратегія створення edges: all, new_only, max_in_degree, deeper_only",
     )
-
-    # ==================== LOGGING ====================
-
     log_level: str = Field(default="INFO", description="Рівень логування")
     log_format: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        description="Формат логів"
+        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", description="Формат логів"
     )
-
-    # ==================== CUSTOM NODE CLASS ====================
-
     node_class: Optional[str] = Field(
-        default=None,
-        description="Шлях до кастомного Node класу (e.g., 'nodes.JobNode')"
+        default=None, description="Шлях до кастомного Node класу (e.g., 'nodes.JobNode')"
     )
-
-    # ==================== PLUGINS ====================
-
     plugins: List[str] = Field(
         default_factory=list,
-        description="Список плагінів для завантаження (e.g., ['plugins.MetadataPlugin'])"
+        description="Список плагінів для завантаження (e.g., ['plugins.MetadataPlugin'])",
     )
-
-    # ==================== URL RULES ====================
-
     url_rules: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Правила для URL (pattern, priority, should_scan, etc)"
+        default_factory=list, description="Правила для URL (pattern, priority, should_scan, etc)"
     )
 
     @classmethod
@@ -215,17 +152,22 @@ class CrawlerSettings(BaseSettings):
         if not path.exists():
             raise FileNotFoundError(f"Settings file not found: {path}")
 
-        with open(path, 'r', encoding='utf-8') as f:
-            if path.suffix in ('.yaml', '.yml'):
+        with open(path, "r", encoding="utf-8") as f:
+            if path.suffix in (".yaml", ".yml"):
                 try:
                     import yaml
+
                     data = yaml.safe_load(f)
                 except ImportError:
-                    raise ImportError("PyYAML required for YAML config. Install: pip install pyyaml")
-            elif path.suffix == '.json':
+                    raise ImportError(
+                        "PyYAML required for YAML config. Install: pip install pyyaml"
+                    )
+            elif path.suffix == ".json":
                 data = json.load(f)
             else:
-                raise ValueError(f"Unsupported file format: {path.suffix}. Use .yaml, .yml, or .json")
+                raise ValueError(
+                    f"Unsupported file format: {path.suffix}. Use .yaml, .yml, or .json"
+                )
 
         return cls(**data)
 
@@ -240,11 +182,14 @@ class CrawlerSettings(BaseSettings):
 
         data = self.model_dump()
 
-        with open(path, 'w', encoding='utf-8') as f:
-            if path.suffix in ('.yaml', '.yml'):
+        with open(path, "w", encoding="utf-8") as f:
+            if path.suffix in (".yaml", ".yml"):
                 try:
                     import yaml
-                    yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+                    yaml.dump(
+                        data, f, default_flow_style=False, allow_unicode=True, sort_keys=False
+                    )
                 except ImportError:
                     raise ImportError("PyYAML required. Install: pip install pyyaml")
             else:
@@ -303,7 +248,7 @@ class CrawlerSettings(BaseSettings):
 
         import importlib
 
-        module_path, class_name = self.node_class.rsplit('.', 1)
+        module_path, class_name = self.node_class.rsplit(".", 1)
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
 
@@ -321,7 +266,7 @@ class CrawlerSettings(BaseSettings):
 
         loaded_plugins = []
         for plugin_path in self.plugins:
-            module_path, class_name = plugin_path.rsplit('.', 1)
+            module_path, class_name = plugin_path.rsplit(".", 1)
             module = importlib.import_module(module_path)
             plugin_class = getattr(module, class_name)
             loaded_plugins.append(plugin_class())

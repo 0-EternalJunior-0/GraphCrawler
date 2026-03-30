@@ -48,9 +48,7 @@ class IncrementalCrawlStrategy:
         self.event_bus = event_bus
 
         if config.incremental and base_graph:
-            logger.info(
-                f" Incremental mode enabled (strategy={config.change_detection_strategy})"
-            )
+            logger.info(" Incremental mode enabled (strategy=%s)", config.change_detection_strategy)
 
     def should_process_node_links(self, node: Node) -> bool:
         """
@@ -76,24 +74,24 @@ class IncrementalCrawlStrategy:
 
         # Якщо ноди немає в старому графі → нова сторінка
         if old_node is None:
-            logger.debug(f" New page detected: {node.url}")
+            logger.debug(" New page detected: %s", node.url)
             return True
 
         # Перевіряємо чи можна порівнювати ноди
         if not self._can_compare_nodes(old_node, node):
-            logger.debug(f" Cannot compare nodes (unscanned or no hash): {node.url}")
+            logger.debug(" Cannot compare nodes (unscanned or no hash): %s", node.url)
             return True  # Обробляємо на всяк випадок
 
         # Детекція змін залежно від стратегії
         changed = self._detect_changes(old_node, node)
 
         if changed:
-            logger.debug(f" Changed page detected: {node.url}")
+            logger.debug(" Changed page detected: %s", node.url)
             self._publish_change_event(old_node, node)
             return True
         else:
             # Сторінка не змінилась - пропускаємо обробку посилань
-            logger.debug(f"⏩ Skipping unchanged: {node.url}")
+            logger.debug("⏩ Skipping unchanged: %s", node.url)
             self._publish_unchanged_event(node)
             return False
 
@@ -140,7 +138,7 @@ class IncrementalCrawlStrategy:
         elif strategy == "metadata":
             return self._detect_changes_metadata(old_node, new_node)
         else:
-            logger.warning(f"Unknown strategy '{strategy}', using 'hash'")
+            logger.warning("Unknown strategy '%s', using 'hash'", strategy)
             return self._detect_changes_hash(old_node, new_node)
 
     def _detect_changes_hash(self, old_node: Node, new_node: Node) -> bool:

@@ -62,16 +62,16 @@ class DriverContext:
         handlers = self.events.get(event_name, [])
 
         if not handlers:
-            logger.debug(f"No handlers for event '{event_name}'")
+            logger.debug("No handlers for event '%s'", event_name)
             return
 
-        logger.debug(f"Emitting event '{event_name}' to {len(handlers)} handlers")
+        logger.debug("Emitting event '%s' to %s handlers", event_name, len(handlers))
 
         for handler in handlers:
             try:
                 handler(self, **event_data)
             except Exception as e:
-                logger.error(f"Error in event handler for '{event_name}': {e}")
+                logger.error("Error in event handler for '%s': %s", event_name, e)
                 self.errors.append(e)
 
     def subscribe(self, event_name: str, handler: Callable):
@@ -89,7 +89,7 @@ class DriverContext:
             self.events[event_name] = []
 
         self.events[event_name].append(handler)
-        logger.debug(f"Subscribed to event '{event_name}'")
+        logger.debug("Subscribed to event '%s'", event_name)
 
     def cancel(self, reason: str = "Cancelled by plugin"):
         """
@@ -101,7 +101,7 @@ class DriverContext:
             reason: Причина скасування
         """
         self.cancelled = True
-        logger.info(f"Execution cancelled: {reason}")
+        logger.info("Execution cancelled: %s", reason)
         self.data["cancellation_reason"] = reason
 
     def has_error(self) -> bool:

@@ -1,4 +1,4 @@
-"""Content extraction CustomPlugins for article extraction."""
+"""Content extraction plugins for article extraction."""
 
 from graph_crawler.extensions.plugins.node.content_extractors.base import (
     BaseContentExtractor,

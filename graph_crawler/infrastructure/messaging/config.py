@@ -62,29 +62,9 @@ class DistributedDatabaseConfig(BaseModel):
     """Конфігурація БД для збереження результатів.
 
     Підтримує три типи:
-    - 'memory': Зберігання в RAM (для малих сайтів <1000 сторінок)
-    - 'mongodb': MongoDB база даних
-    - 'postgresql': PostgreSQL база даних
-
-    Attributes:
-        type: Тип БД ('memory', 'mongodb' або 'postgresql')
-        host: Адреса сервера БД (не потрібно для memory)
-        port: Порт БД (не потрібно для memory)
-        database: Назва бази даних (не потрібно для memory)
-        username: Ім'я користувача (опціонально)
-        password: Пароль (опціонально)
-
     Example:
         # Memory storage (локальне)
         db = DistributedDatabaseConfig(type="memory")
-
-        # MongoDB
-        db = DistributedDatabaseConfig(
-            type="mongodb",
-            host="server12.example.com",
-            port=27017,
-            database="crawler_results"
-        )
     """
 
     type: Literal["memory", "mongodb", "postgresql"]
@@ -148,26 +128,11 @@ class CrawlTaskConfig(BaseModel):
     """Конфігурація задачі краулінгу.
 
     Attributes:
-        urls: Список початкових URL для краулінгу
-        max_depth: Максимальна глибина краулінгу
-        max_pages: Максимальна кількість сторінок (опціонально)
-        extractors: Shortcut aliases для стандартних extractors ('phones', 'emails', 'prices')
-        plugins: Список плагінів як повні import paths
-
     Example:
         # Використання aliases (зручно)
         task = CrawlTaskConfig(
             urls=["https://example.com"],
             extractors=["phones", "emails"]
-        )
-
-        # Використання повних import paths (гнучко)
-        task = CrawlTaskConfig(
-            urls=["https://example.com"],
-            CustomPlugins=[
-                "graph_crawler.CustomPlugins.node.extractors.PhoneExtractorPlugin",
-                "myapp.CustomPlugins.CustomPlugin"
-            ]
         )
     """
 
@@ -182,33 +147,12 @@ class DistributedCrawlConfig(BaseModel):
     """Головна конфігурація distributed crawling.
 
     Attributes:
-        broker: Конфігурація Celery брокера
-        database: Конфігурація БД для результатів
-        proxy: Конфігурація proxy (опціонально)
-        crawl_task: Конфігурація задачі краулінгу
-        workers: Кількість Celery workers
-        task_time_limit: Ліміт часу виконання задачі (секунди)
-        worker_prefetch_multiplier: Префетч множник для workers
-
     Example:
         # З memory storage (локально)
         config = DistributedCrawlConfig(
             broker=DistributedBrokerConfig(host="server.com"),
             database=DistributedDatabaseConfig(type="memory"),
             crawl_task=CrawlTaskConfig(urls=["https://example.com"])
-        )
-
-        # З MongoDB
-        config = DistributedCrawlConfig(
-            broker=DistributedBrokerConfig(...),
-            database=DistributedDatabaseConfig(
-                type="mongodb",
-                host="localhost",
-                port=27017,
-                database="results"
-            ),
-            crawl_task=CrawlTaskConfig(...),
-            workers=10
         )
     """
 
@@ -249,7 +193,7 @@ def load_config(yaml_path: str) -> DistributedCrawlConfig:
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {yaml_path}")
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     return DistributedCrawlConfig(**data)

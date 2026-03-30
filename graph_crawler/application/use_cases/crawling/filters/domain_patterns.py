@@ -7,7 +7,7 @@ DEPRECATED: Use graph_crawler.domain.value_objects.domain_patterns instead.
 Example:
     # Old (deprecated but still works):
     from graph_crawler.application.use_cases.crawling.filters.domain_patterns import AllowedDomains
-    
+
     # New (recommended):
     from graph_crawler.domain.value_objects.domain_patterns import AllowedDomains
 """
@@ -22,9 +22,6 @@ warnings.warn(
     "Importing AllowedDomains from application.use_cases.crawling.filters.domain_patterns "
     "is deprecated. Import from graph_crawler.domain.value_objects.domain_patterns instead.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
-
-# ==================== EXPORT ====================
-
 __all__ = ["AllowedDomains"]

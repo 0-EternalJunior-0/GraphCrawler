@@ -29,10 +29,10 @@ from graph_crawler.application.use_cases.crawling.sitemap_processor import (
 )
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.events import CrawlerEvent, EventBus, EventType
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.storage import IStorage
 from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.value_objects.models import URLRule
-from graph_crawler.infrastructure.persistence.base import BaseStorage
-from graph_crawler.infrastructure.transport.base import BaseDriver
+from graph_crawler.domain.value_objects.models import Rule
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +40,6 @@ logger = logging.getLogger(__name__)
 class SitemapSpider(BaseSpider):
     """
     Async-First Spider для краулінгу sitemap структури .
-
-    Responsibilities:
-    - Координує процес краулінгу sitemap
-    - Використовує SitemapParser для парсингу XML
-    - Делегує обробку даних до SitemapProcessor
-    - Публікує події через EventBus
-
-    Архітектура (Single Responsibility):
-    - SitemapSpider - координує процес
-    - SitemapParser - парсить XML файли
-    - SitemapProcessor - будує граф
-    - EventBus - публікація подій
-
-    Граф структура:
-        robots.txt (root)
-            ↓
-        sitemap_index.xml
-            ↓
-         sitemap-posts.xml (URLs: 100)
-         sitemap-pages.xml (URLs: 50)
-         sitemap-products.xml (URLs: 200)
 
     Example:
         >>> async with SitemapSpider(config, driver, storage) as spider:
@@ -71,16 +50,18 @@ class SitemapSpider(BaseSpider):
     def __init__(
         self,
         config: CrawlerConfig,
-        driver: BaseDriver,
-        storage: BaseStorage,
+        driver: IDriver,
+        storage: IStorage,
         event_bus: Optional[EventBus] = None,
         graph: Optional[Graph] = None,
         parser: Optional[SitemapParser] = None,
         processor: Optional[SitemapProcessor] = None,
         include_urls: bool = True,
         max_urls: Optional[int] = None,
-        url_rules: Optional[list[URLRule]] = None,
+        url_rules: Optional[list[Rule]] = None,
         max_sitemaps: Optional[int] = None,
+        http_client: str = "requests",
+        browser_config: Optional[dict] = None,
     ):
         """
         Ініціалізує SitemapSpider.
@@ -97,6 +78,10 @@ class SitemapSpider(BaseSpider):
             max_urls: Максимальна кількість URL для обробки (None = всі)
             url_rules: Правила для фільтрації та пріоритизації sitemap URLs
             max_sitemaps: Максимальна кількість sitemap файлів для обробки (None = всі)
+            http_client: HTTP клієнт для sync запитів:
+                - "requests" (default): стандартний requests
+                - "cloudscraper": для обходу Cloudflare захисту
+            browser_config: Конфігурація браузера для cloudscraper (optional)
         """
         super().__init__(config, driver, storage, event_bus)
 
@@ -106,12 +91,18 @@ class SitemapSpider(BaseSpider):
         self.max_urls = max_urls
         self.url_rules = url_rules or []
         self.max_sitemaps = max_sitemaps
+        self.http_client = http_client
+        self.browser_config = browser_config
 
         # DI: Parser (fallback якщо не передано)
         self.parser = (
             parser
             if parser is not None
-            else SitemapParser(user_agent=config.get_user_agent())
+            else SitemapParser(
+                user_agent=config.get_user_agent(),
+                http_client=http_client,
+                browser_config=browser_config,
+            )
         )
 
         # DI: Processor (fallback якщо не передано)
@@ -138,7 +129,8 @@ class SitemapSpider(BaseSpider):
             f"parser={'injected' if parser else 'created'}, "
             f"processor={'injected' if processor else 'created'}, "
             f"url_rules={len(self.url_rules)} rules, "
-            f"max_sitemaps={max_sitemaps}"
+            f"max_sitemaps={max_sitemaps}, "
+            f"http_client={http_client}"
         )
 
     async def crawl(self, base_graph: Optional[Graph] = None) -> Graph:
@@ -165,10 +157,8 @@ class SitemapSpider(BaseSpider):
             )
         )
 
-        logger.info(f"Starting async sitemap crawl: {self.config.url}")
-        logger.info(
-            f"Config: include_urls={self.include_urls}, max_urls={self.max_urls}"
-        )
+        logger.info("Starting async sitemap crawl: %s", self.config.url)
+        logger.info("Config: include_urls=%s, max_urls=%s", self.include_urls, self.max_urls)
 
         try:
             # Крок 1: Парсимо robots.txt та отримуємо sitemap URLs
@@ -188,19 +178,16 @@ class SitemapSpider(BaseSpider):
                 # Сортуємо за пріоритетом якщо є url_rules
                 if self.url_rules:
                     sitemap_urls = self._sort_sitemaps_by_priority(sitemap_urls)
-                    logger.info(f"Sorted {len(sitemap_urls)} sitemaps by priority")
+                    logger.info("Sorted %s sitemaps by priority", len(sitemap_urls))
 
                 # Обробляємо кожен sitemap
                 for sitemap_url in sitemap_urls:
-                    # Перевіряємо глобальний прапор max_urls
                     if self._max_urls_reached:
                         logger.info(
                             f"Stopping crawl: max_urls limit reached. "
                             f"URLs extracted: {self.urls_extracted}"
                         )
                         break
-
-                    # Перевіряємо чи досягли ліміту sitemaps
                     if self.max_sitemaps and self.sitemaps_processed >= self.max_sitemaps:
                         logger.info(
                             f"Reached max_sitemaps limit: {self.max_sitemaps}. "
@@ -209,17 +196,15 @@ class SitemapSpider(BaseSpider):
                         break
 
                     try:
-                        await self._process_sitemap(
-                            sitemap_url, parent_url=robots_url, depth=1
-                        )
+                        await self._process_sitemap(sitemap_url, parent_url=robots_url, depth=1)
                     except asyncio.TimeoutError:
-                        logger.warning(f"Timeout processing sitemap: {sitemap_url}")
+                        logger.warning("Timeout processing sitemap: %s", sitemap_url)
                         continue
                     except asyncio.CancelledError:
-                        logger.warning(f"Cancelled processing sitemap: {sitemap_url}")
+                        logger.warning("Cancelled processing sitemap: %s", sitemap_url)
                         continue
                     except Exception as e:
-                        logger.warning(f"Error processing sitemap {sitemap_url}: {e}")
+                        logger.warning("Error processing sitemap %s: %s", sitemap_url, e)
                         continue
             else:
                 logger.warning(
@@ -230,10 +215,10 @@ class SitemapSpider(BaseSpider):
             duration = time.time() - start_time
             stats = self.graph.get_stats()
 
-            logger.info(f"Sitemap crawl completed in {duration:.2f}s")
-            logger.info(f"Stats: {stats}")
-            logger.info(f"Sitemaps processed: {self.sitemaps_processed}")
-            logger.info(f"URLs extracted: {self.urls_extracted}")
+            logger.info("Sitemap crawl completed in %.2fs", duration)
+            logger.info("Stats: %s", stats)
+            logger.info("Sitemaps processed: %s", self.sitemaps_processed)
+            logger.info("URLs extracted: %s", self.urls_extracted)
 
             # Подія завершення
             self.event_bus.publish(
@@ -252,7 +237,7 @@ class SitemapSpider(BaseSpider):
 
         except Exception as e:
             self._state = CrawlerState.ERROR
-            logger.error(f"Sitemap crawl error: {e}", exc_info=True)
+            logger.error("Sitemap crawl error: %s", e, exc_info=True)
 
             # Подія помилки
             self.event_bus.publish(
@@ -280,7 +265,7 @@ class SitemapSpider(BaseSpider):
             - error: повідомлення про помилку (якщо є)
         """
         try:
-            logger.info(f"Parsing robots.txt: {robots_url}")
+            logger.info("Parsing robots.txt: %s", robots_url)
             base_url = robots_url.replace("/robots.txt", "")
 
             # Parser.parse_from_robots використовує requests (sync)
@@ -293,7 +278,7 @@ class SitemapSpider(BaseSpider):
             }
 
         except Exception as e:
-            logger.error(f"Failed to parse robots.txt: {e}")
+            logger.error("Failed to parse robots.txt: %s", e)
             return {
                 "sitemap_urls": [],
                 "error": str(e),
@@ -314,9 +299,7 @@ class SitemapSpider(BaseSpider):
             return None
 
         url = url.strip()
-
-        # Якщо вже абсолютний
-        if url.startswith(('http://', 'https://')):
+        if url.startswith(("http://", "https://")):
             return url
 
         # Відносний - перетворюємо в абсолютний
@@ -343,9 +326,7 @@ class SitemapSpider(BaseSpider):
         # Проходимо всі правила
         for rule in self.url_rules:
             try:
-                # Перевіряємо чи URL відповідає патерну
                 if re.search(rule.pattern, sitemap_url):
-                    # Якщо є явна вказівка should_scan
                     if rule.should_scan is not None:
                         should_process = rule.should_scan
 
@@ -359,10 +340,8 @@ class SitemapSpider(BaseSpider):
                     )
 
             except re.error as e:
-                logger.warning(f"Invalid regex pattern in rule: {rule.pattern} - {e}")
+                logger.warning("Invalid regex pattern in rule: %s - %s", rule.pattern, e)
                 continue
-
-        # Якщо жодне правило не встановило should_process - використовуємо default (True)
         if should_process is None:
             should_process = True
 
@@ -380,8 +359,6 @@ class SitemapSpider(BaseSpider):
         """
         if not self.url_rules:
             return sitemap_urls
-
-        # Створюємо список з пріоритетами
         url_with_priority = []
         for url in sitemap_urls:
             should_process, priority = self._should_process_sitemap(url)
@@ -406,56 +383,50 @@ class SitemapSpider(BaseSpider):
         - Додано захист від циклічних sitemap (_processed_sitemaps)
         - Додано timeout на asyncio.to_thread() (SITEMAP_PARSE_TIMEOUT)
         """
-        # КРИТИЧНО: Нормалізуємо URL перед обробкою
+        # Нормалізуємо URL перед обробкою
         normalized_url = self._normalize_sitemap_url(sitemap_url, parent_url)
 
-        if not normalized_url or not normalized_url.startswith(('http://', 'https://')):
-            logger.error(f"Invalid sitemap URL after normalization: {sitemap_url} -> {normalized_url}")
+        if not normalized_url or not normalized_url.startswith(("http://", "https://")):
+            logger.error(
+                f"Invalid sitemap URL after normalization: {sitemap_url} -> {normalized_url}"
+            )
             # НЕ падаємо - просто логуємо та пропускаємо
             return
 
         sitemap_url = normalized_url
-
-        # Перевіряємо чи вже обробляли цей sitemap
         if sitemap_url in self._processed_sitemaps:
-            logger.warning(f"Cycle detected! Skipping already processed sitemap: {sitemap_url}")
+            logger.warning("Cycle detected! Skipping already processed sitemap: %s", sitemap_url)
             self.sitemaps_skipped += 1
             return
 
         # Додаємо до множини оброблених ДО обробки (щоб уникнути race condition)
         self._processed_sitemaps.add(sitemap_url)
-
-        # Перевіряємо чи треба обробляти цей sitemap (url_rules)
         should_process, priority = self._should_process_sitemap(sitemap_url)
 
         if not should_process:
-            logger.info(f"Skipping sitemap (url_rules): {sitemap_url}")
+            logger.info("Skipping sitemap (url_rules): %s", sitemap_url)
             self.sitemaps_skipped += 1
             return
-
-        # Перевіряємо ліміт глибини
         if depth > self.config.max_depth:
-            logger.info(f"Skipping sitemap (max_depth={self.config.max_depth}): {sitemap_url}")
+            logger.info("Skipping sitemap (max_depth=%s): %s", self.config.max_depth, sitemap_url)
             self.sitemaps_skipped += 1
             return
-
-        # Перевіряємо ліміт кількості sitemap
         if self.max_sitemaps and self.sitemaps_processed >= self.max_sitemaps:
-            logger.info(f"Skipping sitemap (max_sitemaps={self.max_sitemaps}): {sitemap_url}")
+            logger.info("Skipping sitemap (max_sitemaps=%s): %s", self.max_sitemaps, sitemap_url)
             self.sitemaps_skipped += 1
             return
 
-        logger.info(f"Processing sitemap: {sitemap_url} (depth={depth}, priority={priority})")
+        logger.info("Processing sitemap: %s (depth=%s, priority=%s)", sitemap_url, depth, priority)
 
         try:
             # Раніше asyncio.to_thread() міг зависати назавжди
             try:
                 sitemap_data = await asyncio.wait_for(
                     asyncio.to_thread(self.parser.parse_sitemap, sitemap_url),
-                    timeout=SITEMAP_PARSE_TIMEOUT
+                    timeout=SITEMAP_PARSE_TIMEOUT,
                 )
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout parsing sitemap ({SITEMAP_PARSE_TIMEOUT}s): {sitemap_url}")
+                logger.warning("Timeout parsing sitemap (%ss): %s", SITEMAP_PARSE_TIMEOUT, sitemap_url)
                 self.processor.create_error_node(
                     url=sitemap_url,
                     parent_url=parent_url,
@@ -463,14 +434,12 @@ class SitemapSpider(BaseSpider):
                     depth=depth,
                 )
                 return
-
-            # Перевіряємо що знайдено
             has_nested_sitemaps = len(sitemap_data.get("sitemap_indexes", [])) > 0
             has_urls = len(sitemap_data.get("urls", [])) > 0
 
             if not has_nested_sitemaps and not has_urls:
                 # Порожній або невалідний sitemap - логуємо але НЕ падаємо
-                logger.warning(f"Empty or invalid sitemap: {sitemap_url}")
+                logger.warning("Empty or invalid sitemap: %s", sitemap_url)
                 try:
                     self.processor.create_error_node(
                         url=sitemap_url,
@@ -479,7 +448,7 @@ class SitemapSpider(BaseSpider):
                         depth=depth,
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to create error node for {sitemap_url}: {e}")
+                    logger.warning("Failed to create error node for %s: %s", sitemap_url, e)
                 return
 
             # Випадок 1: Sitemap Index (містить посилання на інші sitemaps)
@@ -497,17 +466,14 @@ class SitemapSpider(BaseSpider):
                 # Сортуємо вкладені sitemaps за пріоритетом якщо є url_rules
                 if self.url_rules:
                     nested_sitemap_urls = self._sort_sitemaps_by_priority(nested_sitemap_urls)
-                    logger.debug(f"Sorted {len(nested_sitemap_urls)} nested sitemaps by priority")
+                    logger.debug("Sorted %s nested sitemaps by priority", len(nested_sitemap_urls))
 
                 # Рекурсивно обробляємо вкладені sitemaps
                 for nested_sitemap_url in nested_sitemap_urls:
                     try:
-                        # Перевіряємо глобальний прапор max_urls
                         if self._max_urls_reached:
                             logger.info("Stopping nested processing: max_urls limit reached")
                             break
-
-                        # Перевіряємо ліміт перед рекурсією
                         if self.max_sitemaps and self.sitemaps_processed >= self.max_sitemaps:
                             logger.info("Reached max_sitemaps limit during nested processing")
                             break
@@ -516,7 +482,7 @@ class SitemapSpider(BaseSpider):
                             nested_sitemap_url, parent_url=sitemap_url, depth=depth + 1
                         )
                     except Exception as e:
-                        logger.error(f"Error processing nested sitemap {nested_sitemap_url}: {e}")
+                        logger.error("Error processing nested sitemap %s: %s", nested_sitemap_url, e)
                         # Продовжуємо з наступним, не падаємо
 
             # Випадок 2: Звичайний Sitemap (містить URLs)
@@ -530,8 +496,6 @@ class SitemapSpider(BaseSpider):
                 )
 
                 self.sitemaps_processed += 1
-
-                # Створюємо Node для кожного URL (якщо include_urls=True)
                 if self.include_urls:
                     url_nodes = self.processor.create_url_nodes(
                         url_list=url_list,
@@ -540,16 +504,14 @@ class SitemapSpider(BaseSpider):
                         max_urls=self.max_urls,
                     )
                     self.urls_extracted += len(url_nodes)
-
-                    # Перевіряємо ліміт URL
                     if self.max_urls and self.urls_extracted >= self.max_urls:
-                        logger.info(f"Reached max_urls limit: {self.max_urls}. Stopping crawl.")
+                        logger.info("Reached max_urls limit: %s. Stopping crawl.", self.max_urls)
                         self._max_urls_reached = True
                         return
 
         except Exception as e:
-            logger.error(f"Error processing sitemap {sitemap_url}: {e}")
-            # КРИТИЧНО: Ловимо всі винятки та продовжуємо роботу
+            logger.error("Error processing sitemap %s: %s", sitemap_url, e)
+            # Ловимо всі винятки та продовжуємо роботу
             try:
                 self.processor.create_error_node(
                     url=sitemap_url,
@@ -559,7 +521,7 @@ class SitemapSpider(BaseSpider):
                 )
             except Exception as inner_e:
                 # Навіть якщо не вдалося створити error node - не падаємо
-                logger.error(f"Failed to create error node: {inner_e}")
+                logger.error("Failed to create error node: %s", inner_e)
 
     def get_stats(self) -> dict:
         """

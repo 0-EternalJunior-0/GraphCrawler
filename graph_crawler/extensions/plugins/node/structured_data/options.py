@@ -45,7 +45,7 @@ class StructuredDataOptions(BaseModel):
     include_nested: bool = True
     normalize_types: bool = True  # "schema.org/Product" -> "Product"
 
-    @field_validator('allowed_types')
+    @field_validator("allowed_types")
     @classmethod
     def validate_allowed_types(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         """Валідація allowed_types."""

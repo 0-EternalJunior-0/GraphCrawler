@@ -1,11 +1,4 @@
-"""Базовий абстрактний драйвер для сканування.
-
-Features:
-- Всі методи async (fetch, fetch_many, close)
-- Async context manager (__aenter__, __aexit__)
-- Всі драйвери підтримують batch fetching
-- SSRF Protection: Автоматична валідація URL перед запитом
-"""
+"""Базовий абстрактний драйвер для сканування з SSRF Protection."""
 
 import asyncio
 import logging
@@ -33,25 +26,9 @@ class DriverType(str, Enum):
 
 
 class BaseDriver(EventPublisherMixin, ABC, IDriver):
-    """
-    Async-First базовий клас для всіх драйверів .
+    """Async-First базовий клас для всіх драйверів з SSRF Protection."""
 
-    Всі операції виконуються асинхронно для максимальної продуктивності.
-    Sync wrappers видалено - використовуйте asyncio.run() для запуску.
-
-    SSRF Protection:
-    Всі URL автоматично перевіряються на безпеку перед запитом.
-    Блокуються: приватні IP, localhost, AWS metadata, небезпечні порти.
-
-    Всі драйвери повинні реалізувати:
-    1. async fetch() - завантаження однієї сторінки
-    2. async fetch_many() - batch завантаження (паралельно)
-    3. async close() - закриття ресурсів
-    """
-
-    def __init__(
-        self, config: Dict[str, Any] = None, event_bus: Optional[EventBus] = None
-    ):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, event_bus: Optional[EventBus] = None):
         """
         Ініціалізація драйвера.
 
@@ -83,7 +60,6 @@ class BaseDriver(EventPublisherMixin, ABC, IDriver):
 
         Args:
             url: URL сторінки для завантаження
-
         Returns:
             FetchResponse об'єкт з даними:
             - url: str (оригінальний URL запиту)
@@ -93,17 +69,6 @@ class BaseDriver(EventPublisherMixin, ABC, IDriver):
             - error: Optional[str]
             - final_url: Optional[str] (фінальний URL після редіректів, або None)
             - redirect_chain: List[str] (список проміжних редіректів)
-
-        ВАЖЛИВО для реалізації драйверів:
-            Всі драйвери ПОВИННІ заповнювати final_url та redirect_chain
-            для коректної обробки редіректів у графі.
-
-            Приклад (aiohttp):
-                final_url = str(response.url) if str(response.url) != url else None
-                redirect_chain = [str(r.url) for r in response.history]
-
-            Приклад (playwright):
-                final_url = page.url if page.url != url else None
         """
         pass
 
@@ -235,6 +200,4 @@ class BaseDriver(EventPublisherMixin, ABC, IDriver):
         """
         Створює FetchResponse для випадку помилки.
         """
-        return FetchResponse(
-            url=url, html=None, status_code=None, headers={}, error=error_msg
-        )
+        return FetchResponse(url=url, html=None, status_code=None, headers={}, error=error_msg)

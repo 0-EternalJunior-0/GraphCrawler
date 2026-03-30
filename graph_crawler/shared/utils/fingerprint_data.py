@@ -90,7 +90,6 @@ WEBGL_RENDERERS: List[str] = [
     "ANGLE (Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0)",
 ]
 
-
 __all__ = [
     "COMMON_VIEWPORTS",
     "USER_AGENTS",

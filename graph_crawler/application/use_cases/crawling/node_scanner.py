@@ -6,14 +6,16 @@
 - scan_batch() -> async scan_batch()
 - Підтримка HTTP редіректів через FetchResponse
 - Детекція content_type делегована ContentType.detect() (Domain Layer)
+- Phase 1/2: AI Agent Integration - передача crawl_context та control_channel
 """
+
 import asyncio
 import logging
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import ContentType, FetchResponse
 from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.value_objects.models import ContentType, FetchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,9 @@ class NodeScanner:
         # Визначаємо content_type через Domain Layer метод
         content_type_header = None
         if result and result.headers:
-            content_type_header = result.headers.get("content-type") or result.headers.get("Content-Type")
+            content_type_header = result.headers.get("content-type") or result.headers.get(
+                "Content-Type"
+            )
 
         node.content_type = ContentType.detect(
             content_type_header=content_type_header,
@@ -70,10 +74,15 @@ class NodeScanner:
 
         # Помилка завантаження
         if not result or result.error:
+            error_msg = result.error if result else "Unknown error"
+            status_info = f", status={result.status_code}" if result and result.status_code else ""
             logger.warning(
-                f"Failed to fetch {node.url}: {result.error if result else 'Unknown error'} "
+                f"Failed to fetch {node.url}: {error_msg}{status_info} "
                 f"[content_type={node.content_type.value}]"
             )
+            # Логуємо окремо 403 помилки для кращої видимості
+            if result and result.status_code == 403:
+                logger.warning("HTTP 403 FORBIDDEN: %s - можливо anti-bot захист", node.url)
             node.mark_as_scanned()
             return ([], result, False)
 
@@ -94,9 +103,7 @@ class NodeScanner:
 
         # Не scannable контент (image, pdf, etc.)
         if not node.content_type.is_scannable():
-            logger.debug(
-                f"Non-scannable content type for {node.url}: {node.content_type.value}"
-            )
+            logger.debug("Non-scannable content type for %s: %s", node.url, node.content_type.value)
             node.mark_as_scanned()
             return ([], result, False)
 
@@ -112,21 +119,28 @@ class NodeScanner:
             redirect_info = f" [REDIRECT: {result.url} -> {result.final_url}]"
 
         logger.info(
-            f"Scanned: {node.url} - {len(links)} links found "
+            f"Scanned: {node.url} [{node.response_status}] - {len(links)} links found "
             f"[content_type={node.content_type.value}]{redirect_info}"
         )
 
-    async def scan_node(self, node: Node) -> Tuple[List[str], Optional[FetchResponse]]:
+    async def scan_node(
+        self,
+        node: Node,
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
+    ) -> Tuple[List[str], Optional[FetchResponse]]:
         """
         Async сканує один вузол (сторінку).
 
         Args:
             node: Вузол для сканування
+            crawl_context: Глобальний CrawlContext для AI Agent Integration (Phase 1)
+            control_channel: Канал керування для AI Agent Integration (Phase 2)
 
         Returns:
             Tuple (список знайдених URL посилань, FetchResponse з redirect info)
         """
-        logger.debug(f"Scanning node: {node.url}")
+        logger.debug("Scanning node: %s", node.url)
 
         try:
             # Async завантажуємо сторінку через driver
@@ -138,22 +152,30 @@ class NodeScanner:
             if not should_process:
                 return (links, result)
 
-            # Обробляємо HTML через плагіни
-            html = result.html
-            links = await node.process_html(html)
+            # Обробляємо HTML через плагіни з передачею context (Phase 1/2)
+            if result is not None and result.html is not None:
+                html = result.html
+                links = await node.process_html(
+                    html,
+                    crawl_context=crawl_context,
+                    control_channel=control_channel,
+                )
             node.mark_as_scanned()
 
             self._log_scan_result(node, links, result)
             return (links, result)
 
         except Exception as e:
-            logger.error(f"Error scanning {node.url}: {e}")
+            logger.error("Error scanning %s: %s", node.url, e)
             node.content_type = ContentType.ERROR
             node.mark_as_scanned()
             return ([], None)
 
     async def scan_batch(
-            self, nodes: List[Node]
+        self,
+        nodes: List[Node],
+        crawl_context: Optional[Any] = None,
+        control_channel: Optional[Any] = None,
     ) -> List[Tuple[Node, List[str], Optional[FetchResponse]]]:
         """
         Async сканує батч вузлів ПАРАЛЕЛЬНО.
@@ -162,6 +184,8 @@ class NodeScanner:
 
         Args:
             nodes: Список вузлів для сканування
+            crawl_context: Глобальний CrawlContext для AI Agent Integration (Phase 1)
+            control_channel: Канал керування для AI Agent Integration (Phase 2)
 
         Returns:
             Список кортежів (node, links, fetch_response)
@@ -171,12 +195,14 @@ class NodeScanner:
 
         # Async паралельно завантажуємо всі URLs
         urls = [node.url for node in nodes]
-        logger.info(f"Fetching batch: {len(urls)} URLs")
+        logger.info("Fetching batch: %s URLs", len(urls))
 
         results = await self.driver.fetch_many(urls)
 
         # Паралельна обробка HTML через asyncio.gather()
-        async def process_single(node: Node, result: Optional[FetchResponse]) -> Tuple[Node, List[str], Optional[FetchResponse]]:
+        async def process_single(
+            node: Node, result: Optional[FetchResponse]
+        ) -> Tuple[Node, List[str], Optional[FetchResponse]]:
             """Обробляє одну ноду асинхронно."""
             try:
                 # Обробляємо результат через спільний метод
@@ -185,16 +211,21 @@ class NodeScanner:
                 if not should_process:
                     return (node, links, result)
 
-                # Обробляємо HTML через плагіни (async!)
-                html = result.html
-                links = await node.process_html(html)
+                # Обробляємо HTML через плагіни з передачею context (Phase 1/2)
+                if result is not None and result.html is not None:
+                    html = result.html
+                    links = await node.process_html(
+                        html,
+                        crawl_context=crawl_context,
+                        control_channel=control_channel,
+                    )
                 node.mark_as_scanned()
 
                 self._log_scan_result(node, links, result)
                 return (node, links, result)
 
             except Exception as e:
-                logger.error(f"Error scanning {node.url}: {e}")
+                logger.error("Error scanning %s: %s", node.url, e)
                 node.content_type = ContentType.ERROR
                 node.mark_as_scanned()
                 return (node, [], None)
@@ -204,4 +235,3 @@ class NodeScanner:
         scan_results = await asyncio.gather(*tasks, return_exceptions=False)
 
         return list(scan_results)
-

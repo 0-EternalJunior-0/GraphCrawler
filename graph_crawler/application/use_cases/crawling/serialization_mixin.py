@@ -43,17 +43,11 @@ class ConfigSerializationMixin:
         config_dict = self.config.model_dump(
             exclude={"node_plugins", "custom_node_class", "custom_edge_class", "driver"}
         )
-
-        # ========== СЕРІАЛІЗАЦІЯ ПЛАГІНІВ ==========
         config_dict["_plugin_paths"] = self._serialize_plugins()
-
-        # ========== СЕРІАЛІЗАЦІЯ CUSTOM NODE CLASS ==========
         if self.config.custom_node_class:
             config_dict["_custom_node_class"] = self._get_class_import_path(
                 self.config.custom_node_class
             )
-
-        # ========== СЕРІАЛІЗАЦІЯ ДРАЙВЕРА ==========
         driver_config = self._serialize_driver(self.driver)
         if driver_config:
             config_dict["_driver_config"] = driver_config
@@ -101,7 +95,7 @@ class ConfigSerializationMixin:
                 "CustomPlugins": driver_plugin_paths,
             }
         except Exception as e:
-            logger.warning(f"Failed to serialize driver: {e}")
+            logger.warning("Failed to serialize driver: %s", e)
             return None
 
     def _extract_driver_config(self, driver) -> dict:
@@ -189,7 +183,7 @@ def import_class_from_path(import_path: str):
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
     except Exception as e:
-        logger.error(f"Failed to import class {import_path}: {e}")
+        logger.error("Failed to import class %s: %s", import_path, e)
         return None
 
 
@@ -211,7 +205,7 @@ def create_instance_from_path(import_path: str, *args, **kwargs):
     try:
         return cls(*args, **kwargs)
     except Exception as e:
-        logger.error(f"Failed to create instance of {import_path}: {e}")
+        logger.error("Failed to create instance of %s: %s", import_path, e)
         return None
 
 

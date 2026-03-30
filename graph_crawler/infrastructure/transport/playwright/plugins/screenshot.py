@@ -10,7 +10,7 @@ Screenshot плагін для Playwright драйвера.
 import hashlib
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from graph_crawler.infrastructure.transport.base_plugin import BaseDriverPlugin
@@ -41,9 +41,7 @@ class ScreenshotPlugin(BaseDriverPlugin):
         ))
     """
 
-    def __init__(
-        self, config: Dict[str, Any] = None, priority: int = EventPriority.LOW
-    ):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, priority: int = EventPriority.LOW):
         """Ініціалізація з низьким пріоритетом."""
         super().__init__(config, priority)
         self._screenshots_taken = 0
@@ -79,9 +77,7 @@ class ScreenshotPlugin(BaseDriverPlugin):
 
         return events
 
-    async def _take_screenshot(
-        self, page, ctx: BrowserContext, suffix: str = ""
-    ) -> str:
+    async def _take_screenshot(self, page, ctx: BrowserContext, suffix: str = "") -> str:
         """
         Робить скріншот.
 
@@ -107,7 +103,7 @@ class ScreenshotPlugin(BaseDriverPlugin):
         await page.screenshot(path=str(screenshot_path), full_page=full_page)
 
         self._screenshots_taken += 1
-        logger.info(f"Screenshot saved: {screenshot_path}")
+        logger.info("Screenshot saved: %s", screenshot_path)
 
         return str(screenshot_path)
 
@@ -120,7 +116,7 @@ class ScreenshotPlugin(BaseDriverPlugin):
             path = await self._take_screenshot(ctx.page, ctx, "navigation")
             ctx.data["screenshot_navigation"] = path
         except Exception as e:
-            logger.error(f"Error taking navigation screenshot: {e}")
+            logger.error("Error taking navigation screenshot: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -135,7 +131,7 @@ class ScreenshotPlugin(BaseDriverPlugin):
             ctx.data["screenshot_content"] = path
             ctx.screenshot_path = path
         except Exception as e:
-            logger.error(f"Error taking content screenshot: {e}")
+            logger.error("Error taking content screenshot: %s", e)
             ctx.errors.append(e)
 
         return ctx
@@ -149,9 +145,9 @@ class ScreenshotPlugin(BaseDriverPlugin):
             captcha_type = event_data.get("captcha_type", "unknown")
             path = await self._take_screenshot(ctx.page, ctx, f"captcha_{captcha_type}")
             ctx.data["screenshot_captcha"] = path
-            logger.info(f"CAPTCHA screenshot saved: {path}")
+            logger.info("CAPTCHA screenshot saved: %s", path)
         except Exception as e:
-            logger.error(f"Error taking CAPTCHA screenshot: {e}")
+            logger.error("Error taking CAPTCHA screenshot: %s", e)
 
     async def on_plugin_error(self, ctx: BrowserContext, **event_data):
         """Скріншот при помилці плагіна."""
@@ -162,9 +158,9 @@ class ScreenshotPlugin(BaseDriverPlugin):
             plugin_name = event_data.get("plugin_name", "unknown")
             path = await self._take_screenshot(ctx.page, ctx, f"error_{plugin_name}")
             ctx.data["screenshot_error"] = path
-            logger.info(f"Error screenshot saved: {path}")
+            logger.info("Error screenshot saved: %s", path)
         except Exception as e:
-            logger.error(f"Error taking error screenshot: {e}")
+            logger.error("Error taking error screenshot: %s", e)
 
     def get_stats(self) -> Dict[str, Any]:
         """Statistics including screenshots taken."""

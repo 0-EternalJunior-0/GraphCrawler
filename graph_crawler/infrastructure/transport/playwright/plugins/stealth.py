@@ -19,25 +19,6 @@ class StealthPlugin(BaseDriverPlugin):
     """
     Stealth плагін для обходу anti-bot систем.
 
-    Інжектить JavaScript скрипти для:
-    - Приховання navigator.webdriver
-    - Canvas fingerprinting evasion
-    - WebGL fingerprinting evasion
-    - Plugin spoofing
-    - Тощо
-
-    Конфігурація:
-        stealth_mode: Рівень stealth ('low', 'medium', 'high') (default: 'high')
-        hide_webdriver: Приховати webdriver (default: True)
-        spoof_fingerprint: Підмінити fingerprint (default: True)
-        randomize_viewport: Випадковий viewport (default: False)
-
-    Приклад:
-        plugin = StealthPlugin(StealthPlugin.config(
-            stealth_mode='high',
-            hide_webdriver=True,
-            spoof_fingerprint=True
-        ))
     """
 
     @property
@@ -102,33 +83,12 @@ class StealthPlugin(BaseDriverPlugin):
             )
 
         if stealth_mode == "high":
-            # Plugin array spoofing
-            scripts.append(
-                """
-                Object.defineProperty(navigator, 'CustomPlugins', {
-                    get: () => [
-                        {
-                            0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format"},
-                            description: "Portable Document Format",
-                            filename: "internal-pdf-viewer",
-                            length: 1,
-                            name: "Chrome PDF Plugin"
-                        }
-                    ]
-                });
-
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en']
-                });
-
-                const originalQuery = window.navigator.permissions.query;
-                window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                        Promise.resolve({ state: Notification.permission }) :
-                        originalQuery(parameters)
-                );
-            """
+            # Plugin array spoofing - use complete script from base_stealth_scripts
+            from graph_crawler.extensions.plugins.engine.anti_bot_scripts import (
+                base_stealth_scripts,
             )
+            additional_scripts = base_stealth_scripts(self.config)
+            scripts.extend(additional_scripts)
 
         return scripts
 
@@ -154,16 +114,14 @@ class StealthPlugin(BaseDriverPlugin):
             for script in scripts:
                 await ctx.context.add_init_script(script)
 
-            logger.info(
-                f"Injected {len(scripts)} stealth script(s) into browser context"
-            )
+            logger.info("Injected %s stealth script(s) into browser context", len(scripts))
 
             # Зберігаємо в контексті
             ctx.data["stealth_enabled"] = True
             ctx.data["stealth_mode"] = self.config.get("stealth_mode", "high")
 
         except Exception as e:
-            logger.error(f"Error injecting stealth scripts: {e}")
+            logger.error("Error injecting stealth scripts: %s", e)
             ctx.errors.append(e)
 
         return ctx

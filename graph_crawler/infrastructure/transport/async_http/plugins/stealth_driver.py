@@ -99,7 +99,7 @@ class StealthHTTPDriver(BaseDriver):
 
     def __init__(
         self,
-        config: Dict[str, Any] = None,
+        config: Optional[Dict[str, Any]] = None,
         event_bus: Optional["EventBus"] = None,
         plugins: Optional[List[BaseDriverPlugin]] = None,
     ):
@@ -122,17 +122,18 @@ class StealthHTTPDriver(BaseDriver):
                 self.plugin_manager.register(plugin)
 
         logger.info(
-            f"StealthHTTPDriver initialized: "
-            f"curl_cffi={'✅' if self._curl_cffi_available else '❌'}, "
-            f"browser={self.browser_impersonate}, "
-            f"randomize={self.randomize_browser}, "
-            f"plugins={len(self.plugin_manager.plugins)}"
+            "StealthHTTPDriver initialized: curl_cffi=%s, browser=%s, randomize=%s, plugins=%s",
+            "available" if self._curl_cffi_available else "unavailable",
+            self.browser_impersonate,
+            self.randomize_browser,
+            len(self.plugin_manager.plugins)
         )
 
     def _check_curl_cffi(self) -> bool:
         """Перевіряє доступність curl_cffi."""
         try:
-            from curl_cffi.requests import AsyncSession
+            from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found]
+
             return True
         except ImportError:
             logger.warning(
@@ -188,6 +189,7 @@ class StealthHTTPDriver(BaseDriver):
         if not self._curl_cffi_available:
             # Fallback to aiohttp
             import aiohttp
+
             if not self.session or self.session.closed:
                 timeout = aiohttp.ClientTimeout(
                     total=self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
@@ -195,16 +197,18 @@ class StealthHTTPDriver(BaseDriver):
                 self.session = aiohttp.ClientSession(timeout=timeout)
             return self.session
 
-        from curl_cffi.requests import AsyncSession
+        from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found]
 
         if not self.session:
             self.session = AsyncSession()
 
         return self.session
 
-    async def _fetch_with_curl_cffi(self, url: str, browser: str, headers: Dict[str, str]) -> FetchResponse:
+    async def _fetch_with_curl_cffi(
+        self, url: str, browser: str, headers: Dict[str, str]
+    ) -> FetchResponse:
         """Виконує запит через curl_cffi."""
-        from curl_cffi.requests import AsyncSession
+        from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found]
 
         timeout = self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT)
 
@@ -304,8 +308,8 @@ class StealthHTTPDriver(BaseDriver):
                     and attempt < self.max_retries
                 ):
                     logger.warning(
-                        f"🛡️ Cloudflare challenge detected for {url} "
-                        f"(attempt {attempt + 1}/{self.max_retries + 1})"
+                        "[STEALTH] Cloudflare challenge detected for %s (attempt %s/%s)",
+                        url, attempt + 1, self.max_retries + 1
                     )
 
                     # Змінюємо браузер для retry
@@ -313,7 +317,7 @@ class StealthHTTPDriver(BaseDriver):
                     headers = self._get_headers(browser)
 
                     # Exponential backoff
-                    await asyncio.sleep(2 ** attempt + random.uniform(0.5, 1.5))
+                    await asyncio.sleep(2**attempt + random.uniform(0.5, 1.5))
                     continue
 
                 duration = time.time() - start_time
@@ -324,11 +328,12 @@ class StealthHTTPDriver(BaseDriver):
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"Attempt {attempt + 1}/{self.max_retries + 1} failed for {url}: {e}"
+                    "Attempt %s/%s failed for %s: %s",
+                    attempt + 1, self.max_retries + 1, url, e
                 )
 
                 if attempt < self.max_retries:
-                    await asyncio.sleep(2 ** attempt + random.uniform(0.5, 1.5))
+                    await asyncio.sleep(2**attempt + random.uniform(0.5, 1.5))
                     browser = self._get_browser_impersonation()
                     headers = self._get_headers(browser)
 
@@ -358,7 +363,7 @@ class StealthHTTPDriver(BaseDriver):
         if not urls:
             return []
 
-        logger.info(f"Batch fetching {len(urls)} URLs with StealthHTTPDriver")
+        logger.info("Batch fetching %s URLs with StealthHTTPDriver", len(urls))
 
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
@@ -372,13 +377,15 @@ class StealthHTTPDriver(BaseDriver):
         processed = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                processed.append(FetchResponse(
-                    url=urls[i],
-                    html=None,
-                    status_code=None,
-                    headers={},
-                    error=str(result),
-                ))
+                processed.append(
+                    FetchResponse(
+                        url=urls[i],
+                        html=None,
+                        status_code=None,
+                        headers={},
+                        error=str(result),
+                    )
+                )
             else:
                 processed.append(result)
 
@@ -390,7 +397,7 @@ class StealthHTTPDriver(BaseDriver):
     async def close(self) -> None:
         """Закриває session."""
         if self.session:
-            if hasattr(self.session, 'close'):
+            if hasattr(self.session, "close"):
                 if asyncio.iscoroutinefunction(self.session.close):
                     await self.session.close()
                 else:

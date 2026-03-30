@@ -10,12 +10,14 @@ from typing import Any, Optional
 
 # Auto-bootstrap при імпорті модуля
 from graph_crawler.application.bootstrap import bootstrap
+
 bootstrap()
 
 # Використовуємо uvloop якщо доступний для швидшого event loop
 _uvloop_enabled = False
 try:
-    import uvloop
+    import uvloop  # type: ignore[import-not-found]
+
     # Тільки встановлюємо policy якщо event loop ще не запущений
     # Це запобігає RuntimeError при імпорті з вже запущеного async контексту
     try:
@@ -35,75 +37,50 @@ from graph_crawler.api._shared import DriverType, EventCallback, StorageType
 from graph_crawler.domain.entities.edge import Edge
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import URLRule
+from graph_crawler.domain.value_objects.models import Rule
 
 logger = logging.getLogger(__name__)
 
 if _uvloop_enabled:
-    logger.info("✅ uvloop enabled for faster event loop")
+    logger.info(" uvloop enabled for faster event loop")
 
 
 async def async_crawl_impl(
-        url: Optional[str] = None,
-        *,
-        seed_urls: Optional[list[str]] = None,
-        base_graph: Optional[Graph] = None,
-        max_depth: int = 3,
-        max_pages: Optional[int] = 100,
-        same_domain: bool = True,
-        timeout: Optional[int] = None,
-        request_delay: float = 0.5,
-        driver: Optional[DriverType] = None,
-        driver_config: Optional[dict[str, Any]] = None,
-        storage: Optional[StorageType] = None,
-        storage_config: Optional[dict[str, Any]] = None,
-        plugins: Optional[list] = None,
-        node_class: Optional[type[Node]] = None,
-        edge_class: Optional[type[Edge]] = None,
-        url_rules: Optional[list[URLRule]] = None,
-        on_progress: Optional[EventCallback] = None,
-        on_node_scanned: Optional[EventCallback] = None,
-        on_error: Optional[EventCallback] = None,
-        on_completed: Optional[EventCallback] = None,
-        edge_strategy: str = "all",
-        follow_links: bool = True,
-        # LOW-MEMORY MODE
-        low_memory_mode: bool = False,
-        evict_threshold: int = 500,
-        eviction_storage_path: Optional[str] = None,
+    url: Optional[str] = None,
+    *,
+    seed_urls: Optional[list[str]] = None,
+    base_graph: Optional[Graph] = None,
+    max_depth: int = 3,
+    max_pages: Optional[int] = 100,
+    same_domain: bool = True,
+    allowed_domains: Optional[list[str]] = None,
+    timeout: Optional[int] = None,
+    request_delay: float = 0.5,
+    driver: Optional[DriverType] = None,
+    driver_config: Optional[dict[str, Any]] = None,
+    storage: Optional[StorageType] = None,
+    storage_config: Optional[dict[str, Any]] = None,
+    plugins: Optional[list] = None,
+    node_class: Optional[type[Node]] = None,
+    edge_class: Optional[type[Edge]] = None,
+    url_rules: Optional[list[Rule]] = None,
+    on_progress: Optional[EventCallback] = None,
+    on_node_scanned: Optional[EventCallback] = None,
+    on_error: Optional[EventCallback] = None,
+    on_completed: Optional[EventCallback] = None,
+    edge_strategy: str = "all",
+    follow_links: bool = True,
+    # LOW-MEMORY MODE
+    low_memory_mode: bool = False,
+    evict_threshold: int = 500,
+    eviction_storage_path: Optional[str] = None,
+    # AI Agent Integration
+    crawl_context: Optional[Any] = None,
+    control_channel: Optional[Any] = None,
 ) -> Graph:
     """Внутрішня async реалізація crawl з підтримкою множинних seed URLs та incremental crawling.
 
     Використовуємо інтерфейси IDriver, IStorage для іньєкції залежностей.
-    Фабрики викликаються через окремі функції.
-
-    Args:
-        url: URL для краулінгу (використовується якщо seed_urls не передано)
-        seed_urls: Список URL для початку краулінгу (множинні точки входу)
-        base_graph: Існуючий граф для продовження краулінгу
-        max_depth: Максимальна глибина краулінгу
-        max_pages: Максимальна кількість сторінок
-        same_domain: Краулити тільки в межах домену
-        timeout: Timeout для краулінгу (секунди)
-        request_delay: Затримка між запитами
-        driver: Тип драйвера або IDriver об'єкт
-        driver_config: Конфігурація драйвера
-        storage: Тип storage або IStorage об'єкт
-        storage_config: Конфігурація storage
-        plugins: Список плагінів
-        node_class: Кастомний клас Node
-        edge_class: Кастомний клас Edge
-        url_rules: Правила для URL
-        on_progress: Callback для прогресу
-        on_node_scanned: Callback після сканування ноди
-        on_error: Callback при помилці
-        on_completed: Callback після завершення
-        edge_strategy: Стратегія створення edges
-        follow_links: Переходити за посиланнями (True) чи сканувати тільки вказані URL (False)
-        low_memory_mode: Активувати eviction scanned нод на диск
-        evict_threshold: Максимум нод в RAM перед eviction
-        eviction_storage_path: Директорія для eviction storage
-
     Returns:
         Graph об'єкт з результатами краулінгу
     """
@@ -125,19 +102,20 @@ async def async_crawl_impl(
         if base_url is None and seed_urls:
             base_url = seed_urls[0]
         elif base_url is None and base_graph:
-            # Беремо перший URL з графу
-            first_node = next(iter(base_graph.nodes.values()), None)
+            # Беремо перший URL з графу (streaming через iter_nodes)
+            first_node = next(base_graph.iter_nodes(), None)
             if first_node:
                 base_url = first_node.url
 
         if base_url is None:
             raise ValueError("Не вдалося визначити base URL для краулінгу")
 
-        domains = None
-        if same_domain:
-            from graph_crawler.application.use_cases.crawling.filters.domain_patterns import (
-                AllowedDomains,
-            )
+        # Якщо передано allowed_domains напряму - використовуємо їх
+        domains = allowed_domains
+
+        # Якщо allowed_domains не передано, визначаємо за same_domain
+        if domains is None and same_domain:
+            from graph_crawler.domain.value_objects.domain_patterns import AllowedDomains
             from graph_crawler.shared.utils.url_utils import URLUtils
 
             domains = []
@@ -148,15 +126,15 @@ async def async_crawl_impl(
                     root_domain = URLUtils.get_root_domain(seed_url)
                     if root_domain and root_domain not in domains:
                         domains.append(root_domain)
-                        logger.info(f"Added allowed domain from seed_urls: {root_domain}")
+                        logger.info("Added allowed domain from seed_urls: %s", root_domain)
 
-            # При base_graph - витягуємо всі унікальні домени з графу
+            # При base_graph - витягуємо всі унікальні домени з графу (streaming)
             if base_graph and base_graph.nodes:
-                for node in base_graph.nodes.values():
+                for node in base_graph.iter_nodes():
                     root_domain = URLUtils.get_root_domain(node.url)
                     if root_domain and root_domain not in domains:
                         domains.append(root_domain)
-                        logger.info(f"Added allowed domain from base_graph: {root_domain}")
+                        logger.info("Added allowed domain from base_graph: %s", root_domain)
 
             # Якщо не знайдено жодного домену - стандартна поведінка
             if not domains:
@@ -164,7 +142,7 @@ async def async_crawl_impl(
 
         if driver is not None:
             actual_driver = create_driver(driver, driver_config or {})
-            logger.info(f"Created driver: {type(actual_driver).__name__}")
+            logger.info("Created driver: %s", type(actual_driver).__name__)
         else:
             actual_driver = create_driver("http", {})
 
@@ -177,19 +155,13 @@ async def async_crawl_impl(
         repository = GraphRepository()
 
         if on_progress:
-            event_bus.subscribe(
-                EventType.PROGRESS_UPDATE, lambda e: on_progress(e.data)
-            )
+            event_bus.subscribe(EventType.PROGRESS_UPDATE, lambda e: on_progress(e.data))
         if on_node_scanned:
-            event_bus.subscribe(
-                EventType.NODE_SCANNED, lambda e: on_node_scanned(e.data)
-            )
+            event_bus.subscribe(EventType.NODE_SCANNED, lambda e: on_node_scanned(e.data))
         if on_error:
             event_bus.subscribe(EventType.ERROR_OCCURRED, lambda e: on_error(e.data))
         if on_completed:
-            event_bus.subscribe(
-                EventType.CRAWL_COMPLETED, lambda e: on_completed(e.data)
-            )
+            event_bus.subscribe(EventType.CRAWL_COMPLETED, lambda e: on_completed(e.data))
 
         client = GraphCrawlerClient(
             driver=actual_driver,
@@ -218,10 +190,13 @@ async def async_crawl_impl(
             low_memory_mode=low_memory_mode,
             evict_threshold=evict_threshold,
             eviction_storage_path=eviction_storage_path,
+            # AI Agent Integration
+            crawl_context=crawl_context,
+            control_channel=control_channel,
         )
 
         logger.info(
-            f"Crawl completed: {len(graph.nodes)} nodes, {len(graph.edges)} edges"
+            f"Crawl completed: {len(graph.nodes)} nodes, {sum(1 for _ in graph.iter_edges())} edges"
         )
         return graph
 
@@ -231,7 +206,7 @@ async def async_crawl_impl(
                 await actual_driver.close()
                 logger.debug("Driver closed successfully")
         except Exception as e:
-            logger.warning(f"Error shutting down resources: {e}")
+            logger.warning("Error shutting down resources: %s", e)
 
 
 __all__ = ["async_crawl_impl"]

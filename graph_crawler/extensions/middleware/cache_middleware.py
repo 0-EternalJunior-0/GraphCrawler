@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from typing import Optional
+
 from graph_crawler.extensions.middleware.base import (
     BaseMiddleware,
     MiddlewareContext,
@@ -35,7 +37,7 @@ class CacheMiddleware(BaseMiddleware):
         enabled: Увімкнути кеш (default: True)
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self.cache_dir = Path(self.config.get("cache_dir", "/tmp/graph_crawler_cache"))
         self.ttl = self.config.get("ttl", DEFAULT_CACHE_TTL)
@@ -55,14 +57,15 @@ class CacheMiddleware(BaseMiddleware):
         if self.enabled:
             try:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
-                logger.debug(f"Cache directory created: {self.cache_dir}")
+                logger.debug("Cache directory created: %s", self.cache_dir)
             except Exception as e:
-                logger.error(f"Failed to create cache directory: {e}")
+                logger.error("Failed to create cache directory: %s", e)
                 self.enabled = False
 
     def _get_cache_path(self, url: str) -> Path:
         """Генерує шлях до файлу кешу на основі URL."""
-        url_hash = hashlib.md5(url.encode()).hexdigest()
+        # usedforsecurity=False - MD5 використовується для генерації імені файлу, не для безпеки
+        url_hash = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()
         return self.cache_dir / f"{url_hash}.json"
 
     def _is_cache_valid(self, cache_path: Path) -> bool:
@@ -90,10 +93,10 @@ class CacheMiddleware(BaseMiddleware):
             else:
                 with open(cache_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-            logger.debug(f"Cache HIT: {url}")
+            logger.debug("Cache HIT: %s", url)
             return data
         except Exception as e:
-            logger.warning(f"Failed to load cache for {url}: {e}")
+            logger.warning("Failed to load cache for %s: %s", url, e)
             return None
 
     async def _save_to_cache_async(self, url: str, response: dict):
@@ -107,9 +110,9 @@ class CacheMiddleware(BaseMiddleware):
             else:
                 with open(cache_path, "w", encoding="utf-8") as f:
                     json.dump(response, f, ensure_ascii=False)
-            logger.debug(f"Cached: {url}")
+            logger.debug("Cached: %s", url)
         except Exception as e:
-            logger.warning(f"Failed to save cache for {url}: {e}")
+            logger.warning("Failed to save cache for %s: %s", url, e)
 
     def _load_from_cache(self, url: str) -> Optional[dict]:
         """Sync завантажує відповідь з кешу (legacy)."""
@@ -121,10 +124,10 @@ class CacheMiddleware(BaseMiddleware):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            logger.debug(f"Cache HIT: {url}")
+            logger.debug("Cache HIT: %s", url)
             return data
         except Exception as e:
-            logger.warning(f"Failed to load cache for {url}: {e}")
+            logger.warning("Failed to load cache for %s: %s", url, e)
             return None
 
     def _save_to_cache(self, url: str, response: dict):
@@ -134,9 +137,9 @@ class CacheMiddleware(BaseMiddleware):
         try:
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(response, f, ensure_ascii=False)
-            logger.debug(f"Cached: {url}")
+            logger.debug("Cached: %s", url)
         except Exception as e:
-            logger.warning(f"Failed to save cache for {url}: {e}")
+            logger.warning("Failed to save cache for %s: %s", url, e)
 
     async def process(self, context: MiddlewareContext) -> MiddlewareContext:
         """

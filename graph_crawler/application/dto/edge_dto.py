@@ -15,8 +15,8 @@ DTO для передачі даних про Edge між шарами.
 
 # Re-export from shared layer for backward compatibility
 from graph_crawler.shared.dto.edge_dto import (
-    EdgeDTO,
     CreateEdgeDTO,
+    EdgeDTO,
 )
 
 __all__ = [

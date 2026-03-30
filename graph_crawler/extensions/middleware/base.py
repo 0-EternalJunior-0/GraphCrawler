@@ -80,9 +80,7 @@ class BaseMiddleware(EventPublisherMixin, ABC):
             event_bus: Event bus для публікації подій (опціонально, DI)
     """
 
-    def __init__(
-        self, config: Dict[str, Any] = None, event_bus: Optional["EventBus"] = None
-    ):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, event_bus: Optional["EventBus"] = None):
         self.config = config or {}
         self.event_bus = event_bus
         self.enabled = True
@@ -100,24 +98,24 @@ class BaseMiddleware(EventPublisherMixin, ABC):
         pass
 
     @abstractmethod
-    async def process(self, context: MiddlewareContext) -> MiddlewareContext:
+    def process(self, context: MiddlewareContext) -> "MiddlewareContext | Any":
         """
-        Async обробляє контекст .
+        Обробляє контекст (може бути sync або async).
 
         Args:
             context: Контекст з даними
 
         Returns:
-            Оновлений контекст
+            Оновлений контекст (або coroutine що повертає контекст)
         """
         pass
 
-    async def setup(self):
-        """Async ініціалізація middleware."""
+    def setup(self) -> "None | Any":
+        """Ініціалізація middleware (може бути sync або async)."""
         pass
 
-    async def teardown(self):
-        """Async очищення ресурсів middleware."""
+    def teardown(self) -> "None | Any":
+        """Очищення ресурсів middleware (може бути sync або async)."""
         pass
 
     def __repr__(self):

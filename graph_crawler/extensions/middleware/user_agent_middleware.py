@@ -97,50 +97,9 @@ class UserAgentMiddleware(BaseMiddleware):
     """
     Middleware для ротації User-Agent.
 
-    Імітує різні браузери та платформи для обходу простих систем детекції ботів.
-    Містить базу 50+ реальних User-Agent рядків.
-
-    Конфігурація:
-        strategy: Стратегія вибору UA (default: "random")
-            - "random": Випадковий вибір при кожному запиті
-            - "round_robin": По черзі
-            - "sequential": Послідовний (для тестування)
-            - "sticky": Один UA для всіх запитів (вибирається випадково при ініціалізації)
-
-        user_agents: Власний список User-Agent (опціонально)
-            Якщо не вказано - використовується вбудована база
-
-        weights: Ваги для різних категорій браузерів (опціонально)
-            Дозволяє налаштувати розподіл UA за типами браузерів
-
-    Приклади конфігурації:
-
-    1. Базове використання (випадкова ротація):
-        config = {
-            "strategy": "random"
-        }
-
-    2. З власними User-Agents:
-        config = {
-            "strategy": "random",
-            "user_agents": [
-                "Mozilla/5.0...",
-                "Mozilla/5.0...",
-            ]
-        }
-
-    3. Sticky mode (один UA для всієї сесії):
-        config = {
-            "strategy": "sticky"
-        }
-
-    4. Round-robin (по черзі):
-        config = {
-            "strategy": "round_robin"
-        }
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
         self.user_agents: List[str] = []
         self.strategy = "random"
@@ -161,10 +120,10 @@ class UserAgentMiddleware(BaseMiddleware):
         custom_user_agents = self.config.get("user_agents")
         if custom_user_agents:
             self.user_agents = custom_user_agents
-            logger.info(f"Using {len(self.user_agents)} custom User-Agents")
+            logger.info("Using %s custom User-Agents", len(self.user_agents))
         else:
             self.user_agents = USER_AGENTS_DATABASE.copy()
-            logger.info(f"Using {len(self.user_agents)} built-in User-Agents")
+            logger.info("Using %s built-in User-Agents", len(self.user_agents))
 
         if not self.user_agents:
             raise ValueError("User-Agent list is empty")
@@ -176,7 +135,7 @@ class UserAgentMiddleware(BaseMiddleware):
             self.sticky_ua = random.choice(self.user_agents)
             logger.info("Sticky mode: using fixed User-Agent")
 
-        logger.info(f"User-Agent rotation initialized: strategy={self.strategy}")
+        logger.info("User-Agent rotation initialized: strategy=%s", self.strategy)
 
     def _get_next_user_agent(self) -> str:
         """
@@ -254,7 +213,7 @@ class UserAgentMiddleware(BaseMiddleware):
 
         from graph_crawler.shared.constants import UA_DISPLAY_LENGTH
 
-        logger.debug(f"Set User-Agent: {user_agent[:UA_DISPLAY_LENGTH]}...")
+        logger.debug("Set User-Agent: %s...", user_agent)
 
         return context
 
@@ -270,9 +229,9 @@ class UserAgentMiddleware(BaseMiddleware):
         # Топ найбільш використаних UA
         from graph_crawler.shared.constants import UA_DISPLAY_LENGTH, UA_TOP_COUNT
 
-        top_user_agents = sorted(
-            self.usage_stats.items(), key=lambda x: x[1], reverse=True
-        )[:UA_TOP_COUNT]
+        top_user_agents = sorted(self.usage_stats.items(), key=lambda x: x[1], reverse=True)[
+            :UA_TOP_COUNT
+        ]
 
         return {
             "total_user_agents": len(self.user_agents),

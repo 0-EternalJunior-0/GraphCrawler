@@ -5,8 +5,6 @@
 - Достатньо реалізувати методи з Protocol
 - Це дозволяє легко мокати та тестувати
 
-
-
 Note: FetchResponse залишається в domain/value_objects/models.py
       (правильне місце для value objects в Clean Architecture)
 """

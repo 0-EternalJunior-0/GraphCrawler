@@ -15,18 +15,21 @@ from graph_crawler.infrastructure.transport.context import DriverContext
 
 # Type hints (для IDE, реальні імпорти в рантаймі)
 try:
-    from playwright.async_api import (
+    from playwright.async_api import (  # type: ignore[import-not-found]
         Browser,
         Page,
         Response,
     )
-    from playwright.async_api import BrowserContext as PWContext
+    from playwright.async_api import BrowserContext as PWContext  # type: ignore[import-not-found]
+
+    PLAYWRIGHT_TYPES_AVAILABLE = True
 except ImportError:
     # Fallback якщо playwright не встановлено
-    Browser = Any
-    PWContext = Any
-    Page = Any
-    Response = Any
+    Browser = None  # type: ignore[misc,assignment]
+    PWContext = None  # type: ignore[misc,assignment]
+    Page = None  # type: ignore[misc,assignment]
+    Response = None  # type: ignore[misc,assignment]
+    PLAYWRIGHT_TYPES_AVAILABLE = False
 
 
 @dataclass
@@ -34,57 +37,15 @@ class BrowserContext(DriverContext):
     """
     Контекст для Playwright драйвера.
 
-    Найважливіша особливість: доступ до browser, context та page!
-
-    Attributes:
-        url: URL для завантаження
-
-        # Доступ до Playwright об'єктів ( ГОЛОВНЕ!)
-        browser: Browser об'єкт
-        context: BrowserContext об'єкт (тут stealth scripts!)
-        page: Page об'єкт (тут все!)
-
-        # Response дані
-        response: Response об'єкт
-        status_code: HTTP статус
-        response_headers: Response headers
-        html: HTML контент
-        error: Повідомлення про помилку
-
-        # Додаткові налаштування
-        wait_selector: CSS селектор для очікування
-        scroll_page: Чи прокручувати сторінку
-        screenshot_path: Шлях для скріншоту
-
-        # Для комунікації між плагінами
-        data: Словник для передачі даних
-
-    Приклад використання в плагіні:
-        async def on_context_created(self, ctx: BrowserContext):
-            # Інжектимо JavaScript
-            await ctx.context.add_init_script("alert('Hello!')")
-            return ctx
-
-        async def on_content_ready(self, ctx: BrowserContext):
-            # Виконуємо операції з page
-            html = await ctx.page.content()
-            title = await ctx.page.title()
-
-            # Детектимо капчу
-            captcha_el = await ctx.page.query_selector('.g-recaptcha')
-            if captcha_el:
-                ctx.emit('captcha_detected', captcha_type='recaptcha')
-
-            return ctx
     """
 
     # Доступ до Playwright об'єктів ( ГОЛОВНЕ!)
-    browser: Optional[Browser] = None
-    context: Optional[PWContext] = None
-    page: Optional[Page] = None
+    browser: Optional[Any] = None
+    context: Optional[Any] = None
+    page: Optional[Any] = None
 
     # Response дані
-    response: Optional[Response] = None
+    response: Optional[Any] = None
     status_code: Optional[int] = None
     response_headers: Dict[str, str] = field(default_factory=dict)
     html: Optional[str] = None

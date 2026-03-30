@@ -7,13 +7,14 @@ from typing import List, Optional, Tuple
 from graph_crawler.application.use_cases.crawling.spider import GraphSpider
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.configs import CrawlerConfig
-from graph_crawler.domain.interfaces.storage import IStorage
-from graph_crawler.domain.interfaces.driver import IDriver
 from graph_crawler.domain.interfaces.distributed_spider import IDistributedSpider
+from graph_crawler.domain.interfaces.driver import IDriver
+from graph_crawler.domain.interfaces.storage import IStorage
+from graph_crawler.domain.value_objects.configs import CrawlerConfig
 from graph_crawler.shared.utils.url_utils import URLUtils
 
 logger = logging.getLogger(__name__)
+
 
 # Глобальна функція для multiprocessing (має бути поза класом для pickle)
 def _process_batch_global(batch_data: Tuple) -> Tuple[List, List, List]:
@@ -53,15 +54,13 @@ def _process_batch_global(batch_data: Tuple) -> Tuple[List, List, List]:
     for url, depth in urls:
         try:
             node_class = config.custom_node_class if config.custom_node_class else Node
-            node = node_class(
-                url=url, depth=depth, plugin_manager=spider.node_plugin_manager
-            )
+            node = node_class(url=url, depth=depth, plugin_manager=spider.node_plugin_manager)
 
-            links = spider.scanner.scan_node(node)
+            links = spider.scanner.scan_node(node)  # type: ignore[misc]
             nodes_data.append(node.model_dump())
 
             if links:
-                for link_url in links:
+                for link_url in links:  # type: ignore[union-attr]
                     if not spider.domain_filter.is_allowed(link_url):
                         continue
                     if not spider.path_filter.is_allowed(link_url):
@@ -71,48 +70,23 @@ def _process_batch_global(batch_data: Tuple) -> Tuple[List, List, List]:
 
                     from graph_crawler.domain.entities.edge import Edge
 
-                    edge = Edge(source_node_id=node.id, target_node_id=normalized_url)
+                    edge = Edge(source_node_id=node.node_id, target_node_id=normalized_url)  # type: ignore[attr-defined]
                     edges_data.append(edge.model_dump())
 
                     if normalized_url not in visited_urls_snapshot:
                         new_urls.append((normalized_url, depth + 1))
 
         except Exception as e:
-            logger.error(f"Error processing {url}: {e}")
+            logger.error("Error processing %s: %s", url, e)
             continue
 
     return nodes_data, edges_data, new_urls
+
 
 class MultiprocessSpider(IDistributedSpider):
     """
     Розподілений краулер з підтримкою множинних процесів.
 
-    Архітектура:
-    - Головний процес управляє scheduler та координує роботу
-    - Воркери (worker processes) паралельно обробляють батчі URL
-    - Shared state через Manager для синхронізації між процесами
-    - Кожен воркер має свій екземпляр driver та scanner
-
-    Використання:
-    ```python
-    spider = MultiprocessSpider(config, driver, storage, workers=10)
-    graph = spider.crawl()
-    ```
-
-    Локальна паралельна обробка:
-    - Множинні локальні процеси для паралельної обробки
-    - Підходить для середніх/великих сайтів (>1000 сторінок)
-    - Значно швидше ніж sequential режим
-
-    Переваги:
-    - Паралельна обробка множини сторінок
-    - Використання всіх ядер CPU
-    - Значне прискорення для великих сайтів
-    - Простота налаштування (тільки параметр workers)
-
-    Обмеження:
-    -  Тільки локальні процеси (не розподілено між машинами)
-    -  Потребує достатньо RAM для всіх воркерів
     """
 
     def __init__(
@@ -146,29 +120,36 @@ class MultiprocessSpider(IDistributedSpider):
         self.shared_lock = self._get_manager_lock()
 
         # Локальний граф (для збірки результатів)
-        low_memory_mode = getattr(config, 'low_memory_mode', False)
+        low_memory_mode = getattr(config, "low_memory_mode", False)
         eviction_storage = None
-        
+
         if low_memory_mode:
-            storage_path = getattr(config, 'eviction_storage_path', None)
+            storage_path = getattr(config, "eviction_storage_path", None)
             if storage_path:
-                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
+                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import (
+                    SQLiteEvictionStorage,
+                )
+
                 eviction_storage = SQLiteEvictionStorage(storage_path)
             else:
                 import tempfile
-                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import SQLiteEvictionStorage
-                temp_path = tempfile.mkdtemp(prefix='graph_eviction_')
+
+                from graph_crawler.infrastructure.persistence.sqlite_eviction_storage import (
+                    SQLiteEvictionStorage,
+                )
+
+                temp_path = tempfile.mkdtemp(prefix="graph_eviction_")
                 eviction_storage = SQLiteEvictionStorage(temp_path)
-        
+
         self.graph = Graph(
             low_memory_mode=low_memory_mode,
-            evict_threshold=getattr(config, 'evict_threshold', 500),
-            evict_batch_size=getattr(config, 'evict_batch_size', 100),
+            evict_threshold=getattr(config, "evict_threshold", 500),
+            evict_batch_size=getattr(config, "evict_batch_size", 100),
             eviction_storage=eviction_storage,
         )
         self.pages_crawled = 0
 
-        logger.info(f"MultiprocessSpider initialized with {workers} workers")
+        logger.info("MultiprocessSpider initialized with %s workers", workers)
 
     def _get_manager_dict(self):
         """Повертає shared dict від Manager."""
@@ -212,7 +193,7 @@ class MultiprocessSpider(IDistributedSpider):
         Returns:
             Побудований граф
         """
-        logger.info(f"Starting multiprocess crawl: {self._get_start_url()}")
+        logger.info("Starting multiprocess crawl: %s", self._get_start_url())
         logger.info(
             f"Workers: {self.workers}, max_depth: {self._get_max_depth()}, max_pages: {self._get_max_pages()}"
         )
@@ -236,9 +217,7 @@ class MultiprocessSpider(IDistributedSpider):
         """
         temp_spider = self._create_worker_spider()
 
-        node_class = (
-            self.config.custom_node_class if self.config.custom_node_class else Node
-        )
+        node_class = self.config.custom_node_class if self.config.custom_node_class else Node
         root_node = node_class(
             url=self.config.url, depth=0, plugin_manager=temp_spider.node_plugin_manager
         )
@@ -248,9 +227,7 @@ class MultiprocessSpider(IDistributedSpider):
         self.shared_visited_urls.append(root_node.url)
         return [(root_node.url, 0)]
 
-    def _process_crawl_batch(
-        self, urls_to_process: List[Tuple[str, int]]
-    ) -> List[Tuple[str, int]]:
+    def _process_crawl_batch(self, urls_to_process: List[Tuple[str, int]]) -> List[Tuple[str, int]]:
         """
         Обробляє батч URL паралельно.
 
@@ -265,7 +242,7 @@ class MultiprocessSpider(IDistributedSpider):
         if not batches:
             return []
 
-        logger.info(f"Processing {len(urls_to_process)} URLs in {len(batches)} batches")
+        logger.info("Processing %s URLs in %s batches", len(urls_to_process), len(batches))
 
         # Паралельна обробка батчів
         batch_results = self._execute_parallel_batches(batches)
@@ -352,9 +329,9 @@ class MultiprocessSpider(IDistributedSpider):
 
     def _log_crawl_completion(self):
         """Логує завершення краулінгу."""
-        logger.info(f"Multiprocess crawl finished: {self.pages_crawled} pages scanned")
+        logger.info("Multiprocess crawl finished: %s pages scanned", self.pages_crawled)
         stats = self.graph.get_stats()
-        logger.info(f"Graph stats: {stats}")
+        logger.info("Graph stats: %s", stats)
 
     def _process_batch_wrapper(self, batch_data: Tuple) -> Tuple[List, List, List]:
         """
@@ -397,22 +374,18 @@ class MultiprocessSpider(IDistributedSpider):
         for url, depth in urls:
             try:
                 # Створюємо вузол
-                node_class = (
-                    config.custom_node_class if config.custom_node_class else Node
-                )
-                node = node_class(
-                    url=url, depth=depth, plugin_manager=spider.node_plugin_manager
-                )
+                node_class = config.custom_node_class if config.custom_node_class else Node
+                node = node_class(url=url, depth=depth, plugin_manager=spider.node_plugin_manager)
 
                 # Скануємо вузол
-                links = spider.scanner.scan_node(node)
+                links = spider.scanner.scan_node(node)  # type: ignore[misc]
 
                 # Серіалізуємо вузол
                 nodes_data.append(node.model_dump())
 
                 # Обробляємо знайдені посилання
                 if links:
-                    for link_url in links:
+                    for link_url in links:  # type: ignore[union-attr]
                         if not spider.domain_filter.is_allowed(link_url):
                             continue
                         if not spider.path_filter.is_allowed(link_url):
@@ -423,7 +396,8 @@ class MultiprocessSpider(IDistributedSpider):
                         from graph_crawler.domain.entities.edge import Edge
 
                         edge = Edge(
-                            source_node_id=node.id, target_node_id=normalized_url
+                            source_node_id=node.node_id,
+                            target_node_id=normalized_url,  # type: ignore[attr-defined]
                         )
                         edges_data.append(edge.model_dump())
 
@@ -432,7 +406,7 @@ class MultiprocessSpider(IDistributedSpider):
                             new_urls.append((normalized_url, depth + 1))
 
             except Exception as e:
-                logger.error(f"Error processing {url}: {e}")
+                logger.error("Error processing %s: %s", url, e)
                 continue
 
         return nodes_data, edges_data, new_urls
@@ -442,9 +416,7 @@ class MultiprocessSpider(IDistributedSpider):
         return GraphSpider(self.config, self.driver, self.storage)
 
     def _create_worker_spider_from_config(self, config: CrawlerConfig) -> GraphSpider:
-        """Створює екземпляр GraphSpider з конфігурації.
-
-        """
+        """Створює екземпляр GraphSpider з конфігурації."""
         from graph_crawler.infrastructure.persistence.memory_storage import (
             MemoryStorage,
         )
@@ -460,9 +432,7 @@ class MultiprocessSpider(IDistributedSpider):
 
     def _deserialize_node(self, node_data: dict) -> Node:
         """Десеріалізує вузол з словника."""
-        node_class = (
-            self.config.custom_node_class if self.config.custom_node_class else Node
-        )
+        node_class = self.config.custom_node_class if self.config.custom_node_class else Node
 
         # Створюємо временний spider для plugin_manager
         temp_spider = self._create_worker_spider()
@@ -473,9 +443,7 @@ class MultiprocessSpider(IDistributedSpider):
 
         return node
 
-    def _split_into_batches(
-        self, urls: List[Tuple[str, int]], num_batches: int
-    ) -> List[Tuple]:
+    def _split_into_batches(self, urls: List[Tuple[str, int]], num_batches: int) -> List[Tuple]:
         """
         Розбиває список URL на батчі для воркерів.
 
@@ -502,12 +470,8 @@ class MultiprocessSpider(IDistributedSpider):
                 "max_depth": self.config.max_depth,
                 "max_pages": self.config.max_pages,
                 "allowed_domains": self.config.allowed_domains,
-                "driver": (
-                    self.config.get_driver_config_dict() if self.config.driver else {}
-                ),
-                "storage": (
-                    self.config.get_storage_config_dict() if self.config.storage else {}
-                ),
+                "driver": (self.config.get_driver_config_dict() if self.config.driver else {}),
+                "storage": (self.config.get_storage_config_dict() if self.config.storage else {}),
             }
 
         # Створюємо snapshot відвіданих URL як звичайний set (можна серіалізувати)
@@ -522,7 +486,7 @@ class MultiprocessSpider(IDistributedSpider):
     def _should_continue(self) -> bool:
         """Перевіряє чи треба продовжувати краулінг."""
         if self.config.max_pages and self.pages_crawled >= self.config.max_pages:
-            logger.info(f"Reached max_pages limit: {self.config.max_pages}")
+            logger.info("Reached max_pages limit: %s", self.config.max_pages)
             return False
         return True
 
@@ -537,7 +501,7 @@ class MultiprocessSpider(IDistributedSpider):
     def get_partial_graph(self) -> Graph:
         """
         Повертає частковий граф (для випадку timeout/shutdown).
-        
+
         Returns:
             Поточний стан графу
         """

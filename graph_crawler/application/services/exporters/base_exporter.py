@@ -27,7 +27,6 @@ class BaseExporter(EventPublisherMixin, ABC):
     """
     Base class для всіх graph exporters з Clean Architecture.
 
-
     для повної ізоляції Domain Layer.
 
     Архітектурні принципи:
@@ -55,15 +54,13 @@ class BaseExporter(EventPublisherMixin, ABC):
         self.config = kwargs
 
     @abstractmethod
-    def export(self, graph_dto: GraphDTO, output_path: str, **options) -> bool:
+    def export(self, graph_dto: GraphDTO, output_path: str = "", **options) -> bool:
         """
         Експортувати граф у вказаний формат через DTO.
 
-
-
         Args:
             graph_dto: GraphDTO для експорту
-            output_path: Шлях до output файлу
+            output_path: Шлях до output файлу (може бути порожнім для SQL)
             **options: Додаткові опції експорту
 
         Returns:
@@ -97,11 +94,9 @@ class BaseExporter(EventPublisherMixin, ABC):
             ...     exporter.export(graph_dto, "output.csv")
         """
         if not isinstance(graph_dto, GraphDTO):
-            raise ValueError(
-                f"Expected GraphDTO instance, got {type(graph_dto).__name__}"
-            )
+            raise ValueError(f"Expected GraphDTO instance, got {type(graph_dto).__name__}")
 
-        if len(graph_dto.nodes) == 0:
+        if not graph_dto.nodes:
             logger.warning("GraphDTO has no nodes")
             return False
 
@@ -131,8 +126,6 @@ class BaseExporter(EventPublisherMixin, ABC):
             "format": self.__class__.__name__,
         }
 
-    # ============= ASYNC МЕТОДИ =============
-
     async def export_async(self, graph_dto: GraphDTO, output_path: str, **options) -> bool:
         """
         Async версія експорту (неблокуюча).
@@ -149,6 +142,5 @@ class BaseExporter(EventPublisherMixin, ABC):
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            _exporter_executor,
-            partial(self.export, graph_dto, output_path, **options)
+            _exporter_executor, partial(self.export, graph_dto, output_path, **options)
         )

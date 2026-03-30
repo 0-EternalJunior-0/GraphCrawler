@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 class SchemaType(str, Enum):
     """Популярні schema.org типи."""
+
     ARTICLE = "Article"
     NEWS_ARTICLE = "NewsArticle"
     BLOG_POSTING = "BlogPosting"
@@ -61,8 +62,6 @@ class StructuredDataResult(BaseModel):
     # Статистика парсингу
     parse_time_ms: float = 0.0
 
-    # ==================== Computed Properties ====================
-
     @computed_field
     @property
     def has_data(self) -> bool:
@@ -81,8 +80,6 @@ class StructuredDataResult(BaseModel):
         """Кількість Microdata елементів."""
         return len(self.microdata)
 
-    # ==================== Factory Methods ====================
-
     @classmethod
     def empty(cls) -> "StructuredDataResult":
         """Створює порожній результат."""
@@ -92,8 +89,6 @@ class StructuredDataResult(BaseModel):
     def with_error(cls, error: str) -> "StructuredDataResult":
         """Створює результат з помилкою."""
         return cls(errors=[error])
-
-    # ==================== Law of Demeter Methods ====================
 
     def get_type(self) -> Optional[str]:
         """
@@ -129,8 +124,8 @@ class StructuredDataResult(BaseModel):
             if prop in item:
                 return item[prop]
             # Підтримка вкладених об'єктів
-            if '@graph' in item:
-                for graph_item in item['@graph']:
+            if "@graph" in item:
+                for graph_item in item["@graph"]:
                     if isinstance(graph_item, dict) and prop in graph_item:
                         return graph_item[prop]
 
@@ -141,17 +136,22 @@ class StructuredDataResult(BaseModel):
 
         # Open Graph
         og_mapping = {
-            'title': 'title', 'description': 'description',
-            'image': 'image', 'url': 'url', 'type': 'type',
-            'site_name': 'site_name',
+            "title": "title",
+            "description": "description",
+            "image": "image",
+            "url": "url",
+            "type": "type",
+            "site_name": "site_name",
         }
         if prop in og_mapping and og_mapping[prop] in self.opengraph:
             return self.opengraph[og_mapping[prop]]
 
         # Twitter
         twitter_mapping = {
-            'title': 'title', 'description': 'description',
-            'image': 'image', 'card': 'card',
+            "title": "title",
+            "description": "description",
+            "image": "image",
+            "card": "card",
         }
         if prop in twitter_mapping and twitter_mapping[prop] in self.twitter:
             return self.twitter[twitter_mapping[prop]]
@@ -170,8 +170,8 @@ class StructuredDataResult(BaseModel):
             if self._matches_type(item, schema_type):
                 results.append(item)
             # Перевіряємо @graph
-            if '@graph' in item:
-                for graph_item in item['@graph']:
+            if "@graph" in item:
+                for graph_item in item["@graph"]:
                     if isinstance(graph_item, dict) and self._matches_type(graph_item, schema_type):
                         results.append(graph_item)
 
@@ -187,7 +187,7 @@ class StructuredDataResult(BaseModel):
 
     def _matches_type(self, item: Dict, schema_type: str) -> bool:
         """Перевіряє чи item відповідає типу."""
-        item_type = item.get('@type') or item.get('type')
+        item_type = item.get("@type") or item.get("type")
         if isinstance(item_type, list):
             return schema_type in item_type
         return item_type == schema_type

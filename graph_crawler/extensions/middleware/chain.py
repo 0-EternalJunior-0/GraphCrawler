@@ -1,7 +1,7 @@
 """Middleware Chain - ланцюжок обробки ."""
 
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from graph_crawler.extensions.middleware.base import (
     BaseMiddleware,
@@ -14,24 +14,6 @@ class MiddlewareChain:
     """
     Ланцюжок обробки middleware .
 
-    Виконує middleware послідовно, кожен отримує context від попереднього.
-    Підтримує як sync, так і async middleware.
-
-    Переваги:
-    - Гнучка обробка request/response
-    - Легко додавати/видаляти middleware
-    - Композиція функціональності
-    - Логування, Retry, Cache як middleware
-    - Async-first з fallback на sync
-
-    Приклад:
-        chain = MiddlewareChain()
-        chain.add(LoggingMiddleware())
-        chain.add(RetryMiddleware())
-        chain.add(CacheMiddleware())
-
-        context = MiddlewareContext(url="https://example.com")
-        result = await chain.execute(MiddlewareType.PRE_REQUEST, context)
     """
 
     def __init__(self):
@@ -115,7 +97,7 @@ class MiddlewareChain:
             for middleware in middlewares_list:
                 middleware.teardown()
 
-    def get_middleware_by_name(self, name: str) -> BaseMiddleware:
+    def get_middleware_by_name(self, name: str) -> Optional[BaseMiddleware]:
         """Знаходить middleware за назвою."""
         for middlewares_list in self.middlewares.values():
             for middleware in middlewares_list:
@@ -127,7 +109,5 @@ class MiddlewareChain:
         """Повертає статистику middleware."""
         stats = {}
         for middleware_type, middlewares_list in self.middlewares.items():
-            stats[middleware_type.value] = [
-                middleware.name for middleware in middlewares_list
-            ]
+            stats[middleware_type.value] = [middleware.name for middleware in middlewares_list]
         return stats

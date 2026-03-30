@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Type aliases
 DriverType = Union[str, "IDriver", None]
-DriverFactory = Callable[[dict], "IDriver"]
+DriverFactory = Callable[[dict], Any]  # Can return IDriver or sync driver
 
 # DRIVER REGISTRY (OCP)
 # Registry pattern дозволяє додавати нові драйвери без зміни коду factory
@@ -38,17 +38,31 @@ def _register_builtin_drivers():
     def http_factory(config: dict) -> "IDriver":
         from graph_crawler.infrastructure.transport import HTTPDriver
 
-        return HTTPDriver(config)
+        return HTTPDriver(config)  # type: ignore[return-value]
 
     def async_factory(config: dict) -> "IDriver":
         try:
             from graph_crawler.infrastructure.transport.async_http import AsyncDriver
-
-            return AsyncDriver(config)
-        except ImportError:
-            raise ImportError(
-                "AsyncDriver requires aiohttp. " "Install with: pip install aiohttp"
+            from graph_crawler.infrastructure.transport.async_http.plugins.http_cache import (
+                AsyncHTTPCachePlugin,
             )
+            
+            # Автоматично додаємо HTTP Cache plugin якщо увімкнено
+            plugins = config.pop("plugins", []) if isinstance(config, dict) else []
+            
+            http_cache_enabled = config.pop("http_cache_enabled", True) if isinstance(config, dict) else True
+            if http_cache_enabled:
+                cache_config = AsyncHTTPCachePlugin.create_config(
+                    enabled=True,
+                    max_cache_size=config.pop("http_cache_max_size", 10000) if isinstance(config, dict) else 10000,
+                    store_content=config.pop("http_cache_store_content", False) if isinstance(config, dict) else False,
+                    max_age_seconds=config.pop("http_cache_max_age", 3600) if isinstance(config, dict) else 3600,
+                )
+                plugins.append(AsyncHTTPCachePlugin(cache_config))
+            
+            return AsyncDriver(config, plugins=plugins if plugins else None)  # type: ignore[return-value]
+        except ImportError:
+            raise ImportError("AsyncDriver requires aiohttp. Install with: pip install aiohttp")
 
     def playwright_factory(config: dict) -> "IDriver":
         try:
@@ -65,15 +79,26 @@ def _register_builtin_drivers():
 
     def stealth_factory(config: dict) -> "IDriver":
         try:
-            from graph_crawler.infrastructure.transport.stealth_driver import (
-                StealthDriver,
+            from graph_crawler.infrastructure.transport.async_http.plugins.stealth_driver import (
+                StealthHTTPDriver,
             )
 
-            return StealthDriver(config)
+            return StealthHTTPDriver(config)
         except ImportError:
             raise ImportError(
-                "StealthDriver requires playwright. "
-                "Install with: pip install playwright && playwright install"
+                "StealthHTTPDriver requires curl_cffi. Install with: pip install curl_cffi"
+            )
+
+    def cloudscraper_factory(config: dict) -> "IDriver":
+        try:
+            from graph_crawler.infrastructure.transport.sync.cloudscraper_driver import (
+                CloudscraperDriver,
+            )
+
+            return CloudscraperDriver(config)  # type: ignore[return-value]
+        except ImportError:
+            raise ImportError(
+                "CloudscraperDriver requires cloudscraper. Install with: pip install cloudscraper"
             )
 
     # Реєструємо вбудовані драйвери
@@ -81,6 +106,7 @@ def _register_builtin_drivers():
     _DRIVER_REGISTRY["async"] = async_factory
     _DRIVER_REGISTRY["playwright"] = playwright_factory
     _DRIVER_REGISTRY["stealth"] = stealth_factory
+    _DRIVER_REGISTRY["cloudscraper"] = cloudscraper_factory
 
 
 # Ініціалізуємо вбудовані драйвери
@@ -106,9 +132,9 @@ def register_driver(name: str, factory: DriverFactory) -> None:
     """
     name = name.lower()
     if name in _DRIVER_REGISTRY:
-        logger.warning(f"Overwriting existing driver registration: {name}")
+        logger.warning("Overwriting existing driver registration: %s", name)
     _DRIVER_REGISTRY[name] = factory
-    logger.debug(f"Registered driver: {name}")
+    logger.debug("Registered driver: %s", name)
 
 
 def get_available_drivers() -> list[str]:
@@ -125,51 +151,18 @@ def get_available_drivers() -> list[str]:
     return list(_DRIVER_REGISTRY.keys())
 
 
-def create_driver(
-    driver: DriverType = None, config: Optional[dict[str, Any]] = None
-) -> "IDriver":
+def create_driver(driver: DriverType = None, config: Optional[dict[str, Any]] = None) -> "IDriver":
     """
     Створює драйвер з string або повертає instance.
 
-    Factory pattern для простого створення драйверів.
-    Дозволяє використовувати string shortcuts замість імпортування класів.
-
-    Args:
-        driver: Тип драйвера або готовий instance
-            - "http" (default): Синхронний HTTP драйвер (requests)
-            - "async": Асинхронний HTTP драйвер (aiohttp)
-            - "playwright": Браузерний драйвер з JS рендерингом
-            - "stealth": Stealth драйвер для обходу блокувань
-            - IDriver instance: Повертається як є
-        config: Конфігурація драйвера (опціонально)
-            - timeout: int - таймаут запиту
-            - user_agent: str - User-Agent заголовок
-            - headless: bool - для playwright (default: True)
-            - max_retries: int - кількість повторів
-
     Returns:
         IDriver: Готовий до використання драйвер
-
     Raises:
         ValueError: Якщо невідомий тип драйвера
-
     Examples:
         Простий HTTP драйвер:
         >>> driver = create_driver("http")
         >>> response = driver.fetch("https://example.com")
-
-        Playwright з налаштуваннями:
-        >>> driver = create_driver("playwright", {
-        ...     "headless": True,
-        ...     "timeout": 60
-        ... })
-
-        Кастомний драйвер:
-        >>> class MyDriver:
-        ...     def fetch(self, url): ...
-        ...     def close(self): ...
-        >>>
-        >>> driver = create_driver(MyDriver())
     """
     config = config or {}
 
@@ -177,7 +170,7 @@ def create_driver(
     if driver is not None and not isinstance(driver, (str, type)):
         # Перевіряємо чи це схоже на драйвер (має метод fetch)
         if hasattr(driver, "fetch"):
-            logger.debug(f"Using custom driver instance: {type(driver).__name__}")
+            logger.debug("Using custom driver instance: %s", type(driver).__name__)
             return driver
         else:
             raise ValueError(
@@ -187,7 +180,7 @@ def create_driver(
 
     # Якщо передали клас драйвера - створюємо instance
     if driver is not None and isinstance(driver, type):
-        logger.debug(f"Creating driver from class: {driver.__name__}")
+        logger.debug("Creating driver from class: %s", driver.__name__)
         return driver(config)
 
     # String shortcuts - використовуємо registry (OCP)
@@ -197,7 +190,7 @@ def create_driver(
     # Перевіряємо registry
     if driver_type in _DRIVER_REGISTRY:
         factory = _DRIVER_REGISTRY[driver_type]
-        logger.debug(f"Creating {driver_type} driver from registry")
+        logger.debug("Creating %s driver from registry", driver_type)
         return factory(config)
     else:
         available = ", ".join(f"'{d}'" for d in get_available_drivers())

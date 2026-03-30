@@ -58,13 +58,13 @@ class AsyncHeadersPlugin(BaseDriverPlugin):
         for key, value in custom_headers.items():
             if overwrite or key not in ctx.headers:
                 ctx.headers[key] = value
-                logger.debug(f"Added header: {key}={value}")
+                logger.debug("Added header: %s=%s", key, value)
 
         # Видаляємо непотрібні headers
         remove_headers = self.config.get("remove_headers", [])
         for key in remove_headers:
             if key in ctx.headers:
                 del ctx.headers[key]
-                logger.debug(f"Removed header: {key}")
+                logger.debug("Removed header: %s", key)
 
         return ctx

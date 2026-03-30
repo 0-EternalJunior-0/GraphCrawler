@@ -76,9 +76,7 @@ class CrawlTaskRequest(BaseModel):
         default_factory=list, description="Extractors: phones, emails, prices"
     )
     plugins: List[str] = Field(default_factory=list, description="Custom plugin paths")
-    timeout_minutes: Optional[int] = Field(
-        None, ge=1, le=120, description="Таймаут в хвилинах"
-    )
+    timeout_minutes: Optional[int] = Field(None, ge=1, le=120, description="Таймаут в хвилинах")
 
     @field_validator("urls")
     @classmethod
@@ -158,7 +156,8 @@ def _get_storage() -> UnifiedStorage:
     global _storage
     if _storage is None:
         _storage = UnifiedStorage(
-            backend="file", storage_dir="./crawl_data"  # SQLite в ./crawl_data/
+            backend="file",
+            storage_dir="./crawl_data",  # SQLite в ./crawl_data/
         )
         logger.info(" UnifiedStorage initialized for worker_api")
     return _storage
@@ -219,7 +218,7 @@ async def start_distributed_crawl(
         },
     )
 
-    logger.info(f"Created distributed crawl job: {job_id} (stored in SQLite)")
+    logger.info("Created distributed crawl job: %s (stored in SQLite)", job_id)
 
     # Запускаємо у фоні
     background_tasks.add_task(_run_distributed_crawl, job_id, request)
@@ -279,9 +278,7 @@ async def stop_crawl(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     if job["status"] not in ["pending", "running"]:
-        raise HTTPException(
-            status_code=400, detail=f"Cannot stop job in status: {job['status']}"
-        )
+        raise HTTPException(status_code=400, detail=f"Cannot stop job in status: {job['status']}")
 
     # Зупиняємо package_crawler якщо є (proper cancellation implemented)
     if job_id in _active_crawlers:
@@ -294,7 +291,7 @@ async def stop_crawl(job_id: str):
                 else:
                     crawler.cancel()
             except Exception as e:
-                logger.warning(f"Error cancelling crawler for job {job_id}: {e}")
+                logger.warning("Error cancelling crawler for job %s: %s", job_id, e)
         # Закриваємо ресурси якщо доступно
         if hasattr(crawler, "close") and callable(crawler.close):
             try:
@@ -303,15 +300,15 @@ async def stop_crawl(job_id: str):
                 else:
                     crawler.close()
             except Exception as e:
-                logger.warning(f"Error closing crawler for job {job_id}: {e}")
+                logger.warning("Error closing crawler for job %s: %s", job_id, e)
         del _active_crawlers[job_id]
-        logger.info(f"Crawler for job {job_id} cancelled and cleaned up")
+        logger.info("Crawler for job %s cancelled and cleaned up", job_id)
 
     await storage.jobs.update_job(
         job_id, {"status": "cancelled", "completed_at": datetime.now().isoformat()}
     )
 
-    logger.info(f"Stopped crawl job: {job_id}")
+    logger.info("Stopped crawl job: %s", job_id)
 
     return {
         "job_id": job_id,
@@ -406,12 +403,8 @@ async def get_workers_info():
         workers = []
         for hostname, worker_stats in stats.items():
             active_tasks = len(active.get(hostname, []))
-            processed_batch = worker_stats.get("total", {}).get(
-                "graph_crawler.crawl_batch", 0
-            )
-            processed_page = worker_stats.get("total", {}).get(
-                "graph_crawler.crawl_page", 0
-            )
+            processed_batch = worker_stats.get("total", {}).get("graph_crawler.crawl_batch", 0)
+            processed_page = worker_stats.get("total", {}).get("graph_crawler.crawl_page", 0)
             workers.append(
                 WorkerStatus(
                     hostname=hostname,
@@ -430,7 +423,7 @@ async def get_workers_info():
         )
 
     except Exception as e:
-        logger.error(f"Failed to get workers info: {e}")
+        logger.error("Failed to get workers info: %s", e)
         return WorkersInfoResponse(
             total_workers=0,
             active_workers=0,
@@ -478,7 +471,7 @@ async def check_workers_health():
         }
 
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error("Health check failed: %s", e)
         return {
             "status": "error",
             "error": str(e),
@@ -510,7 +503,7 @@ async def _run_distributed_crawl(job_id: str, request: DistributedCrawlRequest):
             },
         )
 
-        logger.info(f"Starting distributed crawl job: {job_id}")
+        logger.info("Starting distributed crawl job: %s", job_id)
 
         # Формуємо конфіг для EasyDistributedCrawler
         config_dict = {
@@ -536,13 +529,20 @@ async def _run_distributed_crawl(job_id: str, request: DistributedCrawlRequest):
         stats = results.get_stats()
 
         # Збираємо extracted data
+        # Використовуємо iter_nodes() для streaming доступу замість .nodes.items()
         extracted_data = []
-        for url, node in results.nodes.items():
+        for node in results.iter_nodes():
             node_data = {
-                "url": url,
-                "phones": node.user_data.get("phones", []),
-                "emails": node.user_data.get("emails", []),
-                "prices": node.user_data.get("prices", []),
+                "url": node.url,
+                "phones": node.user_data.get("phones", [])
+                if hasattr(node, "user_data") and node.user_data
+                else [],
+                "emails": node.user_data.get("emails", [])
+                if hasattr(node, "user_data") and node.user_data
+                else [],
+                "prices": node.user_data.get("prices", [])
+                if hasattr(node, "user_data") and node.user_data
+                else [],
             }
             if node_data["phones"] or node_data["emails"] or node_data["prices"]:
                 extracted_data.append(node_data)
@@ -571,7 +571,7 @@ async def _run_distributed_crawl(job_id: str, request: DistributedCrawlRequest):
         )
 
     except Exception as e:
-        logger.error(f"Failed distributed crawl job {job_id}: {e}")
+        logger.error("Failed distributed crawl job %s: %s", job_id, e)
         await storage.jobs.update_job(
             job_id,
             {

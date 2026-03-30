@@ -1,38 +1,6 @@
 """DependencyRegistry - Singleton для управління залежностями.
 
 Вирішує проблему відновлення plugin_manager, tree_parser, hash_strategy
-після десеріалізації Node з JSON/SQLite.
-
-Проблема:
-    Node має non-serializable поля:
-    - plugin_manager: управляє плагінами (MetadataExtractor, LinkExtractor, тощо)
-    - tree_parser: парсер HTML (BeautifulSoup, lxml)
-    - hash_strategy: стратегія обчислення content_hash
-
-    Ці поля мають exclude=True в Pydantic, тому при серіалізації вони втрачаються.
-    При завантаженні Node з storage потрібно їх відновити.
-
-Рішення:
-    DependencyRegistry - Thread-safe Singleton з дефолтними значеннями.
-    При десеріалізації Node використовує значення з registry якщо не передані явно.
-
-Приклад:
-    >>> # Налаштування дефолтів (зазвичай при старті програми)
-    >>> DependencyRegistry.configure(
-    ...     plugin_manager=NodePluginManager(),
-    ...     tree_parser=BeautifulSoupAdapter(),
-    ...     hash_strategy=DefaultHashStrategy(),
-    ... )
-    >>>
-    >>> # Тепер при завантаженні Node залежності відновлюються автоматично
-    >>> graph_dto = await storage.load_graph()
-    >>> context = DependencyRegistry.get_context()  # Отримати всі дефолти
-    >>> graph = GraphMapper.to_domain(graph_dto, context=context)
-    >>>
-    >>> # Або з override для конкретного випадку
-    >>> context = DependencyRegistry.get_context(
-    ...     plugin_manager=custom_pm,  # Override тільки plugin_manager
-    ... )
 """
 
 import logging
@@ -59,6 +27,7 @@ class DependencyConfig:
         edge_class: Клас Edge для створення (default: Edge)
         default_merge_strategy: Дефолтна стратегія merge (default: 'last')
     """
+
     plugin_manager_factory: Optional[Callable[[], Any]] = None
     tree_parser_factory: Optional[Callable[[], Any]] = None
     hash_strategy_factory: Optional[Callable[[], Any]] = None
@@ -94,32 +63,9 @@ class DependencyRegistry:
     """
     Thread-safe Singleton для управління дефолтними залежностями.
 
-    Зберігає дефолтні значення для:
-    - plugin_manager: для виконання плагінів на Node
-    - tree_parser: для парсингу HTML
-    - hash_strategy: для обчислення content_hash
-    - node_class: клас Node для створення
-    - edge_class: клас Edge для створення
-    - default_merge_strategy: стратегія merge для union операцій
-
-    Thread-safety:
-    - Використовує threading.Lock для захисту від race conditions
-    - Singleton pattern через __new__
-
-    Приклад:
-        >>> # Конфігурація при старті
-        >>> DependencyRegistry.configure(
-        ...     plugin_manager_factory=lambda: NodePluginManager(),
-        ...     tree_parser_factory=lambda: BeautifulSoupAdapter(),
-        ...     default_merge_strategy='merge',
-        ... )
-        >>>
-        >>> # Отримання контексту для десеріалізації
-        >>> context = DependencyRegistry.get_context()
-        >>> graph = GraphMapper.to_domain(graph_dto, context=context)
     """
 
-    _instance: Optional['DependencyRegistry'] = None
+    _instance: Optional["DependencyRegistry"] = None
     _lock = threading.Lock()
     _config: DependencyConfig = DependencyConfig()
 
@@ -134,12 +80,10 @@ class DependencyRegistry:
 
     def __init__(self):
         """Ініціалізація (виконується один раз)."""
-        if getattr(self, '_initialized', False):
+        if getattr(self, "_initialized", False):
             return
         self._initialized = True
         logger.debug("DependencyRegistry initialized")
-
-    # ==================== CLASS METHODS (основний API) ====================
 
     @classmethod
     def configure(
@@ -157,9 +101,6 @@ class DependencyRegistry:
         """
         Конфігурує дефолтні залежності.
 
-        Можна передати або готовий інстанс, або factory function.
-        Factory рекомендується для lazy initialization.
-
         Args:
             plugin_manager: Готовий інстанс plugin_manager
             plugin_manager_factory: Фабрика для створення plugin_manager
@@ -170,7 +111,6 @@ class DependencyRegistry:
             node_class: Клас Node для створення
             edge_class: Клас Edge для створення
             default_merge_strategy: Дефолтна стратегія merge
-
         Example:
             >>> # Через factory (рекомендовано)
             >>> DependencyRegistry.configure(
@@ -184,20 +124,32 @@ class DependencyRegistry:
         """
         with cls._lock:
             # Створюємо factory з інстансу якщо передано інстанс
-            pm_factory = plugin_manager_factory
+            pm_factory: Optional[Callable[[], Any]] = plugin_manager_factory
             if plugin_manager is not None and pm_factory is None:
-                def pm_factory(pm=plugin_manager):
+                _pm = plugin_manager
+
+                def _pm_factory(pm=_pm):
                     return pm
 
-            tp_factory = tree_parser_factory
+                pm_factory = _pm_factory
+
+            tp_factory: Optional[Callable[[], Any]] = tree_parser_factory
             if tree_parser is not None and tp_factory is None:
-                def tp_factory(tp=tree_parser):
+                _tp = tree_parser
+
+                def _tp_factory(tp=_tp):
                     return tp
 
-            hs_factory = hash_strategy_factory
+                tp_factory = _tp_factory
+
+            hs_factory: Optional[Callable[[], Any]] = hash_strategy_factory
             if hash_strategy is not None and hs_factory is None:
-                def hs_factory(hs=hash_strategy):
+                _hs = hash_strategy
+
+                def _hs_factory(hs=_hs):
                     return hs
+
+                hs_factory = _hs_factory
 
             cls._config = DependencyConfig(
                 plugin_manager_factory=pm_factory,
@@ -228,9 +180,6 @@ class DependencyRegistry:
         """
         Отримує контекст для десеріалізації з можливістю override.
 
-        Повертає dict з усіма залежностями, готовий для передачі
-        в GraphMapper.to_domain() або NodeMapper.to_domain().
-
         Args:
             plugin_manager: Override для plugin_manager (опціонально)
             tree_parser: Override для tree_parser (опціонально)
@@ -238,10 +187,8 @@ class DependencyRegistry:
             node_class: Override для node_class (опціонально)
             edge_class: Override для edge_class (опціонально)
             default_merge_strategy: Override для merge strategy (опціонально)
-
         Returns:
             Dict з усіма залежностями
-
         Example:
             >>> # Використати всі дефолти
             >>> context = DependencyRegistry.get_context()
@@ -256,12 +203,18 @@ class DependencyRegistry:
             config = cls._config
 
             return {
-                'plugin_manager': plugin_manager if plugin_manager is not None else config.get_plugin_manager(),
-                'tree_parser': tree_parser if tree_parser is not None else config.get_tree_parser(),
-                'hash_strategy': hash_strategy if hash_strategy is not None else config.get_hash_strategy(),
-                'node_class': node_class if node_class is not None else config.node_class,
-                'edge_class': edge_class if edge_class is not None else config.edge_class,
-                'default_merge_strategy': default_merge_strategy if default_merge_strategy is not None else config.default_merge_strategy,
+                "plugin_manager": plugin_manager
+                if plugin_manager is not None
+                else config.get_plugin_manager(),
+                "tree_parser": tree_parser if tree_parser is not None else config.get_tree_parser(),
+                "hash_strategy": hash_strategy
+                if hash_strategy is not None
+                else config.get_hash_strategy(),
+                "node_class": node_class if node_class is not None else config.node_class,
+                "edge_class": edge_class if edge_class is not None else config.edge_class,
+                "default_merge_strategy": default_merge_strategy
+                if default_merge_strategy is not None
+                else config.default_merge_strategy,
             }
 
     @classmethod
@@ -278,16 +231,13 @@ class DependencyRegistry:
         Args:
             strategy: Одна з: 'first', 'last', 'merge', 'newest', 'oldest', 'custom'
         """
-        valid_strategies = ['first', 'last', 'merge', 'newest', 'oldest', 'custom']
+        valid_strategies = ["first", "last", "merge", "newest", "oldest", "custom"]
         if strategy not in valid_strategies:
-            raise ValueError(
-                f"Invalid merge strategy: {strategy}. "
-                f"Valid: {valid_strategies}"
-            )
+            raise ValueError(f"Invalid merge strategy: {strategy}. Valid: {valid_strategies}")
 
         with cls._lock:
             cls._config.default_merge_strategy = strategy
-            logger.debug(f"Default merge strategy set to: {strategy}")
+            logger.debug("Default merge strategy set to: %s", strategy)
 
     @classmethod
     def reset(cls) -> None:
@@ -299,8 +249,6 @@ class DependencyRegistry:
         with cls._lock:
             cls._config = DependencyConfig()
             logger.debug("DependencyRegistry reset to defaults")
-
-    # ==================== SHORTCUT METHODS ====================
 
     @classmethod
     def set_plugin_manager(cls, plugin_manager: Any) -> None:

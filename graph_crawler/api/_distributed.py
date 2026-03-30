@@ -4,12 +4,12 @@ Distributed crawling через Celery workers.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from graph_crawler.api._shared import DriverType
 from graph_crawler.domain.entities.graph import Graph
 from graph_crawler.domain.entities.node import Node
-from graph_crawler.domain.value_objects.models import URLRule
+from graph_crawler.domain.value_objects.models import Rule
 
 logger = logging.getLogger(__name__)
 
@@ -23,33 +23,12 @@ def distributed_crawl(
     driver_config: Optional[dict[str, Any]] = None,
     plugins: Optional[list] = None,
     node_class: Optional[type[Node]] = None,
-    url_rules: Optional[list[URLRule]] = None,
+    url_rules: Optional[list[Rule]] = None,
     edge_strategy: str = "all",
     timeout: Optional[int] = None,
 ) -> Graph:
     """
     Розподілений краулінг через Celery workers.
-
-     МОДУЛЬНА АРХІТЕКТУРА:
-    - Всі параметри передаються на воркерів
-    - Кастомні Node класи
-    - Кастомні драйвери з плагінами
-    - Кастомні плагіни
-    - Будь-які брокери/БД
-    - Timeout підтримка (як в локальному режимі)
-
-    Args:
-        url: URL для краулінгу
-        max_depth: Максимальна глибина
-        max_pages: Максимальна кількість сторінок
-        wrapper_config: Конфігурація брокера/БД
-        driver: Драйвер або його назва
-        driver_config: Конфігурація драйвера
-        plugins: Список плагінів
-        node_class: Кастомний Node клас
-        url_rules: Правила URL
-        edge_strategy: Стратегія створення ребер
-        timeout: Максимальний час краулінгу в секундах (опціонально)
 
     Returns:
         Graph з результатами (повний або частковий при timeout)
@@ -70,13 +49,9 @@ def distributed_crawl(
     )
     from graph_crawler.infrastructure.transport.sync import RequestsDriver as HTTPDriver
 
-    logger.info(f" Starting DISTRIBUTED crawl for {url}")
-    logger.info(f"   Broker: {wrapper_config.get('broker', {}).get('type', 'redis')}")
-    logger.info(
-        f"   Database: {wrapper_config.get('database', {}).get('type', 'memory')}"
-    )
-
-    # ========== КОНФІГУРАЦІЯ БРОКЕРА ==========
+    logger.info("Starting DISTRIBUTED crawl for %s", url)
+    logger.info("   Broker: %s", wrapper_config.get("broker", {}).get("type", "redis"))
+    logger.info("   Database: %s", wrapper_config.get("database", {}).get("type", "memory"))
     broker_config = wrapper_config.get("broker", {})
     broker_type = broker_config.get("type", "redis")
     broker_host = broker_config.get("host", "localhost")
@@ -95,8 +70,6 @@ def distributed_crawl(
         backend_url = broker_url
     else:
         raise ValueError(f"Unsupported broker type: {broker_type}")
-
-    # ========== КОНФІГУРАЦІЯ STORAGE ==========
     db_config = wrapper_config.get("database", {})
     db_type = db_config.get("type", "memory")
 
@@ -131,15 +104,13 @@ def distributed_crawl(
         storage = PostgreSQLStorage({"connection_string": connection_string})
     else:
         raise ValueError(f"Unsupported database type: {db_type}")
-
-    # ========== СТВОРЕННЯ ДРАЙВЕРА ==========
     if driver is not None:
         if isinstance(driver, str):
             # Строка - створюємо через фабрику
             actual_driver = create_driver(driver, driver_config or {})
         elif isinstance(driver, type):
             # Передано клас, а не екземпляр - створюємо екземпляр
-            logger.info(f"Creating driver instance from class: {driver.__name__}")
+            logger.info("Creating driver instance from class: %s", driver.__name__)
             actual_driver = driver(driver_config or {})
         else:
             # Вже інстанс драйвера
@@ -147,8 +118,6 @@ def distributed_crawl(
     else:
         # Дефолтний HTTPDriver
         actual_driver = HTTPDriver({})
-
-    # ========== СТВОРЕННЯ КОНФІГУРАЦІЇ ==========
     crawler_config = CrawlerConfig(
         url=url,
         max_depth=max_depth,
@@ -164,45 +133,44 @@ def distributed_crawl(
             backend_url=backend_url,
             workers=wrapper_config.get("workers", 10),
             task_time_limit=wrapper_config.get("task_time_limit", 600),
-            worker_prefetch_multiplier=wrapper_config.get(
-                "worker_prefetch_multiplier", 4
-            ),
+            worker_prefetch_multiplier=wrapper_config.get("worker_prefetch_multiplier", 4),
         ),
     )
-
-    # ========== СТВОРЕННЯ CELERY BATCH SPIDER ==========
     # batch_size можна задати через wrapper config, або буде взято з драйвера
     batch_size = wrapper_config.get("batch_size")
 
     if batch_size is None:
         # Визначаємо batch_size з драйвера (для max ефективності)
-        if hasattr(actual_driver, "max_concurrent"):
-            batch_size = actual_driver.max_concurrent
-        elif hasattr(actual_driver, "max_browsers") and hasattr(
-            actual_driver, "max_tabs_per_browser"
-        ):
-            batch_size = actual_driver.max_browsers * actual_driver.max_tabs_per_browser
+        # Використовуємо getattr для безпечного доступу до атрибутів
+        max_concurrent = getattr(actual_driver, "max_concurrent", None)
+        if max_concurrent is not None:
+            batch_size = max_concurrent
+        else:
+            max_browsers = getattr(actual_driver, "max_browsers", None)
+            max_tabs = getattr(actual_driver, "max_tabs_per_browser", None)
+            if max_browsers is not None and max_tabs is not None:
+                batch_size = max_browsers * max_tabs
 
-    logger.info(f"   Batch size: {batch_size}")
+    logger.info("   Batch size: %s", batch_size)
 
     # Передаємо timeout в spider для коректної обробки
+    # Використовуємо Any для типу драйвера, оскільки CeleryBatchSpider
+    # працює з різними типами драйверів
     spider = CeleryBatchSpider(
-        crawler_config, actual_driver, storage, batch_size=batch_size, timeout=timeout
+        crawler_config, cast(Any, actual_driver), storage, batch_size=batch_size, timeout=timeout
     )
-
-    # ========== ЗАПУСК КРАУЛІНГУ ==========
     # Тепер timeout обробляється всередині spider
     try:
         graph = spider.crawl()
 
-        logger.info(f" Distributed crawl completed: {len(graph.nodes)} nodes")
+        logger.info("Distributed crawl completed: %d nodes", len(graph.nodes))
         return graph
     except Exception as e:
-        logger.error(f" Distributed crawl failed: {e}")
+        logger.error("Distributed crawl failed: %s", e)
         # Повертаємо частковий граф якщо є
         graph = spider.get_partial_graph()
         if graph and len(graph.nodes) > 0:
-            logger.info(f"Returning partial graph: {len(graph.nodes)} nodes")
+            logger.info("Returning partial graph: %d nodes", len(graph.nodes))
             return graph
         raise
 

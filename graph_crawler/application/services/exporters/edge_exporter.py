@@ -28,8 +28,6 @@ class EdgeExporter:
     """
     Експортер edges в різні формати через DTO.
 
-
-
     Відповідальність: експорт edges з графу в JSON, CSV, DOT формати.
 
     Методи:
@@ -49,18 +47,14 @@ class EdgeExporter:
         """
         Експортує edges в JSON формат через DTO.
 
-
-
         Args:
             graph_dto: GraphDTO для експорту
             filepath: Шлях до файлу для збереження
             include_metadata: Чи включати metadata edges
             include_nodes_info: Чи включати інформацію про source/target nodes
             pretty: Чи форматувати JSON з відступами
-
         Returns:
             Словник з даними edges
-
         Example:
             >>> data = EdgeExporter.export_to_json(
             ...     graph_dto,
@@ -69,14 +63,14 @@ class EdgeExporter:
             ... )
             >>> print(f"Exported {data['total_edges']} edges")
         """
-        logger.info(f" Exporting edges to JSON: {filepath}")
+        logger.info(" Exporting edges to JSON: %s", filepath)
 
         nodes_by_id = {node.node_id: node for node in graph_dto.nodes}
 
         edges_data = []
 
         for edge_dto in graph_dto.edges:
-            edge_dict = {
+            edge_dict: Dict[str, Any] = {
                 "edge_id": edge_dto.edge_id,
                 "source_node_id": edge_dto.source_node_id,
                 "target_node_id": edge_dto.target_node_id,
@@ -118,7 +112,7 @@ class EdgeExporter:
             else:
                 json.dump(result, f, ensure_ascii=False, default=str)
 
-        logger.info(f"Exported {len(edges_data)} edges to {filepath}")
+        logger.info("Exported %s edges to %s", len(edges_data), filepath)
         return result
 
     @staticmethod
@@ -130,8 +124,6 @@ class EdgeExporter:
     ) -> int:
         """
         Експортує edges в CSV формат через DTO.
-
-
 
         Args:
             graph_dto: GraphDTO для експорту
@@ -147,9 +139,9 @@ class EdgeExporter:
             >>> count = EdgeExporter.export_to_csv(graph_dto, "edges.csv")
             >>> print(f"Exported {count} edges")
         """
-        logger.info(f" Exporting edges to CSV: {filepath}")
+        logger.info(" Exporting edges to CSV: %s", filepath)
 
-        if len(graph_dto.edges) == 0:
+        if not graph_dto.edges:
             logger.warning("No edges to export")
             return 0
 
@@ -185,7 +177,7 @@ class EdgeExporter:
             writer.writeheader()
 
             for edge_dto in graph_dto.edges:
-                row = {
+                row: Dict[str, Any] = {
                     "edge_id": edge_dto.edge_id,
                     "source_node_id": edge_dto.source_node_id,
                     "target_node_id": edge_dto.target_node_id,
@@ -214,7 +206,9 @@ class EdgeExporter:
                 # Додаємо metadata
                 if include_metadata and edge_dto.metadata:
                     if metadata_as_json:
-                        row["metadata"] = json.dumps(edge_dto.metadata, ensure_ascii=False, default=str)
+                        row["metadata"] = json.dumps(
+                            edge_dto.metadata, ensure_ascii=False, default=str
+                        )
                     else:
                         # Додаємо кожне поле metadata
                         for key in fields:
@@ -228,7 +222,7 @@ class EdgeExporter:
 
                 writer.writerow(row)
 
-        logger.info(f"Exported {len(graph_dto.edges)} edges to {filepath}")
+        logger.info("Exported %s edges to %s", len(graph_dto.edges), filepath)
         return len(graph_dto.edges)
 
     @staticmethod
@@ -243,44 +237,10 @@ class EdgeExporter:
         """
         Експортує граф в DOT формат через DTO.
 
-
-
-        Створює файл .dot який можна відкрити в Graphviz або конвертувати:
-        - `dot -Tpng graph.dot -o graph.png` (PNG зображення)
-        - `dot -Tsvg graph.dot -o graph.svg` (SVG векторна графіка)
-        - `dot -Tpdf graph.dot -o graph.pdf` (PDF документ)
-
-        Args:
-            graph_dto: GraphDTO для експорту
-            filepath: Шлях до .dot файлу
-            node_label: Поле node для відображення ('url', 'node_id', 'depth')
-            edge_label: Поле edge metadata для label (опціонально,
-                наприклад 'anchor_text' або 'link_type')
-            max_label_length: Максимальна довжина label (обрізає довгі URL)
-            color_by: Критерій кольорування nodes:
-                - 'depth' (default) - колір за глибиною
-                - 'scanned' - колір за статусом сканування
-                - 'none' - без кольорування
-
         Returns:
             DOT string (також зберігається в файл)
-
-        Example:
-            >>> # Базовий експорт
-            >>> dot = EdgeExporter.export_to_dot(graph_dto, "graph.dot")
-            >>>
-            >>> # З кольоруванням та labels
-            >>> dot = EdgeExporter.export_to_dot(
-            ...     graph_dto, "graph.dot",
-            ...     node_label='url',
-            ...     edge_label='anchor_text',
-            ...     color_by='depth'
-            ... )
-            >>>
-            >>> # Конвертувати в PNG:
-            >>> # dot -Tpng graph.dot -o graph.png
         """
-        logger.info(f" Exporting graph to DOT: {filepath}")
+        logger.info(" Exporting graph to DOT: %s", filepath)
 
         lines = []
         lines.append("digraph G {")
@@ -313,14 +273,10 @@ class EdgeExporter:
                 depth = min(node_dto.depth, 10)  # Cap at 10
                 color_value = 0.9 - (depth * 0.08)
                 fillcolor = f"{color_value} 0.3 1.0"  # HSV
-                lines.append(
-                    f'  "{node_dto.node_id}" [label="{label}", fillcolor="{fillcolor}"];'
-                )
+                lines.append(f'  "{node_dto.node_id}" [label="{label}", fillcolor="{fillcolor}"];')
             elif color_by == "scanned":
                 fillcolor = "lightgreen" if node_dto.scanned else "lightgray"
-                lines.append(
-                    f'  "{node_dto.node_id}" [label="{label}", fillcolor="{fillcolor}"];'
-                )
+                lines.append(f'  "{node_dto.node_id}" [label="{label}", fillcolor="{fillcolor}"];')
             else:
                 lines.append(f'  "{node_dto.node_id}" [label="{label}"];')
 
@@ -366,12 +322,10 @@ class EdgeExporter:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(dot_content)
 
-        logger.info(f"Exported graph to DOT: {filepath}")
-        logger.info(f" Convert to image: dot -Tpng {filepath} -o graph.png")
+        logger.info("Exported graph to DOT: %s", filepath)
+        logger.info(" Convert to image: dot -Tpng %s -o graph.png", filepath)
 
         return dot_content
-
-    # ============= ASYNC МЕТОДИ =============
 
     @staticmethod
     async def export_to_json_async(
@@ -399,8 +353,12 @@ class EdgeExporter:
             _edge_exporter_executor,
             partial(
                 EdgeExporter.export_to_json,
-                graph_dto, filepath, include_metadata, include_nodes_info, pretty
-            )
+                graph_dto,
+                filepath,
+                include_metadata,
+                include_nodes_info,
+                pretty,
+            ),
         )
 
     @staticmethod
@@ -426,9 +384,8 @@ class EdgeExporter:
         return await loop.run_in_executor(
             _edge_exporter_executor,
             partial(
-                EdgeExporter.export_to_csv,
-                graph_dto, filepath, include_metadata, metadata_as_json
-            )
+                EdgeExporter.export_to_csv, graph_dto, filepath, include_metadata, metadata_as_json
+            ),
         )
 
     @staticmethod
@@ -459,6 +416,11 @@ class EdgeExporter:
             _edge_exporter_executor,
             partial(
                 EdgeExporter.export_to_dot,
-                graph_dto, filepath, node_label, edge_label, max_label_length, color_by
-            )
+                graph_dto,
+                filepath,
+                node_label,
+                edge_label,
+                max_label_length,
+                color_by,
+            ),
         )

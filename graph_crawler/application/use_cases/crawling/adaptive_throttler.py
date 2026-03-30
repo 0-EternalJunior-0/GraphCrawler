@@ -62,33 +62,6 @@ class AdaptiveThrottler:
     """
     Адаптивний throttler що автоматично регулює швидкість краулінгу.
 
-    ОПТИМІЗОВАНО: Використовує тільки async методи для NON-BLOCKING очікування.
-
-    Алгоритм:
-    1. Якщо error_rate > 10% → delay *= 1.5 (уповільнити)
-    2. Якщо response_time < 500ms → delay *= 0.8 (прискорити)
-    3. Min delay: 100ms, Max delay: 5000ms
-
-    Приклад використання:
-        ```python
-        throttler = AdaptiveThrottler(
-            initial_delay=0.5,
-            min_delay=0.1,
-            max_delay=5.0
-        )
-
-        # Перед запитом (ASYNC - рекомендовано)
-        await throttler.wait_async()
-
-        # Після успішного запиту
-        throttler.record_success(response_time=0.3)
-
-        # Після невдалого запиту
-        throttler.record_failure(response_time=2.0)
-
-        # Статистика
-        print(throttler.get_summary())
-        ```
     """
 
     def __init__(
@@ -160,7 +133,7 @@ class AdaptiveThrottler:
             "AdaptiveThrottler.wait() is deprecated and blocks the event loop. "
             "Use 'await throttler.wait_async()' instead for non-blocking behavior.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self.current_delay > 0:
             # Fallback: створюємо event loop якщо немає активного
@@ -171,6 +144,7 @@ class AdaptiveThrottler:
             except RuntimeError:
                 # Немає event loop - sync fallback
                 import time
+
                 time.sleep(self.current_delay)
 
     async def wait_async(self) -> None:
@@ -250,9 +224,7 @@ class AdaptiveThrottler:
         avg_response_time = 0.0
         avg_response_time_sec = 0.0
         if self.recent_response_times:
-            avg_response_time = sum(self.recent_response_times) / len(
-                self.recent_response_times
-            )
+            avg_response_time = sum(self.recent_response_times) / len(self.recent_response_times)
             avg_response_time_sec = avg_response_time / 1000
 
         old_delay = self.current_delay
@@ -268,10 +240,7 @@ class AdaptiveThrottler:
             )
 
         # Правило 2: Швидкі відповіді → прискорити
-        elif (
-            self.recent_response_times
-            and avg_response_time_sec < self.fast_response_threshold
-        ):
+        elif self.recent_response_times and avg_response_time_sec < self.fast_response_threshold:
             self.current_delay *= self.speedup_factor
             adjustment_reason = f"fast_response ({avg_response_time:.0f}ms)"
             logger.info(
@@ -280,9 +249,7 @@ class AdaptiveThrottler:
             )
 
         # Обмежити delay
-        self.current_delay = max(
-            self.min_delay, min(self.current_delay, self.max_delay)
-        )
+        self.current_delay = max(self.min_delay, min(self.current_delay, self.max_delay))
 
         # Якщо було коригування
         if adjustment_reason and abs(self.current_delay - old_delay) > 0.001:
@@ -311,7 +278,7 @@ class AdaptiveThrottler:
         self.metrics = ThrottleMetrics(current_delay=self.initial_delay)
         self.requests_since_adjustment = 0
         self.adjustment_history.clear()
-        logger.info("🔄 AdaptiveThrottler reset to initial state")
+        logger.info("AdaptiveThrottler reset to initial state")
 
     def get_statistics(self) -> Dict[str, Any]:
         """

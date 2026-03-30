@@ -1,17 +1,6 @@
 """PostgreSQL Queue Storage.
 
 PRODUCTION-READY: Черга URL для великих сканів
-
-Критично для distributed crawling з 50M+ сторінок.
-Використовує SELECT FOR UPDATE SKIP LOCKED для безпечної concurrent обробки.
-
-Переваги:
-- Підтримка 50M+ URL
-- Concurrent access від multiple workers
-- Партиціонування по scan_id
-- Дедуплікація через UNIQUE constraint
-- Пріоритети та статуси
-
 Example:
     queue = PostgreSQLQueueStorage(
         host="localhost",
@@ -25,7 +14,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 try:
-    import asyncpg
+    import asyncpg  # type: ignore[import-not-found]
 
     ASYNCPG_AVAILABLE = True
 except ImportError:
@@ -108,8 +97,7 @@ class PostgreSQLQueueStorage:
     ):
         if not ASYNCPG_AVAILABLE:
             raise ImportError(
-                "asyncpg is required for PostgreSQL storage. "
-                "Install with: pip install asyncpg"
+                "asyncpg is required for PostgreSQL storage. Install with: pip install asyncpg"
             )
 
         self.host = host
@@ -121,7 +109,7 @@ class PostgreSQLQueueStorage:
         self.max_pool_size = max_pool_size
         self.use_partitioning = use_partitioning
 
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: Optional["asyncpg.Pool"] = None  # type: ignore[name-defined]
         self._initialized = False
 
     async def _ensure_initialized(self):
@@ -154,7 +142,7 @@ class PostgreSQLQueueStorage:
                 try:
                     await conn.execute(index_sql)
                 except Exception as e:
-                    logger.warning(f"Failed to create index: {e}")
+                    logger.warning("Failed to create index: %s", e)
 
         self._initialized = True
         logger.info(
@@ -163,7 +151,9 @@ class PostgreSQLQueueStorage:
         )
 
     async def push_urls(
-        self, scan_id: str, urls: List[Tuple[str, int, int]]  # (url, depth, priority)
+        self,
+        scan_id: str,
+        urls: List[Tuple[str, int, int]],  # (url, depth, priority)
     ) -> int:
         """Додає URLs до черги.
 
@@ -197,9 +187,9 @@ class PostgreSQLQueueStorage:
                     if result.endswith(" 1"):
                         added += 1
                 except Exception as e:
-                    logger.error(f"Failed to insert URL {url}: {e}")
+                    logger.error("Failed to insert URL %s: %s", url, e)
 
-            logger.debug(f"Added {added}/{len(urls)} URLs to queue {scan_id}")
+            logger.debug("Added %s/%s URLs to queue %s", added, len(urls), scan_id)
             return added
 
     async def pop_urls(
@@ -241,8 +231,7 @@ class PostgreSQLQueueStorage:
 
             if result:
                 logger.debug(
-                    f"Popped {len(result)} URLs from queue {scan_id} "
-                    f"(worker: {worker_id})"
+                    f"Popped {len(result)} URLs from queue {scan_id} (worker: {worker_id})"
                 )
 
             return result
@@ -265,9 +254,7 @@ class PostgreSQLQueueStorage:
                 urls,
             )
 
-    async def mark_failed(
-        self, scan_id: str, urls: List[str], error: Optional[str] = None
-    ) -> None:
+    async def mark_failed(self, scan_id: str, urls: List[str], error: Optional[str] = None) -> None:
         """Позначає URLs як failed."""
         await self._ensure_initialized()
 
@@ -330,10 +317,8 @@ class PostgreSQLQueueStorage:
         await self._ensure_initialized()
 
         async with self._pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM url_queue WHERE scan_id = $1", scan_id
-            )
-            logger.info(f"Cleared queue {scan_id}: {result}")
+            result = await conn.execute("DELETE FROM url_queue WHERE scan_id = $1", scan_id)
+            logger.info("Cleared queue %s: %s", scan_id, result)
 
     async def reset_stuck_urls(self, scan_id: str, timeout_minutes: int = 30) -> int:
         """Скидає завислі URL назад в pending.
@@ -368,8 +353,7 @@ class PostgreSQLQueueStorage:
 
             if count > 0:
                 logger.warning(
-                    f"Reset {count} stuck URLs in queue {scan_id} "
-                    f"(timeout: {timeout_minutes}m)"
+                    f"Reset {count} stuck URLs in queue {scan_id} (timeout: {timeout_minutes}m)"
                 )
 
             return count

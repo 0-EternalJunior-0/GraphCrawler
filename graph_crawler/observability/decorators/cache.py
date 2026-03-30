@@ -28,6 +28,7 @@ class SimpleCache:
 
     def __init__(self):
         import threading
+
         self._cache: Dict[str, tuple[Any, float]] = {}
         self._lock = threading.RLock()
 
@@ -75,11 +76,12 @@ def make_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
         # Спроба серіалізації через JSON
         key_data = {"func": func_name, "args": args, "kwargs": sorted(kwargs.items())}
         key_str = json.dumps(key_data, sort_keys=True, default=str)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode("utf-8"), usedforsecurity=False).hexdigest()
     except (TypeError, ValueError):
         # Fallback для unhashable об'єктів
         return hashlib.md5(
-            f"{func_name}:{repr(args)}:{repr(sorted(kwargs.items()))}".encode()
+            f"{func_name}:{repr(args)}:{repr(sorted(kwargs.items()))}".encode("utf-8"),
+            usedforsecurity=False,
         ).hexdigest()
 
 
@@ -105,7 +107,7 @@ def cache(ttl: Optional[float] = DEFAULT_CACHE_TTL):
             # Перевіряємо кеш
             cached_value = _global_cache.get(cache_key, ttl)
             if cached_value is not None:
-                logger.debug(f"Cache hit: {func.__name__}")
+                logger.debug("Cache hit: %s", func.__name__)
                 return cached_value
 
             # Виконуємо функцію

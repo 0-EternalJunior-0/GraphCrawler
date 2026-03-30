@@ -22,28 +22,6 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
     """
     Middleware для обробки та відновлення після критичних помилок.
 
-    Функціонал:
-    - Обробка різних типів помилок (network, driver, parsing)
-    - Graceful degradation (продовження роботи при помилках)
-    - Error logging та детальне reporting
-    - Fallback strategies (альтернативні шляхи при помилках)
-    - Error metrics tracking
-    - Automatic error notification (callback)
-
-    Підтримувані типи помилок:
-    - Network errors (timeout, connection, DNS)
-    - Driver errors (browser crash, resource exhaustion)
-    - Parsing errors (malformed HTML, encoding issues)
-    - Storage errors (disk full, write failures)
-    - Unknown errors (unexpected exceptions)
-
-    Конфіг:
-        log_errors: Логувати помилки (default: True)
-        log_traceback: Логувати stack trace (default: True)
-        continue_on_error: Продовжувати при помилках (default: True)
-        max_consecutive_errors: Макс послідовних помилок перед зупинкою (default: 10)
-        error_callback: Callback функція для повідомлень про помилки (optional)
-        fallback_strategies: Dict з fallback стратегіями для типів помилок (optional)
     """
 
     # Типи помилок
@@ -53,7 +31,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
     ERROR_TYPE_STORAGE = "storage"
     ERROR_TYPE_UNKNOWN = "unknown"
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
 
         # Metrics
@@ -67,9 +45,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
         self.error_history: list = []
 
         # Fallback strategies
-        self.fallback_strategies: Dict[str, Callable] = self.config.get(
-            "fallback_strategies", {}
-        )
+        self.fallback_strategies: Dict[str, Callable] = self.config.get("fallback_strategies", {})
 
     @property
     def middleware_type(self) -> MiddlewareType:
@@ -150,9 +126,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
 
         return self.ERROR_TYPE_UNKNOWN
 
-    def _log_error(
-        self, url: str, error_msg, error_type: str, traceback_str: Optional[str] = None
-    ):
+    def _log_error(self, url: str, error_msg, error_type: str, traceback_str: Optional[str] = None):
         """
         Логує помилку з детальною інформацією.
 
@@ -177,7 +151,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
         )
 
         if log_traceback and traceback_str:
-            logger.debug(f"Traceback:\n{traceback_str}")
+            logger.debug("Traceback:\n%s", traceback_str)
 
     def _record_error(self, url: str, error_msg, error_type: str):
         """
@@ -230,7 +204,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
             fallback_func = self.fallback_strategies[error_type]
             return fallback_func(context)
         except Exception as e:
-            logger.error(f"Fallback strategy failed for {error_type}: {e}")
+            logger.error("Fallback strategy failed for %s: %s", error_type, e)
             return None
 
     def _notify_error(self, url: str, error_msg, error_type: str):
@@ -261,7 +235,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
                 }
             )
         except Exception as e:
-            logger.error(f"Error callback failed: {e}")
+            logger.error("Error callback failed: %s", e)
 
     def _check_error_threshold(self) -> bool:
         """
@@ -381,9 +355,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
                         EventType.ERROR_THRESHOLD_REACHED,
                         data={
                             "consecutive_errors": self.consecutive_errors,
-                            "max_consecutive_errors": self.config.get(
-                                "max_consecutive_errors", 10
-                            ),
+                            "max_consecutive_errors": self.config.get("max_consecutive_errors", 10),
                             "total_errors": self.total_errors,
                             "last_successful_url": self.last_successful_url,
                         },
@@ -411,7 +383,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
         # Застосовуємо fallback стратегію
         fallback_context = self._apply_fallback(error_type, context)
         if fallback_context:
-            logger.info(f"Applied fallback strategy for {error_type}")
+            logger.info("Applied fallback strategy for %s", error_type)
 
             if self.event_bus:
                 from graph_crawler.domain.events.events import CrawlerEvent, EventType
@@ -431,7 +403,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
 
         # Якщо continue_on_error=True, продовжуємо краулінг
         if continue_on_error:
-            logger.warning(f"Continuing despite error for {url} (graceful degradation)")
+            logger.warning("Continuing despite error for %s (graceful degradation)", url)
 
             if self.event_bus:
                 from graph_crawler.domain.events.events import CrawlerEvent, EventType
@@ -447,7 +419,7 @@ class ErrorRecoveryMiddleware(BaseMiddleware):
                     )
                 )
         else:
-            logger.error(f"Stopping due to error for {url}")
+            logger.error("Stopping due to error for %s", url)
 
             if self.event_bus:
                 from graph_crawler.domain.events.events import CrawlerEvent, EventType

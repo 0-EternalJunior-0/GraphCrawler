@@ -1,36 +1,6 @@
 """Unified Celery Application для distributed crawling.
 
 Description:
-    Раніше було 2 Celery apps з різними чергами:
-    - celery_app.py → queue: 'graph_crawler' (1 URL per task, DEPRECATED)
-    - celery_batch.py → queue: 'graph_crawler_batch' (batch tasks, RECOMMENDED)
-
-    Це призводило до:
-    - Воркер для одного app НЕ бачив tasks іншого
-    - Потрібно запускати різні команди для різних режимів
-    - Плутанина в документації
-
-РІШЕННЯ:
-    Один Celery app з двома типами tasks:
-    - crawl_page (legacy, для зворотної сумісності)
-    - crawl_batch (recommended, 24x швидше)
-
-    Обидва типи tasks використовують ОДНУ чергу: 'graph_crawler'
-
-ВИКОРИСТАННЯ:
-    # Worker (обробляє всі типи tasks)
-    celery -A graph_crawler.celery_unified worker --loglevel=info
-
-    # Або з явною чергою
-    celery -A graph_crawler.celery_unified worker -Q graph_crawler --loglevel=info
-
-МІГРАЦІЯ:
-    Старий код:
-        from graph_crawler.celery_app import celery, crawl_page_task
-        from graph_crawler.celery_batch import celery_batch, crawl_batch_task
-
-    Новий код:
-        from graph_crawler.infrastructure.messaging.celery_unified import celery, crawl_page_task, crawl_batch_task
 """
 
 import asyncio
@@ -38,7 +8,7 @@ import inspect
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from celery import Celery
+from celery import Celery  # type: ignore[import-not-found]
 
 # Безпечне логування URL
 
@@ -58,8 +28,6 @@ from graph_crawler.shared.utils.celery_config import (
 
 BROKER_URL = get_broker_url()
 BACKEND_URL = get_backend_url()
-
-# Створюємо ОДИН Celery app для всіх tasks
 celery = Celery(
     "graph_crawler.unified",
     broker=BROKER_URL,
@@ -120,7 +88,8 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
 
     warnings.warn(
         "crawl_page_task is deprecated. Use crawl_batch_task for 24x better performance.",
-        DeprecationWarning, stacklevel=2,
+        DeprecationWarning,
+        stacklevel=2,
     )
 
     from graph_crawler.application.use_cases.crawling.spider import GraphSpider
@@ -134,7 +103,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
     from graph_crawler.shared.utils.url_utils import URLUtils
 
     try:
-        logger.info(f"[LEGACY] Crawling single URL: {url} (depth={depth})")
+        logger.info("[LEGACY] Crawling single URL: %s (depth=%s)", url, depth)
 
         # Десеріалізація конфігу
         plugin_paths = config_dict.pop("_plugin_paths", [])
@@ -175,9 +144,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         spider = GraphSpider(config, driver, storage)
 
         # Node та сканування
-        node = node_class(
-            url=url, depth=depth, plugin_manager=spider.node_plugin_manager
-        )
+        node = node_class(url=url, depth=depth, plugin_manager=spider.node_plugin_manager)
 
         if inspect.iscoroutinefunction(spider.scanner.scan_node):
             links = asyncio.run(spider.scanner.scan_node(node))
@@ -207,7 +174,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         else:
             driver.close()
 
-        logger.info(f"[LEGACY] Completed: {url}, {len(new_urls)} links")
+        logger.info("[LEGACY] Completed: %s, %s links", url, len(new_urls))
 
         return {
             "node_data": node_data,
@@ -217,7 +184,7 @@ def crawl_page_task(self, url: str, depth: int, config_dict: dict) -> Dict[str, 
         }
 
     except Exception as e:
-        logger.error(f"[LEGACY] Failed for {url}: {e}")
+        logger.error("[LEGACY] Failed for %s: %s", url, e)
         raise self.retry(exc=e, countdown=2**self.request.retries)
 
 
@@ -256,7 +223,7 @@ def crawl_batch_task(
 
     try:
         batch_len = len(urls_with_depth)
-        logger.info(f" Batch task: {batch_len} URLs")
+        logger.info(" Batch task: %s URLs", batch_len)
 
         # Timeout check
         crawl_timeout = config_dict.pop("_crawl_timeout", None)
@@ -265,7 +232,7 @@ def crawl_batch_task(
         if crawl_timeout and crawl_start_time:
             elapsed = time.time() - crawl_start_time
             if elapsed >= (crawl_timeout - 5):
-                logger.warning("⏱ Timeout reached, skipping batch")
+                logger.warning(" Timeout reached, skipping batch")
                 return {
                     "results": [],
                     "success_count": 0,
@@ -309,9 +276,7 @@ def crawl_batch_task(
 
         # Batch size
         if batch_size is None:
-            batch_size = getattr(
-                driver, "max_concurrent", DEFAULT_MAX_CONCURRENT_REQUESTS
-            )
+            batch_size = getattr(driver, "max_concurrent", DEFAULT_MAX_CONCURRENT_REQUESTS)
 
         # Spider
         storage = MemoryStorage()
@@ -337,11 +302,9 @@ def crawl_batch_task(
 
                 try:
                     if response.error:
-                        logger.warning(f"Fetch error for {url}: {response.error}")
+                        logger.warning("Fetch error for %s: %s", url, response.error)
                         error_count += 1
-                        results.append(
-                            {"url": url, "success": False, "error": response.error}
-                        )
+                        results.append({"url": url, "success": False, "error": response.error})
                         continue
 
                     node = node_class(
@@ -368,9 +331,7 @@ def crawl_batch_task(
                             continue
 
                         normalized_url = URLUtils.normalize_url(link_url)
-                        edge = Edge(
-                            source_node_id=node.node_id, target_node_id=normalized_url
-                        )
+                        edge = Edge(source_node_id=node.node_id, target_node_id=normalized_url)
                         edges_data.append(edge.model_dump())
                         new_urls.append((normalized_url, depth + 1))
 
@@ -386,7 +347,7 @@ def crawl_batch_task(
                     success_count += 1
 
                 except Exception as e:
-                    logger.error(f"Error processing {url}: {e}")
+                    logger.error("Error processing %s: %s", url, e)
                     error_count += 1
                     results.append({"url": url, "success": False, "error": str(e)})
 
@@ -394,7 +355,7 @@ def crawl_batch_task(
 
         asyncio.run(process_batch())
 
-        logger.info(f" Batch completed: {success_count} success, {error_count} errors")
+        logger.info(" Batch completed: %s success, %s errors", success_count, error_count)
 
         return {
             "results": results,
@@ -405,7 +366,7 @@ def crawl_batch_task(
         }
 
     except Exception as e:
-        logger.error(f"Batch task failed: {e}")
+        logger.error("Batch task failed: %s", e)
         raise self.retry(exc=e, countdown=2**self.request.retries)
 
 
